@@ -1,0 +1,17 @@
+# pi-gen is cloned at build time, never vendored
+build/pi-gen/
+build/pi-gen-config
+build/work/
+build/deploy/
+
+# image artifacts — never commit disk images
+*.img
+*.img.gz
+*.img.xz
+*.img.zip
+*.zip
+*.7z
+
+# editor / OS
+*~
+.DS_Store

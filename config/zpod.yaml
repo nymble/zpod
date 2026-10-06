@@ -1,0 +1,75 @@
+# ZPOD image config stub.
+# Pinouts, TFT driver, and DAC wiring are intentionally blank.
+# Fill them only from the board or the uGeek user guide — do not guess.
+
+image_name: zpod
+builder: pi-gen
+# Official Raspberry Pi OS builder. Not deprecated as of 2026-10.
+# 32-bit images (required for Pi Zero / Zero W) come from branch master.
+# Do not use the arm64 branch: Pi Zero and Zero W are BCM2835 armhf only.
+pi_gen_repo: https://github.com/RPi-Distro/pi-gen.git
+pi_gen_branch: master
+# pi-gen's documented default release on master as of 2026. Re-check the
+# cloned tree before a real build; older boards may want an older branch.
+release: trixie
+arch: armhf
+deploy_compression: xz
+target_hostname: zpod
+
+boards:
+  pi0:
+    id: pi0
+    model: Raspberry Pi Zero
+    soc: BCM2835
+    wireless: false
+    notes: >
+      No onboard Wi-Fi or Bluetooth. Do not treat missing wireless firmware
+      as a boot failure. Stock filename zeropod-2017-03-02.img.gz.
+  pi0w:
+    id: pi0w
+    model: Raspberry Pi Zero W
+    soc: BCM2835
+    wireless: true
+    wpa_country: ""  # ISO country code; leave empty until the owner sets it
+    notes: >
+      Onboard Wi-Fi/Bluetooth (brcmfmac). Needs the Pi Zero W wireless
+      firmware that Raspberry Pi OS already ships; country code is unset
+      on purpose. Stock filename zpod-2017-05-18.img.gz.
+
+# Hardware facts checked 2026-10-03 against howardqiao GitHub trees.
+# Do not fill a blank from the 2.2TFT HAT or from Adafruit's pitft22 dts.
+hardware:
+  tft:
+    size_inch: 2.2
+    resolution: "320x240"  # hdmi_cvt in aoide_zpod_setup.sh; not in the 2017 user guide
+    driver: unknown  # ZPOD files name the overlay only, not the panel chip
+    dtoverlay: pitft22  # name only; speed/fps disagree between files, see notes
+    pinout: unknown
+  buttons:
+    pinout: unknown  # vendor scripts disagree; do not pick one
+  dac:
+    chip: TI PCM5122
+    bus: i2s
+    i2c_address: "0x4d"  # pcm5122@4d on i2c1, from aoide-zpod-dac.dtbo
+    dtoverlay: aoide-zpod-dac
+    pinout: unknown  # overlay uses the I2S controller; no GPIO map in the dtbo
+  battery_board:
+    pinout: unknown
+    fuel_gauge: unknown
+  ir:
+    dtoverlay: gpio-ir
+    gpio_pin: 7  # from zpod_res/config.txt only
+notes:
+  sources:
+    - https://github.com/howardqiao/zpod/blob/master/zpod_res/config.txt
+    - https://github.com/howardqiao/zpod  # aoide-zpod-dac.dtbo compatible ti,pcm5122
+    - https://github.com/howardqiao/aoide-dac-drivers/blob/master/aoide_zpod_setup.sh
+    - https://github.com/howardqiao/ugeek-screen-setup
+  conflicts: >
+    zpod_res/config.txt sets spi=off and pitft22 speed=64000000 fps=30.
+    aoide_zpod_setup.sh sets spi=on and pitft22 speed=80000000 fps=60.
+    Button keymaps differ across aoide_zpod_setup.sh, aoidetft_setup.sh,
+    and zpod_res/retrogame.cfg. Leave buttons unset.
+  rejected: >
+    dtoverlay=hifiberry-dac is not what these files use.
+    192 kHz/24-bit is not stated in the driver or overlay.
