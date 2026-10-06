@@ -1,6 +1,6 @@
 # ZPOD development plan
 
-Parent tracking: open issue **[PLAN] New image platform — requirements and staged build** (filed from this document).
+Parent tracking: [#1 PLAN](https://github.com/nymble/zpod/issues/1).
 
 ## Answers up front
 
@@ -31,18 +31,20 @@ Parent tracking: open issue **[PLAN] New image platform — requirements and sta
 
 ## Issue set (create these)
 
-1. **[PLAN] New image platform — requirements and staged build** (parent; links REQUIREMENTS.md + PLAN.md)
-2. **[M0] Project page, status, download slot**
-3. **[M1] First bootable SD image and local test plan**
-4. **[M2] Audio kernel path and USB/Wi-Fi reload**
-5. **[M3] Wi-Fi and Bluetooth on Pi Zero W only**
-6. **[M4] Display and buttons without guessing pinout**
-7. **[M5] Media, apps, and updates from laptop or network**
-8. **[M6] Repeatable build, SBOM, SLSA provenance**
-9. **[M7] USF 2026 tmodel target and SDL sample**
-10. **[M8] RF scan/analysis apps, second adapter, BitChat evaluation**
-11. **[M9] Emulation (secondary) and rubber-duck optional app**
-12. **[INTROSPECT] Document packages/overlays/modules from a working stock or personal image**
+Opened on 2026-10-06 as **nymble**:
+
+1. [#1 PLAN](https://github.com/nymble/zpod/issues/1) — parent requirements and staged build
+2. [#2 M0](https://github.com/nymble/zpod/issues/2) — Project page, status, download slot
+3. [#3 M1](https://github.com/nymble/zpod/issues/3) — First bootable SD image and local test plan
+4. [#4 M2](https://github.com/nymble/zpod/issues/4) — Audio kernel path and USB/Wi-Fi reload
+5. [#5 M3](https://github.com/nymble/zpod/issues/5) — Wi-Fi and Bluetooth on Pi Zero W only
+6. [#6 M4](https://github.com/nymble/zpod/issues/6) — Display and buttons without guessing pinout
+7. [#7 M5](https://github.com/nymble/zpod/issues/7) — Media, apps, and updates
+8. [#8 M6](https://github.com/nymble/zpod/issues/8) — Repeatable build, SBOM, SLSA
+9. [#9 M7](https://github.com/nymble/zpod/issues/9) — USF 2026 tmodel + SDL sample
+10. [#10 M8](https://github.com/nymble/zpod/issues/10) — RF toolkit, second adapter, BitChat evaluation
+11. [#11 M9](https://github.com/nymble/zpod/issues/11) — Emulation (secondary) and rubber-duck optional app
+12. [#12 INTROSPECT](https://github.com/nymble/zpod/issues/12) — Document stock/working image contents
 
 Sub-issues stay open until their Done criteria are met. Comments and PRs carry design decisions; do not leave important artifacts only in chat.
 
