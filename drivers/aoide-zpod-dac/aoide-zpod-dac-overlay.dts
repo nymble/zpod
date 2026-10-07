@@ -1,0 +1,44 @@
+// Device-tree overlay for the Aoide ZPOD DAC (TI PCM5122 on I2C1 @ 0x4d, I2S).
+// Source re-expressed from the vendor aoide-zpod-dac.dtbo (howardqiao/zpod
+// zpod_res/) so the image ships a compiled-from-source overlay. `dtc -I dtb`
+// of the build output matches the vendor dtbo node-for-node (see README.md).
+// Pairs with the out-of-tree ASoC machine driver aoide-zpod-dac.c (GPL-2.0).
+// SPDX-License-Identifier: GPL-2.0
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2708";
+
+	fragment@0 {
+		target = <&sound>;
+		__overlay__ {
+			compatible = "aoide,aoide-zpod-dac";
+			i2s-controller = <&i2s>;
+			status = "okay";
+		};
+	};
+
+	fragment@1 {
+		target = <&i2s>;
+		__overlay__ {
+			status = "okay";
+		};
+	};
+
+	fragment@2 {
+		target = <&i2c1>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+
+			pcm5122@4d {
+				#sound-dai-cells = <0>;
+				compatible = "ti,pcm5122";
+				reg = <0x4d>;
+				status = "okay";
+			};
+		};
+	};
+};
