@@ -30,6 +30,8 @@ autoconnect=true
 mode=infrastructure
 ssid=${WPA_SSID}
 hidden=false
+# 2 = power save off (brcmfmac dropouts inside the metal case)
+powersave=2
 
 [wifi-security]
 key-mgmt=wpa-psk

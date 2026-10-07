@@ -39,8 +39,8 @@ Pi OS image builder. rpi-image-gen is an alternative for custom images, not
 the default here. Pi Zero / Zero W must stay on pi-gen master (armhf), not
 the arm64 branch.
 
-TFT driver, button pinout, DAC, and battery-board wiring are unknown.
-Do not invent them. See config/zpod.yaml.
+M2+: TFT, buttons, DAC and fuel gauge use only the pin maps confirmed on
+hardware (docs/stock-introspection.md, config/zpod.yaml). Do not invent more.
 EOF
 }
 
@@ -191,12 +191,12 @@ cat >> "$GEN_CONFIG" <<EOF
 EOF
 
 echo "wrote $GEN_CONFIG"
-echo "TFT/DAC/buttons/battery pinout: unknown — image will not drive the panel yet."
+echo "M2 substep stage2/05-zpod-m2 applied (DAC DKMS, zpod-ui, zpod-buttons, USB gadget)."
 
 if [[ "$do_build" -ne 1 ]]; then
   echo
   echo "stopped before the image build."
-  echo "when the disposable card is confirmed and pinout is known, re-run:"
+  echo "to build the image (never flashes a card), re-run:"
   echo "  ./build.sh --confirm --board $board --build"
   exit 0
 fi

@@ -21,4 +21,13 @@
 - `cloud-init` packages (empty `04-cloud-init/00-packages`); set
   `ENABLE_CLOUD_INIT=0` in generated config
 
-Do not invent TFT/DAC overlays here.
+## M2 substep `stage2-05-zpod-m2/` → `stage2/05-zpod-m2`
+- `00-packages`: dkms, kernel headers (rpi-v6/v7), python3-pil, python3-evdev,
+  python3-lgpio, python3-smbus2, python3-spidev, fonts-dejavu-core, alsa-utils,
+  gpiod, i2c-tools, iw, evtest
+- `01-run.sh`: installs `overlay/` (zpod-ui, zpod-buttons, configs), the
+  `aoide-zpod-dac-dkms` deb (DKMS build per kernel, fails the build if the
+  rpi-v6 module is missing), config.txt/cmdline.txt edits, USB gadget NM
+  profiles, enables services, and checks Python imports in the chroot.
+
+Only hardware-confirmed pin maps are used (docs/stock-introspection.md).

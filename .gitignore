@@ -19,3 +19,4 @@ build/deploy/
 # Local Wi-Fi credentials — never commit
 config/wifi.local.env
 **/wifi.local.env
+ui_screens.png
