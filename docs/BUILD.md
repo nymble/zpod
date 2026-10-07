@@ -3,7 +3,21 @@
 This document is the construction recipe for ZPOD SD images produced from this repo.
 It is the human-readable twin of `./build.sh`. Follow it exactly so a second machine can reproduce the same class of artifact.
 
+## Scope of M1.1 (Wi-Fi + lighten)
+
+- Same base as M1: **pi0w** armhf, stages `stage0 stage1 stage2`, hostname `zpod`,
+  user `pi` with no baked password, `ENABLE_SSH=1`, no desktop, no TFT/DAC overlays.
+- **Wi-Fi ready:** `WPA_COUNTRY=US`, `firmware-brcm80211`, NetworkManager +
+  wpa_supplicant. SSID/password **not** baked in — see [BOOT-WIFI.md](./BOOT-WIFI.md).
+- **Adds:** `i2c-tools`.
+- **Lightens:** drops unused Wi-Fi firmwares (non-brcm), build/dev packages,
+  camera/video extras, cloud-init packages, and other console-unused defaults.
+  See `build/tweaks/`.
+- `./build.sh --confirm --board pi0w` applies `build/tweaks/apply.sh` onto the
+  pi-gen clone before writing `build/pi-gen-config`.
+
 ## Scope of the first image (M1)
+
 
 - Board profile: **pi0w** (also supports flashing a Pi Zero for HDMI-only tests; onboard radio is unused until configured).
 - Architecture: **armhf** (BCM2835). Not arm64.
@@ -13,7 +27,7 @@ It is the human-readable twin of `./build.sh`. Follow it exactly so a second mac
 - User: `pi` with **no baked password** (first-boot wizard on HDMI sets it).
 - SSH: enabled (`ENABLE_SSH=1`).
 - Compression: `xz`.
-- Out of scope for M1: TFT, buttons, DAC overlays, Wi-Fi country code, SLSA provenance claim.
+- Out of scope for M1: TFT, buttons, DAC overlays, SLSA provenance claim. (M1.1 adds Wi-Fi country + stack; still no SSID.)
 
 Pinned pi-gen commit used for the 2026-10-06 agent build:
 

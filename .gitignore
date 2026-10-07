@@ -15,3 +15,7 @@ build/deploy/
 # editor / OS
 *~
 .DS_Store
+
+# Local Wi-Fi credentials — never commit
+config/wifi.local.env
+**/wifi.local.env

@@ -1,0 +1,35 @@
+ssh less fbset sudo psmisc strace ed ncdu
+console-setup keyboard-configuration debconf-utils parted
+bash-completion
+python-is-python3
+v4l-utils
+gpiod python3-libgpiod
+python3-gpiozero
+python3-rpi-lgpio
+python3-spidev
+python3-smbus2
+i2c-tools
+avahi-daemon
+ca-certificates curl
+usbutils
+dosfstools
+rpi-swap rpi-loop-utils
+raspberrypi-sys-mods
+usb-modeswitch
+libpam-chksshpwd
+libmtp-runtime
+rsync
+htop
+ssh-import-id
+ethtool
+ntfs-3g
+raspi-utils
+udisks2
+unzip zip
+file
+python3-venv
+bluez bluez-firmware
+rpi-keyboard-config
+rpi-keyboard-fw-update
+rpi-usb-gadget modemmanager-
+rpifwcrypto

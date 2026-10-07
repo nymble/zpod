@@ -45,6 +45,14 @@ if [[ ! -d "$ROOTFS/boot/firmware" ]]; then
   exit 1
 fi
 
+# If local Wi-Fi credentials exist (gitignored), bake NM + boot wpa before packing.
+INJECT_WIFI="${REPO_ROOT}/scripts/inject-wifi-nmconnection.sh"
+LOCAL_WIFI="${REPO_ROOT}/config/wifi.local.env"
+if [[ -f "$LOCAL_WIFI" && -x "$INJECT_WIFI" ]]; then
+  echo "injecting home SSID from config/wifi.local.env (gitignored)..."
+  "$INJECT_WIFI" "$ROOTFS"
+fi
+
 need() { command -v "$1" >/dev/null || { echo "missing $1" >&2; exit 1; }; }
 need truncate; need parted; need losetup; need mkdosfs; need mke2fs; need rsync
 need bc; need xz; need sha256sum; need mcopy; need mmd
