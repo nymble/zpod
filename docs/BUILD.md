@@ -115,3 +115,52 @@ printf '%s\n' ':qemu-arm:M::\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\
 ```
 
 `./build.sh --build` must run with cwd inside the pi-gen checkout (the scaffold does this). Relative `STAGE_LIST` values fail if cwd is the outer repo.
+
+## Export fallback: offset losetup (no loop partition nodes)
+
+Stock pi-gen export expects `/dev/loopNpM` partition devices after `losetup -P`.
+Some restricted hosts (containers, kernels without loop partition scan) never create
+those nodes. Installing or reloading **udev** rules alone is **not** enough when the
+kernel does not perform loop partition scanning — there is nothing for udev to name.
+
+In that case, after stages 0–2 succeed, export with:
+
+```
+sudo ./scripts/export-image-offset.sh \
+  build/pi-gen/work/zpod-pi0w/stage2/rootfs \
+  build/pi-gen/deploy \
+  zpod-pi0w
+```
+
+What the script does:
+
+1. Sizes boot (512 MiB FAT) + root (rootfs + 20% + 200 MiB) aligned to 8 MiB.
+2. Creates an `.img`, partitions with `parted`, and attaches two loop devices via
+   `losetup --offset` / `--sizelimit` (no `-P` / no `/dev/loopNpM`).
+3. Formats FAT + empty ext4; `rsync`s the stage2 rootfs into the mounted ext4 root
+   (excluding apt archives and `boot/firmware` contents).
+4. **Finalize** (pi-gen `export-image` 01/03/04/05 subset — not a raw stage2 dump):
+   - `04-set-partuuid`: replace `BOOTDEV`/`ROOTDEV` in fstab with `PARTUUID=<diskid>-01/-02`
+   - `01-user-rename`: chroot `rename-user -f -s` so `userconfig.service` is enabled
+     (HDMI first-boot password wizard; `pi` has no baked password)
+   - `03-network`: install `resolv.conf`
+   - `05-finalise` subset: restore `ld.so.preload`, set `machine-id` to `uninitialized`,
+     clear logs, drop `passwd-` backups, fix `mtab`. Skips `update-initramfs`,
+     apt dist-upgrade, fstrim, and info/sbom generation.
+5. Populates the FAT boot partition with **mtools** using `file@@offset` addressing
+   (`IMG_FILE@@BOOT_PART_START`), not `/dev/loopN`. On this class of host, mtools
+   against the loop node fails geometry ioctls and can silently copy nothing;
+   there is also often **no kernel `vfat` module**, so `mount -t vfat` is unavailable.
+6. Overwrites `cmdline.txt` on the FAT with the PARTUUID-patched root= line
+   (must not leave `ROOTDEV`).
+7. Compresses with `xz -T0 -9 -k`, writes `SHA256SUMS`, prints `EXPORT_OK <path>`.
+
+Notes:
+
+- `du` is run **without** `-x`. On overlayfs, lower/upper layers can disagree on
+  `st_dev`, so one-file-system mode under-counts (often to 0) and the image is
+  sized too small.
+- Requires `xxd` and `qemu-arm-static` (for the rename-user chroot); cleanup
+  unmounts bind mounts (`/dev`, `/proc`, `/sys`) before detaching the root loop.
+- Still does **not** flash a card. Flash yourself per [TEST-M1.md](./TEST-M1.md)
+  (`xz -d` then Raspberry Pi Imager / `dd`; first-boot HDMI wizard sets the `pi` password).
