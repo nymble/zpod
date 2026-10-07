@@ -14,6 +14,18 @@ Parent tracking: [#1 PLAN](https://github.com/nymble/zpod/issues/1).
 
 **BitChat?** Candidate installable app after radio stack works. Evaluate license, BLE needs, UI on 320x240, and power. Not a boot blocker.
 
+
+## Rapid track (2026-10-06 PT)
+
+M1 lite image **hardware-passed** on Pi Zero 2 W (HDMI, user `paul`, console). Resequence for usable portable device:
+
+1. **M1.1** lighten (#13) **in parallel with** INTROSPECT (#12) on the live board.
+2. **RAPID** (#14): critical path **M4 display** after verified pinouts; **M2 / M3 / M5** parallel; pull **M5** transfer+update forward.
+3. **Kali policy (locked):** no Kali base image. Stay pi-gen **armhf** lite; cherry-pick tools from Debian/RPi first. No desktop/Pixel default; prefer framebuffer/DRM for TFT.
+4. Suggested releases: `v0.2.0-m1.1-lite`, then `v0.3.0-portable-slice` when display **or** transfer lands.
+
+M3 includes association **plus** low-level radio interfaces (`iw`, `btmon`, etc.). Heavy RF apps / 2nd adapter / BitChat stay M8 (#10).
+
 ## Stages
 
 | Stage | Name | Outcome |
@@ -21,7 +33,7 @@ Parent tracking: [#1 PLAN](https://github.com/nymble/zpod/issues/1).
 | M0 | Publish | Pages landing, status from issues, empty download slot |
 | M1 | First SD image | HDMI + serial + SSH, local test plan, Release with checksum |
 | M2 | Audio + reload | `aoide-zpod-dac`, test tone, USB (then Wi-Fi) reload without full reflash |
-| M3 | Radios | Zero W Wi-Fi/BT; Zero still boots offline; scan apps can start |
+| M3 | Radios | Zero W / Zero 2 W Wi-Fi/BT join + low-level tooling; Zero still boots offline; heavy scan apps → M8 |
 | M4 | Display + buttons | HDMI until pinouts verified; then TFT + button map from hardware |
 | M5 | Apps + media | Writable store, copy from laptop/network, install/update without reflash |
 | M6 | Assurance | Pinned sources, SBOM, SLSA ladder (honest levels) |
@@ -45,6 +57,8 @@ Opened on 2026-10-06 as **nymble**:
 10. [#10 M8](https://github.com/nymble/zpod/issues/10) — RF toolkit, second adapter, BitChat evaluation
 11. [#11 M9](https://github.com/nymble/zpod/issues/11) — Emulation (secondary) and rubber-duck optional app
 12. [#12 INTROSPECT](https://github.com/nymble/zpod/issues/12) — Document stock/working image contents
+13. [#13 M1.1](https://github.com/nymble/zpod/issues/13) — Lighten image for portable boot
+14. [#14 RAPID](https://github.com/nymble/zpod/issues/14) — Usable portable slice (display + transfer + radios)
 
 Sub-issues stay open until their Done criteria are met. Comments and PRs carry design decisions; do not leave important artifacts only in chat.
 
