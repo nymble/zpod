@@ -184,4 +184,6 @@ fi
 
 # pi-gen sources ./config from its own tree unless -c is passed. Pass -c.
 # Preserve the caller's cwd semantics by running inside the clone.
-exec sudo -- "$PI_GEN_DIR/build.sh" -c "$GEN_CONFIG"
+# STAGE_LIST entries are relative; must run with cwd = pi-gen tree.
+cd "$PI_GEN_DIR"
+exec sudo -- ./build.sh -c "$GEN_CONFIG"

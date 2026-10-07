@@ -103,3 +103,15 @@ Offline checks before flashing:
 - Never invent TFT/button/DAC pinouts in the image.
 - Never use the `elbmyn` GitHub account for releases.
 - Never flash from `build.sh`.
+
+## Host note: armhf on x86_64
+
+pi-gen requires working `binfmt_misc` so `sudo arch-test -c <tmpdir> armhf` prints `armhf: ok`.
+On hosts where the `binfmt_misc` kernel module is missing, mount the filesystem and register QEMU with the **F** flag:
+
+```
+sudo mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
+printf '%s\n' ':qemu-arm:M::\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x28\x00:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:/usr/bin/qemu-arm-static:F' | sudo tee /proc/sys/fs/binfmt_misc/register
+```
+
+`./build.sh --build` must run with cwd inside the pi-gen checkout (the scaffold does this). Relative `STAGE_LIST` values fail if cwd is the outer repo.
