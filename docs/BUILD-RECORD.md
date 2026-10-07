@@ -55,6 +55,12 @@ cmdline (no serial console, PARTUUID), all config.txt lines and their order, dtb
 | --- | --- |
 | Source commit | https://github.com/nymble/zpod/commit/f5cf5c0627e7f39f069744543bfdedb0bb9abc6a |
 | Release | https://github.com/nymble/zpod/releases/tag/v0.3.0-m2 |
+| Issue #4 (audio) | https://github.com/nymble/zpod/issues/4#issuecomment-6047200037 |
+| Issue #6 (display/buttons) | https://github.com/nymble/zpod/issues/6#issuecomment-6047200288 |
+| Issue #12 (introspect) | https://github.com/nymble/zpod/issues/12#issuecomment-6047200533 |
+| Issue #14 (rapid slice) | https://github.com/nymble/zpod/issues/14#issuecomment-6047200812 |
+| Issue #7 (USB file path) | https://github.com/nymble/zpod/issues/7#issuecomment-6047201187 |
+| Issue #13 (lighten) | https://github.com/nymble/zpod/issues/13#issuecomment-6047201436 |
 
 ## Previous: ZPOD M1.1 pi0w (Wi-Fi + lighten)
 
