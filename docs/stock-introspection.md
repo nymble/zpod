@@ -1,16 +1,16 @@
 # Stock / working-image introspection
 
-Status: **empty — waiting on a working card or image Paul can share.**
+Status: **live probe started 2026-10-07 PT** on Paul's booted M1.1 card (Pi Zero W). Vendor/online sections below remain non-authoritative where they conflict with live facts.
 
 Purpose: record what the current distribution actually contains so new requirements are evidence-based, without forcing the first new build to clone 2017 feature-for-feature.
 
 ## Capture checklist (run on a booted ZPOD or from a mounted image)
 
-- [ ] `uname -a`, `/etc/os-release`, kernel package version
-- [ ] `/boot/config.txt` and `/boot/cmdline.txt` (full)
-- [ ] `ls /boot/overlays | sort` and note `aoide-zpod-dac`, `pitft22`, `gpio-ir`
-- [ ] `lsmod`, `aplay -l`, `i2cdetect -y 1`
-- [ ] `dpkg -l` (or `rpm -qa`) saved as an artifact
+- [x] `uname -a`, `/etc/os-release`, kernel package version
+- [~] `/boot/config.txt` stock M1.1 summary (full paste still welcome); `/boot/cmdline.txt` not yet captured
+- [x] overlays present include `pitft22`, `minipitft13`, many pcm512x DACs; **`aoide-zpod-dac.dtbo` absent** from M1.1 stock firmware overlays (build rootfs + live note)
+- [x] `aplay -l`, `i2cdetect -y 1` (after enabling i2c); `lsmod` still welcome
+- [~] package count ~520; `i2c-tools`, `python3-spidev`, `python3-rpi-lgpio` installed — full `dpkg -l` artifact still welcome
 - [ ] systemd units / init scripts that start the UI, player, RetroPie, or button daemon
 - [ ] Button daemon config path and GPIO map file, if any
 - [ ] Network: `iw list`, `hciconfig` / `bluetoothctl show`, USB Wi-Fi dongle VID:PID if present
@@ -21,6 +21,59 @@ Purpose: record what the current distribution actually contains so new requireme
 - Attach logs to issue **[INTROSPECT]**.
 - Summarize durable facts into `config/hardware.yaml` and this file via PR.
 - Turn each unexpected package or missing overlay into a linked sub-issue; do not silently expand scope.
+
+
+## Live probe 2026-10-07
+
+**Source:** Paul flashed **M1.1** `v0.2.0-m1.1-wifi`, SSH as user `paul` @ `zpod.local` / `192.168.1.81`. Probe while uptime ~18 min. Auth: nymble. **No credentials in this doc.**
+
+| Fact | Value |
+| --- | --- |
+| Model | Raspberry Pi **Zero W Rev 1.1** (not Zero 2 W) |
+| Kernel | `Linux zpod 6.18.50+rpt-rpi-v6 #1 Raspbian 1:6.18.50-1+rpt1 armv6l` |
+| OS | Raspbian **13 trixie** |
+| Wi-Fi | `wlan0` connected; NetworkManager connection name `"preconfigured"` |
+| Packages | ~520 dpkg packages; `i2c-tools`, `python3-spidev`, `python3-rpi-lgpio` installed |
+
+### `config.txt` (stock M1.1 at probe)
+
+- i2c / spi / i2s **commented out** initially
+- `dtparam=audio=on`
+- `vc4-kms-v3d`
+- **No** TFT or DAC overlays loaded
+
+### Buses after enabling I2C
+
+Ran `raspi-config nonint do_i2c 0`, then `i2cdetect -y 1`:
+
+| Address | Note |
+| --- | --- |
+| **0x36** | present (identity not claimed here) |
+| **0x4d** | matches **PCM5122 / `aoide-zpod-dac` expectation** ([#4](https://github.com/nymble/zpod/issues/4)) |
+| **0x68** | present (identity not claimed here) |
+
+`aplay -l`: only **vc4hdmi** — DAC overlay not loaded yet (expected on stock M1.1).
+
+`gpioinfo` (partial):
+
+- `spi0` CS0=GPIO8, CS1=GPIO7 already claimed
+- GPIO2/3 consumer=`kernel` (I2C)
+
+### Overlays on M1.1 stock firmware
+
+Live note + matching pi-gen stage2 rootfs (`boot/firmware/overlays`, 386 entries):
+
+- Present: `pitft22`, `minipitft13`, many `pcm512x` / HiFiBerry / Allo DAC overlays
+- **Absent: `aoide-zpod-dac.dtbo`** — must be added from vendor (`howardqiao/zpod` `zpod_res/` or `aoide-dac-drivers` tarball) or rebuilt for this kernel before M2 audio enable
+
+### Still not claimed (do not invent)
+
+- Button BCM map
+- TFT DC / BL / CS pinout (SPI CS lines claimed at OS level is **not** a pinout)
+- Identity of I2C `0x36` / `0x68`
+- Full `dpkg -l`, `lsmod`, `cmdline.txt` attachments
+
+Cross-links: [#12 INTROSPECT](https://github.com/nymble/zpod/issues/12), [#4 M2 audio](https://github.com/nymble/zpod/issues/4), [#6 M4 display/buttons](https://github.com/nymble/zpod/issues/6).
 
 ## Vendor / online display evidence (not live-board verified)
 
