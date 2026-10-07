@@ -56,4 +56,12 @@ Exact xz bytes: run `stat` / SHA256SUMS on deploy artifact.
 
 | Item | URL |
 | --- | --- |
+| Recipe commit | https://github.com/nymble/zpod/commit/b106bf23afdbcd0107da32739a964c1cae9645b2 |
+| Docs pin commit | https://github.com/nymble/zpod/commit/229fbe66e058784d8d3cbe3c458743ed24b6c30f |
 | Release | https://github.com/nymble/zpod/releases/tag/v0.2.0-m1.1-wifi |
+| Issue #13 | https://github.com/nymble/zpod/issues/13 |
+| Issue #3 | https://github.com/nymble/zpod/issues/3 |
+
+| Commit (docs pin) | https://github.com/nymble/zpod/commit/229fbe66e058784d8d3cbe3c458743ed24b6c30f |
+| Issue #13 comment | (see issue timeline) |
+| Issue #3 comment | (see issue timeline) |
