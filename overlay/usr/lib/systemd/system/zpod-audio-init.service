@@ -1,0 +1,12 @@
+[Unit]
+Description=ZPOD first-boot ALSA mixer defaults for the Aoide ZPOD DAC
+After=alsa-restore.service sound.target
+ConditionPathExists=!/var/lib/zpod/audio-defaults-applied
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/zpod/zpod-audio-init.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

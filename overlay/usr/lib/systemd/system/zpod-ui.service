@@ -1,0 +1,19 @@
+[Unit]
+Description=ZPOD status/menu screen on the SPI LCD (zpod-ui)
+Documentation=https://github.com/nymble/zpod/blob/main/docs/TEST-M2.md
+After=zpod-buttons.service sound.target
+Wants=zpod-buttons.service
+
+[Service]
+Type=simple
+# lgpio creates its notification pipe in LG_WD (default: cwd = /)
+RuntimeDirectory=zpod-ui
+WorkingDirectory=/run/zpod-ui
+Environment=LG_WD=/run/zpod-ui
+ExecStart=/usr/bin/python3 /usr/lib/zpod/zpod_ui.py
+Restart=always
+RestartSec=3
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

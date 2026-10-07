@@ -1,0 +1,15 @@
+[Unit]
+Description=ZPOD buttons -> uinput keyboard (zpod-buttons)
+Documentation=https://github.com/nymble/zpod/blob/main/docs/BUTTONS.md
+After=systemd-modules-load.service
+
+[Service]
+Type=simple
+ExecStartPre=-/sbin/modprobe uinput
+ExecStart=/usr/bin/python3 /usr/lib/zpod/zpod_buttons.py
+Restart=always
+RestartSec=2
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target
