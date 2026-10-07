@@ -8,8 +8,8 @@ Purpose: record what the current distribution actually contains so new requireme
 
 - [x] `uname -a`, `/etc/os-release`, kernel package version
 - [~] `/boot/config.txt` stock M1.1 summary (full paste still welcome); `/boot/cmdline.txt` not yet captured
-- [x] overlays present include `pitft22`, `minipitft13`, many pcm512x DACs; **`aoide-zpod-dac.dtbo` absent** from M1.1 stock firmware overlays (build rootfs + live note)
-- [x] `aplay -l`, `i2cdetect -y 1` (after enabling i2c); `lsmod` still welcome
+- [x] overlays present include `pitft22`, `minipitft13`, many pcm512x DACs; stock lacked `aoide-zpod-dac.dtbo` — **now installed live** on Paul's M1.1 (see DAC enable section)
+- [x] `aplay -l`, `i2cdetect -y 1` (after enabling i2c); DAC overlay enabled live — see below; `lsmod` still welcome
 - [~] package count ~520; `i2c-tools`, `python3-spidev`, `python3-rpi-lgpio` installed — full `dpkg -l` artifact still welcome
 - [ ] systemd units / init scripts that start the UI, player, RetroPie, or button daemon
 - [ ] Button daemon config path and GPIO map file, if any
@@ -52,7 +52,20 @@ Ran `raspi-config nonint do_i2c 0`, then `i2cdetect -y 1`:
 | **0x4d** | matches **PCM5122 / `aoide-zpod-dac` expectation** ([#4](https://github.com/nymble/zpod/issues/4)) |
 | **0x68** | present (identity not claimed here) |
 
-`aplay -l`: only **vc4hdmi** — DAC overlay not loaded yet (expected on stock M1.1).
+`aplay -l` (stock M1.1): only **vc4hdmi** — DAC overlay not loaded yet.
+
+### Live DAC enable 2026-10-07 PT (M2 audio bring-up)
+
+After installing vendor `aoide-zpod-dac.dtbo` + GPL OOT `aoide-zpod-dac.ko` rebuilt for `6.18.50+rpt-rpi-v6` (stock vendor `.ko` is 4.4/5.10-only):
+
+| Fact | Value |
+| --- | --- |
+| Config | `dtparam=i2c_arm=on`, `dtparam=i2s=on`, `dtparam=audio=off`, `dtoverlay=aoide-zpod-dac` (backup `config.txt.bak.pre-aoide-*`) |
+| `i2cdetect -y 1` | **`UU` at 0x4d** (driver bound; was `4d` before overlay) |
+| `aplay -l` | **card 1: `sndrpiaoidezpod` / `snd_rpi_aoide_zpod_dac`**, device `Aoide Zpod DAC HiFi pcm512x-hifi-0` (card 0 still vc4hdmi) |
+| Test tone | `speaker-test -D plughw:1,0 -c 2 -r 44100 -t sine -f 440` (and 523 Hz) **exit 0** — Paul must confirm headphone hear |
+
+Module provenance: OOT rebuild under `~/aoide-zpod-dac-oot` on device; compatible `aoide,aoide-zpod-dac`; uses stock `snd-soc-pcm512x`. No TFT/button pins invented. Auth: nymble. **No credentials in this doc.**
 
 `gpioinfo` (partial):
 
