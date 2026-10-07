@@ -5,7 +5,7 @@
 
 | Field | Value |
 | --- | --- |
-| zpod repo commit | (see release; set after push) |
+| zpod repo commit | b106bf23afdbcd0107da32739a964c1cae9645b2 |
 | pi-gen commit | 59b67461533c2eef3564bc48eb3ce5c16e5c62ee |
 | Board | pi0w (armhf); also for Zero 2 W HDMI/Wi-Fi tests |
 | Stages | stage0 (SKIP) stage1 (SKIP) stage2 rebuild with `build/tweaks` |
