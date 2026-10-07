@@ -1,6 +1,6 @@
-# ZPOD image config stub.
-# Pinouts, TFT driver, and DAC wiring are intentionally blank.
-# Fill them only from the board or the uGeek user guide — do not guess.
+# ZPOD image config.
+# Hardware entries below were confirmed on a live board (2026-10-07).
+# Add new pins only from the board itself — do not guess.
 
 image_name: zpod
 builder: pi-gen
@@ -30,35 +30,60 @@ boards:
     model: Raspberry Pi Zero W
     soc: BCM2835
     wireless: true
-    wpa_country: ""  # ISO country code; leave empty until the owner sets it
+    wpa_country: "US"  # build.sh default for pi0w
     notes: >
       Onboard Wi-Fi/Bluetooth (brcmfmac). Needs the Pi Zero W wireless
       firmware that Raspberry Pi OS already ships; country code is unset
       on purpose. Stock filename zpod-2017-05-18.img.gz.
 
-# Hardware facts checked 2026-10-03 against howardqiao GitHub trees.
-# Do not fill a blank from the 2.2TFT HAT or from Adafruit's pitft22 dts.
+# Hardware facts CONFIRMED on a live Pi Zero W ZPOD, 2026-10-07 PT (BCM GPIO
+# numbering). See docs/stock-introspection.md. Only these are used by M2.
 hardware:
   tft:
-    size_inch: 2.2
-    resolution: "320x240"  # hdmi_cvt in aoide_zpod_setup.sh; not in the 2017 user guide
-    driver: unknown  # ZPOD files name the overlay only, not the panel chip
-    dtoverlay: pitft22  # name only; speed/fps disagree between files, see notes
-    pinout: unknown
-  buttons:
-    pinout: unknown  # vendor scripts disagree; do not pick one
+    resolution: "320x240"          # landscape
+    controller: ili9340-style      # confirmed command set; chip marking not read
+    bus: spi0                      # spidev0.0
+    cs: 8                          # CE0
+    mosi: 10
+    sclk: 11
+    miso: none
+    dc: 25
+    reset: none
+    backlight_or_power: 27         # held HIGH; role inferred, not proven
+    spi_hz: 32000000
+    madctl: "0xE8"                 # MV|MX|MY|BGR, columns 0-319, pages 0-239
+    init: [SWRESET, 150ms, SLPOUT, 150ms, "COLMOD 0x55", "MADCTL 0x08", INVOFF, NORON, DISPON, "MADCTL 0xE8"]
+  buttons:                         # active-low, internal pull-ups
+    up: 4
+    down: 22
+    left: 17
+    right: 23
+    center: [4, 17, 22, 23]        # no own pin: all four low within ~40 ms
+    home: 24
+    playpause: 6
+    triangle: 13
+    square: 12
+    circle: 26
+    x: 16
+    volume_up: 5
+    volume_down: 20                # also I2S DIN: pull-up only, never re-mux
   dac:
     chip: TI PCM5122
     bus: i2s
-    i2c_address: "0x4d"  # pcm5122@4d on i2c1, from aoide-zpod-dac.dtbo
+    i2c_bus: 1
+    i2c_address: "0x4d"
     dtoverlay: aoide-zpod-dac
-    pinout: unknown  # overlay uses the I2S controller; no GPIO map in the dtbo
+    alsa_card: sndrpiaoidezpod
+    amp_unmute: {gpio: 14, level: low}   # gpio=14=op,dl; drop serial console
   battery_board:
-    pinout: unknown
-    fuel_gauge: unknown
+    fuel_gauge: {chip: MAX17048, i2c_bus: 1, address: "0x36"}
+  rtc:
+    chip: DS3231
+    i2c_bus: 1
+    address: "0x68"                # time not set; overlay not enabled yet
   ir:
     dtoverlay: gpio-ir
-    gpio_pin: 7  # from zpod_res/config.txt only
+    gpio_pin: 7  # vendor zpod_res/config.txt only; NOT verified (GPIO7 = SPI0 CE1)
 notes:
   sources:
     - https://github.com/howardqiao/zpod/blob/master/zpod_res/config.txt
@@ -66,10 +91,9 @@ notes:
     - https://github.com/howardqiao/aoide-dac-drivers/blob/master/aoide_zpod_setup.sh
     - https://github.com/howardqiao/ugeek-screen-setup
   conflicts: >
-    zpod_res/config.txt sets spi=off and pitft22 speed=64000000 fps=30.
-    aoide_zpod_setup.sh sets spi=on and pitft22 speed=80000000 fps=60.
-    Button keymaps differ across aoide_zpod_setup.sh, aoidetft_setup.sh,
-    and zpod_res/retrogame.cfg. Leave buttons unset.
+    Resolved by the 2026-10-07 live probe: buttons match the
+    aoide_zpod_setup.sh retrogame.cfg map; the panel is 320x240 on SPI0 CE0
+    with DC 25 (not the online ST7789 240x240 claim).
   rejected: >
     dtoverlay=hifiberry-dac is not what these files use.
     192 kHz/24-bit is not stated in the driver or overlay.

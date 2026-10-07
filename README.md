@@ -6,7 +6,14 @@ Public home: this repository under [nymble](https://github.com/nymble).
 
 ## Status
 
-Early planning. No published SD image yet. Requirements and staged plan:
+Published images ([Releases](https://github.com/nymble/zpod/releases)):
+
+| Release | What |
+| --- | --- |
+| `v0.3.0-m2` | **M2**: LCD status/menu UI (`zpod-ui`), buttons → keyboard (`zpod-buttons`), Aoide PCM5122 DAC via DKMS, USB-cable Ethernet to a Mac, Wi-Fi power save off — test with [docs/TEST-M2.md](./docs/TEST-M2.md) |
+| `v0.2.0-m1.1-wifi` | M1.1: lite trixie armhf + Wi-Fi stack |
+
+Requirements and staged plan:
 
 - [REQUIREMENTS.md](./REQUIREMENTS.md)
 - [PLAN.md](./PLAN.md)
@@ -14,7 +21,9 @@ Early planning. No published SD image yet. Requirements and staged plan:
 
 ## What we are building
 
-A new armhf image family (pi-gen), not a byte-for-byte rebuild of the 2017 SourceForge images. First bring-up uses **micro HDMI**. TFT, buttons, and battery wiring stay unset until verified on hardware. Audio path targets the vendor DAC overlay `aoide-zpod-dac` (TI PCM5122).
+A new armhf image family (pi-gen), not a byte-for-byte rebuild of the 2017 SourceForge images. Display, buttons, DAC and fuel gauge use only the pin maps confirmed on hardware on 2026-10-07 ([stock-introspection](./docs/stock-introspection.md)).
+
+Repo layout: `build/` (pi-gen tweaks + M2 substep), `overlay/` (files installed into the image: `zpod-ui`, `zpod-buttons`, configs), `drivers/aoide-zpod-dac/` (GPL-2.0 DAC driver + overlay source, DKMS deb), `scripts/` (offset export, Wi-Fi inject, offline image checks).
 
 ## Do not
 
@@ -31,3 +40,7 @@ A local pi-gen scaffold also lives on the agent computer at `/workspace/zpod-ima
 
 - [docs/BUILD.md](./docs/BUILD.md) — repeatable construction recipe and pins
 - [docs/TEST-M1.md](./docs/TEST-M1.md) — first-install validation checklist
+- [docs/TEST-M2.md](./docs/TEST-M2.md) — M2 on-device checklist
+- [docs/BUTTONS.md](./docs/BUTTONS.md) — button → key code map
+- [docs/USB-GADGET.md](./docs/USB-GADGET.md) — USB cable networking from a Mac
+- [docs/BUILD-RECORD.md](./docs/BUILD-RECORD.md) — what was built, checksums

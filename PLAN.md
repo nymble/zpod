@@ -24,6 +24,8 @@ M1 lite image **hardware-passed** on Pi Zero 2 W (HDMI, user `paul`, console). R
 3. **Kali policy (locked):** no Kali base image. Stay pi-gen **armhf** lite; cherry-pick tools from Debian/RPi first. No desktop/Pixel default; prefer framebuffer/DRM for TFT.
 4. Suggested releases: `v0.2.0-m1.1-lite`, then `v0.3.0-portable-slice` when display **or** transfer lands.
 
+**2026-10-07:** M1.1 shipped as `v0.2.0-m1.1-wifi`; **M2 `v0.3.0-m2`** ships display + buttons + DAC + USB-cable link (pulls the M4 display/buttons slice forward now that pins are confirmed on hardware). Reload without reflash (M5) is next on top of the USB link.
+
 M3 includes association **plus** low-level radio interfaces (`iw`, `btmon`, etc.). Heavy RF apps / 2nd adapter / BitChat stay M8 (#10).
 
 ## Stages

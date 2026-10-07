@@ -1,6 +1,71 @@
 # Stock / working-image introspection
 
-Status: **live probe started 2026-10-07 PT** on Paul's booted M1.1 card (Pi Zero W). Vendor/online sections below remain non-authoritative where they conflict with live facts.
+Status: **live probe 2026-10-07 PT** on Paul's booted M1.1 card (Pi Zero W). Display, buttons, audio and I2C devices are now **confirmed on hardware** (see the next section; shipped in M2 `v0.3.0-m2`). Vendor/online sections further down remain non-authoritative where they conflict with live facts.
+
+## Confirmed hardware map (live Pi Zero W, 2026-10-07 PT)
+
+All GPIO numbers are **BCM**. Confirmed by live probes on Paul's ZPOD
+(`zdisp.py`, `zorient.py`, `btnlog2.py`, `speaker-test`, `i2cdetect`).
+
+### Audio (Aoide ZPOD DAC)
+
+| Fact | Value |
+| --- | --- |
+| Codec | TI **PCM5122** on **I2C1 @ 0x4d** (`UU` once bound) |
+| config.txt | `dtparam=i2c_arm=on`, `dtparam=i2s=on`, `dtparam=audio=off`, `dtoverlay=aoide-zpod-dac` |
+| Overlay | vendor `aoide-zpod-dac.dtbo` (howardqiao/zpod `zpod_res`); our `drivers/aoide-zpod-dac/aoide-zpod-dac-overlay.dts` compiles byte-identical |
+| Driver | GPL-2.0 OOT `aoide-zpod-dac.ko` rebuilt for 6.18 (M2 ships it via DKMS) |
+| ALSA card | `sndrpiaoidezpod` / `snd_rpi_aoide_zpod_dac`; mixer `Digital`, `Analogue`, `Analogue Playback Boost`, … |
+| Headphone amp | **muted unless GPIO14 is LOW** → `gpio=14=op,dl` |
+| Serial console | must be removed from `cmdline.txt` (`console=serial0,115200`): GPIO14 is UART TX |
+| I2S pins | GPIO18 PCM_CLK, 19 PCM_FS, 20 PCM_DIN, 21 PCM_DOUT (alt0) |
+
+### Display (works on hardware)
+
+| Fact | Value |
+| --- | --- |
+| Controller | ILI9340-style command set (SWRESET, SLPOUT, COLMOD 0x55, MADCTL, INVOFF, NORON, DISPON) |
+| Bus | `spidev0.0`: SPI0 **CE0 = GPIO8**, **MOSI GPIO10**, **SCLK GPIO11**, no MISO, 32 MHz, mode 0 |
+| DC | **GPIO25** |
+| Reset | none (software reset 0x01) |
+| GPIO27 | held **HIGH** — probably backlight or power enable (*inferred*, not proven) |
+| Geometry | **320×240 landscape**, MADCTL `0x36` = **`0xE8`** (MV\|MX\|MY\|BGR), column 0–319, page 0–239 |
+| Init order | SWRESET, 150 ms, SLPOUT, 150 ms, COLMOD 0x55, MADCTL 0x08, INVOFF, NORON, DISPON, then MADCTL 0xE8 |
+
+This replaces the "ST7789 1.3\" 240×240" online claim and fixes the vendor `pitft22` 320×240 note: the panel is 320×240 on SPI0 CE0 with DC 25.
+
+### Buttons (active-low, internal pull-ups)
+
+| Button | GPIO |
+| --- | --- |
+| D-pad up | 4 |
+| D-pad down | 22 |
+| D-pad left | 17 |
+| D-pad right | 23 |
+| D-pad centre | *no pin*: GPIO 4, 17, 22, 23 all go low within ~40 ms |
+| Home | 24 |
+| Play/Pause | 6 |
+| Triangle | 13 |
+| Square | 12 |
+| Circle | 26 |
+| X | 16 |
+| Side volume up | 5 |
+| Side volume down | 20 (**also I2S DIN** — set pull-up only, read via `/dev/gpiomem`/level register, never re-mux) |
+
+Matches vendor map #1 below (`aoide_zpod_setup.sh` retrogame.cfg) pin-for-pin; the other vendor maps are wrong for this unit.
+
+### Other I2C1 devices
+
+| Address | Device |
+| --- | --- |
+| 0x36 | **MAX17048** fuel gauge (SOC reg 0x04, VCELL reg 0x02) |
+| 0x4d | PCM5122 DAC |
+| 0x68 | **DS3231** RTC (time not set; no RTC overlay enabled yet) |
+
+### Wi-Fi
+
+Dropouts observed inside the metal case with brcmfmac power save on → M2 disables power save (NetworkManager `wifi.powersave = 2`).
+
 
 Purpose: record what the current distribution actually contains so new requirements are evidence-based, without forcing the first new build to clone 2017 feature-for-feature.
 
@@ -81,10 +146,11 @@ Live note + matching pi-gen stage2 rootfs (`boot/firmware/overlays`, 386 entries
 
 ### Still not claimed (do not invent)
 
-- Button BCM map
-- TFT DC / BL / CS pinout (SPI CS lines claimed at OS level is **not** a pinout)
-- Identity of I2C `0x36` / `0x68`
-- Full `dpkg -l`, `lsmod`, `cmdline.txt` attachments
+- ~~Button BCM map~~ — confirmed, see top section
+- ~~TFT DC / CS pinout~~ — confirmed (CE0, DC25); GPIO27 role still *inferred* (backlight/power)
+- ~~Identity of I2C `0x36` / `0x68`~~ — MAX17048 / DS3231
+- IR receiver pin (vendor says `gpio-ir` on GPIO7; not verified, and GPIO7 is SPI0 CE1)
+- Full `dpkg -l`, `lsmod` attachments
 
 Cross-links: [#12 INTROSPECT](https://github.com/nymble/zpod/issues/12), [#4 M2 audio](https://github.com/nymble/zpod/issues/4), [#6 M4 display/buttons](https://github.com/nymble/zpod/issues/6).
 
@@ -159,7 +225,7 @@ From **ugeek-screen-setup**: `screen_setup.sh`.
 
 Conflict with Paul-pasted online “ST7789 / 1.3\" / 240×240 / Pirate Audio” claim remains open until live introspect; vendor ZPOD scripts still say `pitft22` + 320×240.
 
-### Buttons (vendor maps disagree — do not adopt one yet)
+### Buttons (vendor maps disagree — superseded by the live map above; map 1 matches)
 
 All maps below are **as written in howardqiao files** (BCM / Broadcom numbering per `retrogame.cfg` comments). They conflict; leave `config/zpod.yaml` buttons unset until live verify.
 

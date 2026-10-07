@@ -3,6 +3,50 @@
 This document is the construction recipe for ZPOD SD images produced from this repo.
 It is the human-readable twin of `./build.sh`. Follow it exactly so a second machine can reproduce the same class of artifact.
 
+## Scope of M2 (display + audio + buttons + USB link) — `v0.3.0-m2`
+
+Same base and pins as M1.1 (pi0w armhf, pi-gen master `59b6746…`, trixie,
+stage0–2 lite, user `pi` without a baked password, home SSID from gitignored
+`config/wifi.local.env`). `build/tweaks/apply.sh` adds a stage2 substep
+**`05-zpod-m2`** (sources: `build/tweaks/stage2-05-zpod-m2/`, `overlay/`,
+`drivers/aoide-zpod-dac/`):
+
+- **Audio:** `aoide-zpod-dac-dkms` deb (built by
+  `drivers/aoide-zpod-dac/build-deb.sh`) installed in the chroot; DKMS builds
+  the module for `6.18.50+rpt-rpi-v6` and `-rpi-v7` (headers installed).
+  Overlay `aoide-zpod-dac.dtbo` compiled from source (byte-identical to the
+  vendor dtbo). `config.txt`: `dtparam=i2c_arm=on`, `i2s=on`, `spi=on`,
+  `audio=off` (in place, before any `dtoverlay=`), `[all]`
+  `dtoverlay=aoide-zpod-dac`, `gpio=14=op,dl`, button pull-ups,
+  `dtoverlay=dwc2,dr_mode=peripheral`. `cmdline.txt`: `console=serial0,115200`
+  removed. `/etc/asound.conf` makes the DAC the default card; first-boot
+  `zpod-audio-init` sets Digital 80 % + boost on.
+- **Display:** `zpod-ui.service` (`/usr/lib/zpod/zpod_ui.py`, spidev + lgpio +
+  Pillow), confirmed ILI9340-style init, MADCTL 0xE8, 320×240.
+- **Buttons:** `zpod-buttons.service` → uinput keyboard `zpod-buttons`
+  (python3-evdev); map in [BUTTONS.md](./BUTTONS.md).
+- **USB link:** `rpi-usb-gadget` profiles pre-set (g_ether, NM shared
+  10.12.194.1/28); see [USB-GADGET.md](./USB-GADGET.md).
+- **Wi-Fi:** NM `wifi.powersave = 2` (global conf.d + in the injected profile).
+- **Debug:** persistent journald (64 MB cap), `i2c-tools`, `gpiod`, `iw`, `evtest`.
+- Added packages: `dkms` (+ gcc/make via deps), `python3-pil`,
+  `python3-evdev`, `fonts-dejavu-core`, `evtest` (others were already present).
+
+### M2 build commands (as run 2026-10-07)
+
+```
+# stage0/stage1 reuse the existing work tree (SKIP files); stage2 is rebuilt
+touch build/pi-gen/stage0/SKIP build/pi-gen/stage1/SKIP build/pi-gen/stage2/SKIP_IMAGES
+sudo mv build/pi-gen/work/zpod-pi0w/stage2/rootfs build/pi-gen/work/zpod-pi0w/stage2-m1.1-rootfs
+./build.sh --confirm --board pi0w            # re-applies tweaks + 05-zpod-m2
+./build.sh --confirm --board pi0w --build    # stage2 only (~15 min)
+sudo IMG_DATE=2026-10-07 ./scripts/export-image-offset.sh \
+  build/pi-gen/work/zpod-pi0w/stage2/rootfs build/pi-gen/deploy/m2 zpod-pi0w-m2
+```
+
+Offline checks: `scripts/verify-m2-image.sh <img>` (mounts root read-only via
+offset loop, reads the FAT with mtools, and chroot-runs the Python imports).
+
 ## Scope of M1.1 (Wi-Fi + lighten)
 
 - Same base as M1: **pi0w** armhf, stages `stage0 stage1 stage2`, hostname `zpod`,
@@ -114,7 +158,8 @@ Offline checks before flashing:
 
 ## Safety
 
-- Never invent TFT/button/DAC pinouts in the image.
+- Never invent TFT/button/DAC pinouts in the image. (M2 uses only the pin maps
+  confirmed on hardware — see `docs/stock-introspection.md`.)
 - Never use the `elbmyn` GitHub account for releases.
 - Never flash from `build.sh`.
 
