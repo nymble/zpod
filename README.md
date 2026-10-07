@@ -26,3 +26,8 @@ A new armhf image family (pi-gen), not a byte-for-byte rebuild of the 2017 Sourc
 ## Build scaffold
 
 A local pi-gen scaffold also lives on the agent computer at `/workspace/zpod-image`. Useful pieces will be merged here as the pipeline lands. `./build.sh` without flags must remain a no-op.
+
+## Build and test docs
+
+- [docs/BUILD.md](./docs/BUILD.md) — repeatable construction recipe and pins
+- [docs/TEST-M1.md](./docs/TEST-M1.md) — first-install validation checklist
