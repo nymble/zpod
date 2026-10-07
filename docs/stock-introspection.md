@@ -40,3 +40,92 @@ Purpose: record what the current distribution actually contains so new requireme
 **Conflict with earlier tree notes:** `config/zpod.yaml` still records vendor-tree names (`pitft22`, 2.2", 320×240, driver unknown) from howardqiao sources. Those remain unmerged with this ST7789 / 1.3" / 240×240 online claim until hardware introspect closes the gap. Prefer live-board evidence over either source if they disagree.
 
 **Next:** once pins are confirmed, software bring-up can start (Python ST7789 SPI and/or fb path); track under [#6 M4](https://github.com/nymble/zpod/issues/6) and [#12 INTROSPECT](https://github.com/nymble/zpod/issues/12).
+
+## Vendor / upstream developer ([howardqiao](https://github.com/howardqiao))
+
+Paul pointed at https://github.com/howardqiao as the developer home for ZPOD-related work. Reviewed public repos via `gh` API + clone (2026-10-07 PT). **Do not invent pinouts** — BCM numbers below are quoted only where a howardqiao file states them. TFT DC/BL/CS pins are **not** stated in `howardqiao/zpod` or `aoide-dac-drivers` ZPOD setup scripts.
+
+### Repos ranked for our RAPID path (display + buttons + audio)
+
+| Rank | Repo | URL | Last push (UTC) | License | Usefulness |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `aoide-dac-drivers` | https://github.com/howardqiao/aoide-dac-drivers | 2021-03-28 | none declared | Primary: `aoide-zpod-dac` overlays/modules, `aoide_zpod_setup.sh`, TFT/button install scripts |
+| 2 | `zpod` | https://github.com/howardqiao/zpod | 2020-09-17 | none declared | Stock player binaries + `zpod_res/` (`config.txt`, `retrogame.cfg`, `aoide-zpod-dac.dtbo`/`.ko`, `fbcp`, `retrogame`) |
+| 3 | `AOIDE_KAZOO` | https://github.com/howardqiao/AOIDE_KAZOO | 2020-04-28 | GPL-2.0 | Separate AOIDE portable product: **ST7789** + Pirate-Audio-style Python path; **not** the ZPOD `pitft22` tree — do not copy pins onto ZPOD without live verify |
+| 4 | `fbcp-ili9341` | https://github.com/howardqiao/fbcp-ili9341 | 2019-10-17 | MIT (fork of juj/fbcp-ili9341) | Generic SPI LCD mirror; ST7789 supported upstream; no ZPOD-specific pin map in this fork |
+| 5 | `ugeek-screen-setup` | https://github.com/howardqiao/ugeek-screen-setup | 2020-03-03 | none declared | Generic uGeek TFT menus (`pitft22` / 2.4" / HD-TFT); pulls `zpod` `fbcp`; not ZPOD-button specific |
+| — | `getcoverart` | https://github.com/howardqiao/getcoverart | 2020-04-12 | none declared | Cover-art helper used by player; no hardware map |
+| — | `gameducky` | https://github.com/howardqiao/gameducky | 2019-01-01 | none declared | Other uGeek handheld; `pitft22` + JoyBonnet — not ZPOD |
+| — | `smartupsv3` / `ugeek-ups2-setup` | (UPS) | 2021 / 2019 | none | Battery/UPS tooling; not display/audio bring-up |
+
+Other howardqiao originals (`RaspiVoiceHAT`, `raspihdtftplus`, `myvolumio`, …) are adjacent AOIDE/uGeek products, not the ZPOD portable stack.
+
+### Install / setup script names (quoted)
+
+From **aoide-dac-drivers**:
+
+- `dac_install.sh` — interactive DAC installer; overlays include `aoide-zpod-dac`
+- `aoide_zpod_setup.sh` — full ZPOD RetroPie/player setup (input, screen, sound, AP, samba)
+- `aoidetft_setup.sh` — “Aoide PITFT Player” on Raspbian (clones `zpod` + `retrogame`)
+- `aoiderp_setup.sh` — same family for RetroPie
+- `volumio_aoide_builder.sh` — Volumio builder helper
+
+From **AOIDE_KAZOO** (different product): `install.sh` (Mopidy + ST7789), `setup.sh` (player + `fbcp-ili9341` + retrogame).
+
+From **ugeek-screen-setup**: `screen_setup.sh`.
+
+### Display (what vendor trees actually say)
+
+**ZPOD tree (`zpod` + `aoide_zpod_setup` / `aoidetft` / `aoiderp`):**
+
+- Overlay name: `pitft22` (Adafruit-style overlay **name** only; panel chip **not** named in these files)
+- Resolution forced via HDMI CVT: `hdmi_cvt=320 240 60 1 0 0 0` (320×240)
+- Example lines from `zpod/zpod_res/config.txt`: `dtoverlay=pitft22,rotate=90,speed=64000000,fps=30` and `dtparam=spi=off`
+- Example from `aoide_zpod_setup.sh` `enable_screen`: `dtparam=spi=on` and `dtoverlay=pitft22,speed=80000000,rotate=90,fps=60`
+- Mirror path: `fbcp` / `raspi2fb` binaries shipped under `zpod_res/`; started from `rc.local`
+- **No ST7789 string** and **no DC/BL/CS BCM numbers** appear in `howardqiao/zpod` or the ZPOD setup scripts under `aoide-dac-drivers`
+
+**AOIDE_KAZOO (quote only — not confirmed as ZPOD hardware):**
+
+- `install.sh` sets `ROTATE=180`, `CS=0`, `DC=25`, `BL=27` and configures Mopidy `[pidi] display = st7789` with packages `pidi-display-st7789`
+- `setup.sh` uses `hdmi_cvt=240 240 60 1 0 0 0` and `fbcp-ili9341`
+- Audio overlay in KAZOO scripts: `hifiberry-dacplus` (not `aoide-zpod-dac`)
+
+Conflict with Paul-pasted online “ST7789 / 1.3\" / 240×240 / Pirate Audio” claim remains open until live introspect; vendor ZPOD scripts still say `pitft22` + 320×240.
+
+### Buttons (vendor maps disagree — do not adopt one yet)
+
+All maps below are **as written in howardqiao files** (BCM / Broadcom numbering per `retrogame.cfg` comments). They conflict; leave `config/zpod.yaml` buttons unset until live verify.
+
+1. **`aoide_zpod_setup.sh` → `/boot/retrogame.cfg`:**
+   - LEFT 17, RIGHT 23, UP 4, DOWN 22, U 12, I 13, J 16, K 26, EQUAL 5, MINUS 20, RIGHTSHIFT 24, ENTER 6
+2. **`aoidetft_setup.sh` / `aoiderp_setup.sh` → `/boot/retrogame.cfg`:**
+   - RIGHTSHIFT 5, LEFT 24, RIGHT 22, K 23
+3. **`zpod/zpod_res/retrogame.cfg`:**
+   - K 5, LEFT 22, RIGHTSHIFT 23, RIGHT 24
+4. **`AOIDE_KAZOO/setup.sh` → `/boot/retrogame.cfg`:** UP 5, DOWN 16, LEFT 20, RIGHT 6
+5. **`AOIDE_KAZOO/install.sh` Mopidy `[raspberry-gpio]`:** bcm5=volume_up, bcm6=next, bcm16=volume_down, bcm20=play_pause
+
+Also starts `/usr/local/bin/retrogame` and `/home/pi/zpod/volcontrol` from `rc.local` in ZPOD setup.
+
+### Audio / `aoide-zpod-dac` (confirmed in vendor trees)
+
+- Overlay name: `aoide-zpod-dac` (in `zpod_res/config.txt`, `aoide_zpod_setup.sh` `enable_sound`, and driver tarballs under `aoide-dac-drivers/drivers/`)
+- Bundled artifacts: `zpod/zpod_res/aoide-zpod-dac.dtbo`, `aoide-zpod-dac.ko`
+- DTBO strings: compatible `aoide,aoide-zpod-dac`; codec node `pcm5122@4d` / `ti,pcm5122` on i2c1; binds I2S controller — **no GPIO pin map for the DAC in the dtbo**
+- Driver tarball e.g. `drivers/aoide_dac_5.10.17.tar.gz` ships matching `.dtbo` + `.ko` for several kernel flavours
+- **Installer menu bug (quote):** in `dac_install.sh`, menu label `"5" "AOIDE ZPOD DAC"` sets `dtoverlay=aoide-zero-digiplus`, while `"6" "Raspi Voice HAT"` sets `dtoverlay=aoide-zpod-dac`. Prefer invoking `sudo ./dac_install.sh aoide-zpod-dac` (script accepts overlay name as `$1`) or editing config by hand — do not trust the numbered menu alone
+- IR in stock `zpod_res/config.txt`: `dtoverlay=gpio-ir,gpio_pin=7`
+
+### License notes
+
+- Most ZPOD-critical repos (`zpod`, `aoide-dac-drivers`, `ugeek-screen-setup`, `getcoverart`) declare **no license** on GitHub
+- `AOIDE_KAZOO`: GPL-2.0
+- `fbcp-ili9341` fork: MIT (upstream juj)
+- Treat unlicensed vendor binaries/scripts as reference only; prefer reimplementation / documented overlays under our tree for shipping
+
+### What this does **not** confirm
+
+- Any BCM map for TFT **DC / backlight / chip-select** on ZPOD
+- That the live UGEEK unit is ST7789 240×240 vs vendor-script `pitft22` 320×240
+- A single authoritative button map
