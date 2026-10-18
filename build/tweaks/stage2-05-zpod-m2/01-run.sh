@@ -143,8 +143,30 @@ done
 on_chroot <<- 'CHROOT'
 	set -e
 	systemctl enable zpod-buttons.service zpod-ui.service zpod-audio-init.service
-	systemctl enable rpi-usb-gadget-ics.service
+	systemctl enable rpi-usb-gadget-ics.service zpod-usb-kick.service
 	systemctl is-enabled zpod-buttons.service zpod-ui.service zpod-audio-init.service rpi-usb-gadget-ics.service
 	python3 -c "import spidev, lgpio, evdev, PIL, smbus2; import sys; sys.path.insert(0, '/usr/lib/zpod'); import zpod_hw, zpod_lcd; print('zpod python imports ok')"
 	python3 -m py_compile /usr/lib/zpod/zpod_ui.py /usr/lib/zpod/zpod_buttons.py
+CHROOT
+
+# 8. M3 boot-time trims (M2 on hardware: multi-user after 3 min 11 s;
+#    console-setup 1 min 6 s, apt-daily-upgrade 35 s, udisks2 16 s).
+#    - apt-daily / apt-daily-upgrade: no unattended apt on a battery player
+#      (they also fire at boot because the timers are Persistent=true).
+#    - console-setup: only loads a font/keymap onto the VTs (HDMI tty1); the
+#      kernel default US keymap and font are fine for a headless device, and
+#      on a Zero the ckbcomp/setupcon run costs about a minute.
+#    - NetworkManager-wait-online: nothing on ZPOD needs network-online.target
+#      to block boot.
+#    - udisks2: desktop automount daemon; unused (no desktop).
+#    systemd-rfkill is left alone: it restores the Wi-Fi soft-block state.
+on_chroot <<- 'CHROOT'
+	set -e
+	systemctl mask apt-daily.timer apt-daily-upgrade.timer apt-daily.service apt-daily-upgrade.service
+	systemctl mask console-setup.service
+	systemctl disable NetworkManager-wait-online.service || true
+	systemctl disable udisks2.service || true
+	for u in apt-daily.timer apt-daily-upgrade.timer console-setup.service; do
+		[ "$(systemctl is-enabled "$u" 2>/dev/null || true)" = masked ]
+	done
 CHROOT

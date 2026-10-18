@@ -1,5 +1,6 @@
 # pi-gen is cloned at build time, never vendored
 build/pi-gen/
+build/pi-gen
 build/pi-gen-config
 build/work/
 build/deploy/

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Offline checks of an M2 .img (never flashes anything). Mounts the root
+# Offline checks of an M2/M3 .img (never flashes anything). Mounts the root
 # partition READ-ONLY via losetup --offset and reads the FAT with mtools
 # (IMG@@offset), then runs the Python imports / dkms status in a qemu chroot.
 # Usage: sudo scripts/verify-m2-image.sh path/to/image.img
@@ -79,6 +79,23 @@ chk "no desktop (no lightdm / xserver)"   bash -c "! ls '$R'/usr/sbin/lightdm '$
 chk "pi has no baked password"            bash -c "grep '^pi:' '$R/etc/shadow' | cut -d: -f2 | grep -qE '^(\*|!|!\*|)$'"
 chk "userconfig.service enabled"          bash -c "ls '$R'/etc/systemd/system/*.wants/userconfig.service"
 
+# --- M3 additions ---------------------------------------------------------
+chk "M3: zpod-usb-kick enabled (usb0 device wants)" test -L "$R/etc/systemd/system/sys-subsystem-net-devices-usb0.device.wants/zpod-usb-kick.service"
+chk "M3: zpod-usb-kick.sh executable"      test -x "$R/usr/lib/zpod/zpod-usb-kick.sh"
+chk "M3: i2c-dev loaded at boot"            grep -qx i2c-dev "$R/etc/modules-load.d/zpod.conf"
+chk "M3: shutdown hook zpod-lcd-off (755)"  bash -c "[ \"\$(stat -c %a '$R/usr/lib/systemd/system-shutdown/zpod-lcd-off')\" = 755 ]"
+chk "M3: ui.conf shutdown screen = message" grep -qx 'screen = message' "$R/etc/zpod/ui.conf"
+chk "M3: zpod-ui end_screen()"              grep -q 'def end_screen' "$R/usr/lib/zpod/zpod_ui.py"
+chk "M3: zpod_lcd blank_off()"              grep -q 'def blank_off' "$R/usr/lib/zpod/zpod_lcd.py"
+chk "M3: VOL_REPEAT_DELAY_S = 0.60"         grep -qx 'VOL_REPEAT_DELAY_S = 0.60' "$R/usr/lib/zpod/zpod_buttons.py"
+for u in apt-daily.timer apt-daily-upgrade.timer console-setup.service; do
+  chk "M3: $u masked"                       bash -c "[ \"\$(readlink '$R/etc/systemd/system/$u')\" = /dev/null ]"
+done
+chk "M3: NetworkManager-wait-online disabled" bash -c "! ls '$R'/etc/systemd/system/*.wants/NetworkManager-wait-online.service 2>/dev/null | grep -q ."
+chk "no build-host APT proxy (51cache)"    test ! -e "$R/etc/apt/apt.conf.d/51cache"
+chk "apt sources = official raspbian"      grep -q 'raspbian.raspberrypi.com' "$R/etc/apt/sources.list.d/raspbian.sources"
+chk "M3: udisks2 not enabled"               bash -c "! ls '$R'/etc/systemd/system/*.wants/udisks2.service 2>/dev/null | grep -q ."
+
 # qemu chroot: imports + dkms status (read-only root; tmpfs /tmp)
 if command -v qemu-arm-static >/dev/null && [[ -e /proc/sys/fs/binfmt_misc/qemu-arm ]]; then
   mount -t tmpfs tmpfs "$MNT/tmp"
@@ -97,6 +114,23 @@ b = zpod_lcd.to_rgb565(img)
 assert len(b) == 153600 and b[:2] == bytes([0xF8, 0x00]), b[:2]
 print('imports ok; PIL', PIL.__version__, '; evdev KEY_ENTER', e.KEY_ENTER)
 " 2>&1) && ok "chroot python: $out" || bad "chroot python: $out"
+  out=$(chroot "$MNT" /usr/bin/env PYTHONDONTWRITEBYTECODE=1 python3 -c "
+import sys, importlib.util
+sys.path.insert(0, '/usr/lib/zpod')
+spec = importlib.util.spec_from_file_location('zpod_ui', '/usr/lib/zpod/zpod_ui.py')
+u = importlib.util.module_from_spec(spec); spec.loader.exec_module(u)
+class FakeLCD:
+    def __init__(s): s.log = []
+    def show(s, img): s.log.append(('show', img.size, img.getpixel((10, 10))))
+    def blank_off(s): s.log.append(('blank_off',))
+assert u.shutdown_screen_mode() == 'message', u.shutdown_screen_mode()
+r = {}
+for kind, mode in (('poweroff', 'message'), ('poweroff', 'off'), ('reboot', 'message'), (None, 'message')):
+    f = FakeLCD(); u.end_screen(f, kind, mode); r[(kind, mode)] = f.log[0][0]
+assert r == {('poweroff','message'):'show', ('poweroff','off'):'blank_off', ('reboot','message'):'show', (None,'message'):'blank_off'}, r
+img = u.final_image('poweroff'); assert img.size == (320, 240)
+print('end_screen ok', sorted((str(k), v) for k, v in r.items()))
+" 2>&1) && ok "M3 chroot: shutdown screen logic ($out)" || bad "M3 chroot: shutdown screen logic: $out"
   ds=$(chroot "$MNT" dkms status 2>&1 | tr '\n' ';')
   echo "--- dkms status: $ds"
   [[ "$ds" == *"rpi-v6"*"installed"* ]] && ok "dkms status shows rpi-v6 installed" || bad "dkms status"

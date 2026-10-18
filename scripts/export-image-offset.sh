@@ -14,6 +14,7 @@
 # - 04-set-partuuid: replace BOOTDEV/ROOTDEV in fstab + cmdline with PARTUUID
 # - 01-user-rename: chroot rename-user -f -s → enables userconfig.service
 #   (first-boot HDMI password wizard; pi has no baked password)
+# - 02-set-sources subset: remove the build-host APT proxy (51cache)
 # - 03-network: install resolv.conf
 # - 05-finalise subset: ld.so.preload, machine-id=uninitialized, clear logs,
 #   remove *- backups, mtab symlink. Skips update-initramfs, apt dist-upgrade,
@@ -178,6 +179,8 @@ fi
 if [[ -e "$MNT/etc/ld.so.preload.disabled" ]]; then
   sudo mv "$MNT/etc/ld.so.preload.disabled" "$MNT/etc/ld.so.preload"
 fi
+# 02-set-sources: never ship a build-host APT proxy (pi-gen APT_PROXY)
+sudo rm -f "$MNT/etc/apt/apt.conf.d/51cache"
 sudo rm -f "$MNT/var/lib/dbus/machine-id"
 echo uninitialized | sudo tee "$MNT/etc/machine-id" >/dev/null
 sudo find "$MNT/var/log" -type f -exec truncate -s0 {} \;
