@@ -1,6 +1,58 @@
-# BUILD-RECORD: ZPOD M3 pi0w (shutdown screen, battery, USB reconnect, vendor button labels, faster boot) — `v0.4.0-m3`
+# BUILD-RECORD: ZPOD M3.1 pi0w — `v0.4.1-m3` (M3 without embedded Wi-Fi credentials)
 
-**Status:** Built, exported, verified **offline** (62/62 checks), published. **Hardware (Paul, 2026-10-17):** boot 1 min 28 s (M2: 3 min 11 s), battery display persists after reboot, Shutdown shows "Safe to power off". USB auto-fix, new button actions and volume repeat are not reported yet — see [TEST-M3.md](./TEST-M3.md).
+**Status:** Built, exported, verified **offline** (69/69 checks), published. It replaces `v0.4.0-m3`, whose image was withdrawn on 2026-10-18 because it contained embedded Wi-Fi credentials.
+**Date:** 2026-10-18 (stages 0–2 15:22:30–15:44:02 PT; export + xz finished ~15:55 PT)
+
+| Field | Value |
+| --- | --- |
+| zpod repo commit (sources built) | 88b9d82b0c802ab35cf7ac1478302e22ea386761 (+ `9f788c1` docs; verifier/leak-check pipefail fix in the record commit) |
+| pi-gen commit | 59b67461533c2eef3564bc48eb3ce5c16e5c62ee (master, trixie armhf) |
+| Board / kernels | pi0w (armhf); 6.18.50+rpt-rpi-v6 / -v7; DAC module vermagic `ARMv6 p2v8` |
+| Stages | stage0–2 rebuilt from scratch, stage2 `SKIP_IMAGES`, offset export |
+| Wi-Fi | **No credentials in the image.** `WPA_COUNTRY=US` only. First-boot import from `zpod-wifi.txt` / `*.nmconnection` on the boot partition ([BOOT-WIFI.md](./BOOT-WIFI.md)) |
+| Hostname / user | zpod / `pi`, no baked password; userconfig.service enabled (`userconf.txt`, TEST-M3 §0) |
+| Disk signature | 544c7fec → PARTUUID=544c7fec-01 (boot), 544c7fec-02 (root) |
+| Build host | Paul's MacBook Air (M1), Docker Desktop 4.12, privileged debian:trixie container, Docker volume work tree (same as M3) |
+
+## Artifacts
+
+| File | Bytes | SHA-256 |
+| --- | --- | --- |
+| 2026-10-18-zpod-pi0w-m3.img.xz | 388637680 (371 MiB) | a0d8274f68fca341f63aef66d1681a6e8d539d0ede14ca4cc0780ab8f1fc71ff |
+| 2026-10-18-zpod-pi0w-m3.img | 2592079872 (2.4 GiB) | 427e936079abc298dcdce362def2fb6a275ad35eccee1bffd041cbf9b3333a12 |
+
+## What changed vs `v0.4.0-m3`
+
+- The build no longer reads `config/wifi.local.env`, and the Wi-Fi injection was removed.
+- The export refuses a rootfs that has any Wi-Fi profile or PSK.
+- New `zpod-wifi-import.service`: runs before NetworkManager and turns `zpod-wifi.txt` into `/etc/NetworkManager/system-connections/zpod-wifi.nmconnection` (0600, `powersave=2`), then overwrites and deletes the file.
+- Everything else is the same M3 content: USB reconnect, i2c-dev, shutdown screen, vendor button labels, 0.6 s volume repeat, boot trims.
+
+## Offline verification (2026-10-18 ~16:02 PT)
+
+`scripts/verify-m3-image.sh` → **69 passed, 0 failed**. That is the 61 M3 checks (the removed one was the embedded-profile check), plus:
+
+- `system-connections` holds only the two usb0 profiles
+- no Wi-Fi/PSK in any `.nmconnection`
+- no `wpa_supplicant` config with a `psk`
+- boot FAT has no `wpa_supplicant.conf` / `zpod-wifi.txt` / `*.nmconnection`
+- `zpod-wifi-import` is enabled, its script is executable, and it is ordered before NetworkManager
+- a qemu-chroot run of the import: txt + nmconnection → 0600, `powersave=2`, source deleted
+
+`scripts/check-image-secrets.sh` (real password from the builder's local env file; counts only): **0 matches** in the raw image bytes, in the root partition (52,030 files) and in the boot partition (441 files). It found the planted test strings in a control run. `sha256sum -c` and `xz -t` OK.
+
+## Published
+
+| Item | URL |
+| --- | --- |
+| Release | https://github.com/nymble/zpod/releases/tag/v0.4.1-m3 |
+
+---
+
+## Previous: ZPOD M3 pi0w — `v0.4.0-m3` (image withdrawn 2026-10-18: embedded Wi-Fi credentials)
+
+
+**Status:** Built, verified offline (62/62), published 2026-10-17; **image withdrawn 2026-10-18 (embedded Wi-Fi credentials) — use `v0.4.1-m3`.** **Hardware (Paul, 2026-10-17):** boot 1 min 28 s (M2: 3 min 11 s), battery display persists after reboot, Shutdown shows "Safe to power off". USB auto-fix, new button actions and volume repeat are not reported yet — see [TEST-M3.md](./TEST-M3.md).
 **Date:** 2026-10-17 (stages 0–2 20:30:56–21:03:20 PT; export + xz finished ~21:20 PT)
 
 | Field | Value |

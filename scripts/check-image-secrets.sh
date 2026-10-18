@@ -28,8 +28,8 @@ total=0
 for which in password SSID; do
   if [[ $which == password ]]; then S="$PASS_S"; else S="$SSID_S"; fi
   raw=$(LC_ALL=C grep -caF -- "$S" "$IMG" || true)
-  rootf=$(LC_ALL=C grep -rlaF -D skip -s -- "$S" "$MNT" | wc -l | tr -d ' ')
-  bootf=$(LC_ALL=C grep -rlaF -s -- "$S" "$BOOTD" | wc -l | tr -d ' ')
+  rootf=$({ LC_ALL=C grep -rlaF -D skip -s -- "$S" "$MNT" || true; } | wc -l | tr -d ' ')
+  bootf=$({ LC_ALL=C grep -rlaF -s -- "$S" "$BOOTD" || true; } | wc -l | tr -d ' ')
   echo "$which: raw_image_matches=$raw rootfs_files=$rootf bootfs_files=$bootf"
   total=$((total + raw + rootf + bootf))
 done

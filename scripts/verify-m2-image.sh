@@ -97,7 +97,7 @@ chk "M3: udisks2 not enabled"               bash -c "! ls '$R'/etc/systemd/syste
 
 # --- M3.1: no Wi-Fi credentials in the image; first-boot import instead -----
 NMC="$R/etc/NetworkManager/system-connections"
-extra=$(ls -A "$NMC" 2>/dev/null | grep -vxE 'usb-gadget-(shared|client)\.nmconnection' | tr '\n' ' ')
+extra=$(ls -A "$NMC" 2>/dev/null | { grep -vxE 'usb-gadget-(shared|client)\.nmconnection' || true; } | tr '\n' ' ')
 chk "M3.1: system-connections holds only the usb0 profiles${extra:+ (extra: $extra)}" test -z "$extra"
 chk "M3.1: no Wi-Fi/PSK in any .nmconnection" bash -c "! grep -lsE '^(type=(wifi|802-11-wireless)|psk=|\[wifi-security\])' '$NMC'/*.nmconnection | grep -q ."
 chk "M3.1: no wpa_supplicant config with a psk (rootfs)" bash -c "! grep -rlsE '^[[:space:]]*(psk|wep_key[0-9]|password)=' '$R/etc/wpa_supplicant' '$R/boot/firmware' | grep -q ."
