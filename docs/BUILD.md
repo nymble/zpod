@@ -257,7 +257,10 @@ What the script does:
    there is also often **no kernel `vfat` module**, so `mount -t vfat` is unavailable.
 6. Overwrites `cmdline.txt` on the FAT with the PARTUUID-patched root= line
    (must not leave `ROOTDEV`).
-7. Compresses with `xz -T0 -9 -k`, writes `SHA256SUMS`, prints `EXPORT_OK <path>`.
+7. Compresses with `xz -T0 -9 -k`, writes `SHA256SUMS` (the `.img.xz` line only, so
+   `sha256sum -c SHA256SUMS` passes in a release download folder) and
+   `<name>.img.sha256` for the uncompressed image (put that hash in the release
+   notes as text), prints `EXPORT_OK <path>`.
 
 Notes:
 

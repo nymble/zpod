@@ -75,7 +75,7 @@ ROOT_PART_SIZE=$(((ROOT_SIZE + ROOT_MARGIN + ALIGN - 1) / ALIGN * ALIGN))
 IMG_SIZE=$((BOOT_PART_START + BOOT_PART_SIZE + ROOT_PART_SIZE))
 
 echo "rootfs_bytes=$ROOT_SIZE margin=$ROOT_MARGIN img_bytes=$IMG_SIZE -> $IMG_FILE"
-rm -f "$IMG_FILE" "${IMG_FILE}.xz" "${OUT_DIR}/SHA256SUMS"
+rm -f "$IMG_FILE" "${IMG_FILE}.xz" "${IMG_FILE}.sha256" "${OUT_DIR}/SHA256SUMS"
 truncate -s "$IMG_SIZE" "$IMG_FILE"
 sudo parted --script "$IMG_FILE" mklabel msdos
 sudo parted --script "$IMG_FILE" unit B mkpart primary fat32 "${BOOT_PART_START}" "$((BOOT_PART_START + BOOT_PART_SIZE - 1))"
@@ -262,7 +262,11 @@ xz -T0 -9 -f -k "$IMG_FILE"
 XZ="${IMG_FILE}.xz"
 (
   cd "$OUT_DIR"
-  sha256sum "$(basename "$XZ")" "$(basename "$IMG_FILE")" | tee SHA256SUMS
+  # SHA256SUMS lists only the published .img.xz so `sha256sum -c SHA256SUMS`
+  # passes in a download folder. The uncompressed .img hash goes to its own
+  # file (and into the release notes as text).
+  sha256sum "$(basename "$XZ")" | tee SHA256SUMS
+  sha256sum "$(basename "$IMG_FILE")" | tee "$(basename "$IMG_FILE").sha256"
 )
 xz -l "$XZ"
 ls -lh "$IMG_FILE" "$XZ"
