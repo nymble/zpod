@@ -1,6 +1,6 @@
 # BUILD-RECORD: ZPOD M3 pi0w (shutdown screen, battery, USB reconnect, vendor button labels, faster boot) — `v0.4.0-m3`
 
-**Status:** Built, exported, verified **offline** (62/62 checks), published. **Not flashed / not hardware-tested** — Paul flashes; see [TEST-M3.md](./TEST-M3.md).
+**Status:** Built, exported, verified **offline** (62/62 checks), published. **Hardware (Paul, 2026-10-17):** boot 1 min 28 s (M2: 3 min 11 s), battery display persists after reboot, Shutdown shows "Safe to power off". USB auto-fix, new button actions and volume repeat are not reported yet — see [TEST-M3.md](./TEST-M3.md).
 **Date:** 2026-10-17 (stages 0–2 20:30:56–21:03:20 PT; export + xz finished ~21:20 PT)
 
 | Field | Value |
@@ -72,6 +72,8 @@ repeat, masked/disabled boot units, no `51cache`, official raspbian sources).
 **Not verifiable without hardware:** automatic USB fix on macOS, battery
 reading at boot via i2c-dev, final shutdown screen after a real poweroff, new
 button actions, 0.6 s volume repeat feel, boot-time gain.
+
+**Since confirmed on hardware (2026-10-17):** battery reading (persists across reboot), the final "Safe to power off" screen, boot time 1 min 28 s.
 
 ## Published
 

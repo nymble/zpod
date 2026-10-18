@@ -5,6 +5,16 @@ Board: Pi Zero W in the ZPOD case. Image: `2026-10-17-zpod-pi0w-m3.img.xz`
 M3 = M2 (confirmed on hardware 2026-10-17, see [BUILD-RECORD](./BUILD-RECORD.md))
 plus the fixes found on hardware and boot-time trims.
 
+## Hardware results (Paul, 2026-10-17, `v0.4.0-m3`)
+
+Confirmed on the ZPOD (Pi Zero W):
+
+- **Boot time:** 1 min 28 s (M2 took 3 min 11 s to multi-user).
+- **Battery:** the battery display works and persists after a reboot (`i2c-dev` fix).
+- **Shutdown screen:** Shutdown shows "Safe to power off".
+
+Not reported yet: automatic USB fix on macOS, new button actions, 0.6 s volume repeat.
+
 ## 0. Before first boot (on the Mac) — optional `userconf` helper
 
 The data USB port is a gadget (no OTG keyboard for the HDMI wizard), so create
