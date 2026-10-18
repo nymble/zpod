@@ -144,6 +144,23 @@ class LCD:
     def backlight(self, on=True):
         lgpio.gpio_write(self.h, self.bl, 1 if on else 0)
 
+    def blank_off(self):
+        """Leave the panel dark: black frame, DISPOFF, SLPIN, backlight low.
+
+        The panel keeps its last frame for as long as it has power, and the
+        Pi Zero's 3V3 rail stays up after 'poweroff', so without this the
+        screen freezes on the final 'Shutting down' frame.
+        """
+        for step in (lambda: self.fill(0x0000),
+                     lambda: self.cmd(0x28),          # DISPOFF
+                     lambda: self.cmd(0x10),          # SLPIN
+                     lambda: time.sleep(0.01),
+                     lambda: self.backlight(False)):  # GPIO27 LOW
+            try:
+                step()
+            except Exception:
+                pass
+
     def close(self):
         try:
             self.spi.close()

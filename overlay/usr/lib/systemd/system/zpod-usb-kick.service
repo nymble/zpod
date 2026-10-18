@@ -1,0 +1,12 @@
+[Unit]
+Description=ZPOD: re-enumerate USB gadget if host->Pi traffic is dead (macOS DHCP fix)
+Documentation=https://github.com/nymble/zpod/blob/main/docs/USB-GADGET.md
+After=NetworkManager.service sys-subsystem-net-devices-usb0.device
+BindsTo=sys-subsystem-net-devices-usb0.device
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/zpod/zpod-usb-kick.sh
+
+[Install]
+WantedBy=sys-subsystem-net-devices-usb0.device

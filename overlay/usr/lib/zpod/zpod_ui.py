@@ -4,8 +4,12 @@
 Input comes from the uinput keyboard published by zpod-buttons (device name
 "zpod-buttons"); the UI never touches button GPIOs itself.
 
-  UP/DOWN        move selection        ENTER (centre) / RIGHT / Circle(K)  select
-  LEFT / X(J)    back / cancel         HOME           back to main screen
+  Labels follow the vendor ZPOD user guide (docs/vendor/, docs/BUTTONS.md):
+  UP/DOWN        move selection (vendor: repeat / shuffle, kept for the player)
+  Circle(K) / centre(ENTER) / RIGHT   OK / select
+  X(J) / LEFT    cancel / back         Square(U)      back to menu
+  HOME           back to main menu     Triangle(I)    clock on/off
+  PLAY/PAUSE     start/stop the test tone
   VOLUMEUP/DOWN  (already applied to ALSA by zpod-buttons) -> volume overlay
 
 Menu: Status, Play test tone, Volume, Wi-Fi info, Reboot, Shutdown
@@ -16,6 +20,7 @@ import select
 import signal
 import subprocess
 import sys
+import configparser
 import threading
 import time
 
@@ -42,6 +47,9 @@ SEL_BG = (0, 90, 160)
 OK = (0, 220, 120)
 WARN = (255, 80, 60)
 
+UI_CONF = "/etc/zpod/ui.conf"
+SHUTDOWN_SCREENS = ("message", "off")
+
 MENU = ["Status", "Play test tone", "Volume", "Wi-Fi info", "Reboot", "Shutdown"]
 
 
@@ -61,6 +69,67 @@ F_BIG = font(30, True)
 
 def log(msg):
     print(msg, flush=True)
+
+
+def shutdown_screen_mode():
+    """[shutdown] screen = message (default) | off, from /etc/zpod/ui.conf."""
+    cp = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
+    try:
+        cp.read(UI_CONF)
+        mode = cp.get("shutdown", "screen", fallback="message").strip().lower()
+    except Exception:
+        mode = "message"
+    return mode if mode in SHUTDOWN_SCREENS else "message"
+
+
+def system_stop_kind():
+    """'poweroff', 'reboot' or None (plain service stop/restart)."""
+    try:
+        jobs = subprocess.run(["systemctl", "list-jobs", "--no-legend", "--plain"],
+                              capture_output=True, text=True, timeout=3).stdout
+    except Exception:
+        return None
+    if "reboot.target" in jobs or "kexec.target" in jobs:
+        return "reboot"
+    if "poweroff.target" in jobs or "halt.target" in jobs:
+        return "poweroff"
+    return None
+
+
+def final_image(kind):
+    """High-contrast last frame; the panel keeps it after the Pi halts."""
+    img = Image.new("RGB", (WIDTH, HEIGHT), (0, 0, 0))
+    d = ImageDraw.Draw(img)
+    if kind == "reboot":
+        d.text((20, 80), "Rebooting...", font=F_BIG, fill=(255, 255, 255))
+        return img
+    d.rectangle([6, 6, WIDTH - 7, HEIGHT - 7], outline=(0, 200, 0), width=3)
+    d.text((24, 40), "ZPOD off", font=font(44, True), fill=(255, 255, 255))
+    d.text((24, 112), "Safe to power off", font=font(26, True), fill=(0, 230, 0))
+    d.text((24, 160), "Slide the power switch off.", font=F_SMALL, fill=(200, 200, 200))
+    d.text((24, 186), time.strftime("Halted %Y-%m-%d %H:%M"), font=F_SMALL, fill=(150, 150, 150))
+    return img
+
+
+def end_screen(lcd, kind, mode):
+    """Leave the panel in a clear state when zpod-ui stops.
+
+    poweroff + mode=message: final 'ZPOD off / Safe to power off' frame,
+                             backlight stays on (3V3 stays up after halt).
+    poweroff + mode=off:     black, DISPOFF, SLPIN, backlight (GPIO27) low.
+    reboot:                  'Rebooting...' frame (zpod-ui re-inits on boot).
+    plain stop/restart:      blank + backlight off; Restart= re-inits.
+    """
+    try:
+        if kind == "poweroff" and mode == "message":
+            lcd.show(final_image("poweroff"))
+            return
+        if kind == "reboot":
+            lcd.show(final_image("reboot"))
+            return
+    except Exception:
+        pass
+    lcd.blank_off()
 
 
 class Buttons:
@@ -160,8 +229,8 @@ class UI:
         elif self.confirm:
             self.header(d)
             d.text((16, 60), f"{self.confirm}?", font=F_BIG, fill=WARN)
-            d.text((16, 120), "ENTER = yes", font=F_ITEM, fill=FG)
-            d.text((16, 150), "LEFT / X = no", font=F_ITEM, fill=FG)
+            d.text((16, 120), "OK (Circle / centre) = yes", font=F_ITEM, fill=FG)
+            d.text((16, 150), "X / Left = cancel", font=F_ITEM, fill=FG)
         elif self.screen == "main":
             self.header(d)
             y = 34
@@ -198,6 +267,12 @@ class UI:
                 d.rectangle([19, 113, 19 + int((WIDTH - 38) * v / 100), 137], fill=OK)
             d.text((16, 160), "UP/RIGHT +   DOWN/LEFT -", font=F_SMALL, fill=DIM)
             d.text((16, 182), "X / HOME = back", font=F_SMALL, fill=DIM)
+        elif self.screen == "clock":
+            d.text((20, 60), time.strftime("%H:%M"), font=font(80, True), fill=FG)
+            d.text((24, 170), time.strftime("%a %Y-%m-%d"), font=F_ITEM, fill=DIM)
+            b = self.status.get("batt")
+            if b:
+                d.text((230, 10), f"{b[0]:.0f}%", font=F_SMALL, fill=OK)
         elif self.screen == "wifi":
             self.header(d, "Wi-Fi")
             w = self.wifi or {}
@@ -228,15 +303,29 @@ class UI:
                 self.dirty = True
         threading.Thread(target=worker, daemon=True).start()
 
+    def toggle_tone(self):
+        """Play/Pause (or the menu item): start a 440 Hz tone, or stop it."""
+        p = getattr(self, "tone_proc", None)
+        if p is not None and p.poll() is None:
+            p.terminate()
+            self.overlay = ("Tone stopped", time.monotonic() + 1.5)
+            self.dirty = True
+            return
+        try:
+            self.tone_proc = subprocess.Popen(
+                ["timeout", "10", "speaker-test", "-D", "default", "-t", "sine", "-f", "440", "-c", "2"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.overlay = ("Tone 440 Hz", time.monotonic() + 1.5)
+        except Exception:
+            self.overlay = ("Tone FAILED", time.monotonic() + 2.0)
+        self.dirty = True
+
     def select(self):
         item = MENU[self.sel]
         if item == "Status":
             self.screen = "status"
         elif item == "Play test tone":
-            def tone():
-                ok = hw.test_tone(2, 440)
-                self.overlay = ("Tone done" if ok else "Tone FAILED", time.monotonic() + 2.0)
-            self.run_bg("Tone 440 Hz", tone)
+            self.toggle_tone()
         elif item == "Volume":
             self.screen = "volume"
         elif item == "Wi-Fi info":
@@ -267,14 +356,18 @@ class UI:
         if self.busy:
             return
         if self.confirm:
-            if code == K.KEY_ENTER:
+            if code in (K.KEY_ENTER, K.KEY_K):
                 self.do_confirmed()
-            elif code in back or code == K.KEY_HOME:
+            elif code in back or code in (K.KEY_HOME, K.KEY_U):
                 self.confirm = None
             self.dirty = True
             return
-        if code == K.KEY_HOME:
+        if code in (K.KEY_HOME, K.KEY_U):          # Home / Square: back to menu
             self.screen = "main"
+        elif code == K.KEY_I:                        # Triangle: clock on/off
+            self.screen = "main" if self.screen == "clock" else "clock"
+        elif code == K.KEY_PLAYPAUSE:                # Play/Pause: test tone
+            self.toggle_tone()
         elif self.screen == "main":
             if code == K.KEY_UP:
                 self.sel = (self.sel - 1) % len(MENU)
@@ -335,6 +428,16 @@ def main():
     try:
         ui.loop(stop)
     finally:
+        # SIGTERM arrives from systemd on stop, reboot and poweroff. Never
+        # leave a stale frame (M2 bug: frozen 'Shutting down' after poweroff):
+        # see end_screen() for the final state per case.
+        p = getattr(ui, "tone_proc", None)
+        if p is not None and p.poll() is None:
+            p.terminate()
+        kind = system_stop_kind()
+        mode = shutdown_screen_mode()
+        log(f"zpod-ui: stopping (system={kind or 'running'}, shutdown screen={mode})")
+        end_screen(lcd, kind, mode)
         lcd.close()
     return 0
 

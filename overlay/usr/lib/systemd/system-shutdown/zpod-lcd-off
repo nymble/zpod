@@ -1,0 +1,11 @@
+#!/bin/sh
+# systemd-shutdown hook ($1 = poweroff | halt | reboot | kexec). Runs last,
+# after zpod-ui has drawn its final screen. Only in "screen = off" mode does it
+# force the LCD backlight (GPIO27) LOW, as a backstop if zpod-ui crashed or was
+# killed before blanking. In the default "message" mode the final
+# "ZPOD off / Safe to power off" frame must stay lit, so nothing is touched.
+case "$1" in poweroff|halt) ;; *) exit 0 ;; esac
+mode=$(sed -n 's/^[[:space:]]*screen[[:space:]]*=[[:space:]]*\([a-z]*\).*/\1/p' /etc/zpod/ui.conf 2>/dev/null | tail -n1)
+[ "$mode" = off ] || exit 0
+[ -x /usr/bin/pinctrl ] && /usr/bin/pinctrl set 27 op dl 2>/dev/null
+exit 0
