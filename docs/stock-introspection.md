@@ -249,6 +249,19 @@ Also starts `/usr/local/bin/retrogame` and `/home/pi/zpod/volcontrol` from `rc.l
 - **Installer menu bug (quote):** in `dac_install.sh`, menu label `"5" "AOIDE ZPOD DAC"` sets `dtoverlay=aoide-zero-digiplus`, while `"6" "Raspi Voice HAT"` sets `dtoverlay=aoide-zpod-dac`. Prefer invoking `sudo ./dac_install.sh aoide-zpod-dac` (script accepts overlay name as `$1`) or editing config by hand — do not trust the numbered menu alone
 - IR in stock `zpod_res/config.txt`: `dtoverlay=gpio-ir,gpio_pin=7`
 
+### Play LED (red, next to the side volume buttons) — confirmed 2026-10-17
+
+- Not a Pi GPIO and not in `/sys/class/leds` (only ACT, default-on, mmc0).
+- Lit while audio plays: `aoide-zpod-dac.c` sets PCM5122 GPIO4 as a register
+  output (reg 0x08 bit3, reg 0x53 = 0x02) and drives it high on stream startup /
+  low on shutdown (reg 0x56 bit3). Read on hardware: 0x56 = 0x00 idle, 0x08
+  during playback (17:04:20–17:04:30 PT tone), 0x00 after; LED-confirmation tone
+  17:11:12.9–17:11:28.0 PT.
+- Vendor `play` / `volcontrol` (disassembled) only write Pi GPIO14 (amp mute,
+  wiringPi 15; high = muted when idle) and GPIO27 (wiringPi 2, set high once).
+  So the LED is the DAC GPIO4 amp-enable / play indicator; there is no separate
+  software LED pin.
+
 ### License notes
 
 - Most ZPOD-critical repos (`zpod`, `aoide-dac-drivers`, `ugeek-screen-setup`, `getcoverart`) declare **no license** on GitHub

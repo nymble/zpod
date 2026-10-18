@@ -26,6 +26,8 @@ M1 lite image **hardware-passed** on Pi Zero 2 W (HDMI, user `paul`, console). R
 
 **2026-10-07:** M1.1 shipped as `v0.2.0-m1.1-wifi`; **M2 `v0.3.0-m2`** ships display + buttons + DAC + USB-cable link (pulls the M4 display/buttons slice forward now that pins are confirmed on hardware). Reload without reflash (M5) is next on top of the USB link.
 
+**2026-10-17:** M2 confirmed on hardware (audio, buttons, LCD; red LED by the volume buttons = DAC GPIO4 play indicator). Release **`v0.4.0-m3`** ships the M2 hardware fixes (USB DHCP on macOS, battery via `i2c-dev`, shutdown screen, vendor button labels, boot trims); the Radios milestone below keeps its scope.
+
 M3 includes association **plus** low-level radio interfaces (`iw`, `btmon`, etc.). Heavy RF apps / 2nd adapter / BitChat stay M8 (#10).
 
 ## Stages

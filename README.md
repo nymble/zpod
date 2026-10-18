@@ -10,6 +10,7 @@ Published images ([Releases](https://github.com/nymble/zpod/releases)):
 
 | Release | What |
 | --- | --- |
+| `v0.4.0-m3` | **M3**: M2 hardware fixes — USB DHCP on macOS (`zpod-usb-kick`), battery (`i2c-dev`), "ZPOD off / Safe to power off" shutdown screen, vendor button labels, faster boot — test with [docs/TEST-M3.md](./docs/TEST-M3.md) |
 | `v0.3.0-m2` | **M2**: LCD status/menu UI (`zpod-ui`), buttons → keyboard (`zpod-buttons`), Aoide PCM5122 DAC via DKMS, USB-cable Ethernet to a Mac, Wi-Fi power save off — test with [docs/TEST-M2.md](./docs/TEST-M2.md) |
 | `v0.2.0-m1.1-wifi` | M1.1: lite trixie armhf + Wi-Fi stack |
 
@@ -40,6 +41,7 @@ A local pi-gen scaffold also lives on the agent computer at `/workspace/zpod-ima
 
 - [docs/BUILD.md](./docs/BUILD.md) — repeatable construction recipe and pins
 - [docs/TEST-M1.md](./docs/TEST-M1.md) — first-install validation checklist
+- [docs/TEST-M3.md](./docs/TEST-M3.md) — M3 on-device checklist
 - [docs/TEST-M2.md](./docs/TEST-M2.md) — M2 on-device checklist
 - [docs/BUTTONS.md](./docs/BUTTONS.md) — button → key code map
 - [docs/USB-GADGET.md](./docs/USB-GADGET.md) — USB cable networking from a Mac

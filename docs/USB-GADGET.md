@@ -53,7 +53,13 @@ ip -4 addr show usb0
 
 - **No interface on the Mac:** cable is charge-only, or plugged into `PWR`.
   Try another cable. `dmesg | grep -i -E 'dwc2|gadget|g_ether'` on the Pi.
-- **Interface but self-assigned 169.254.x.x:** NetworkManager did not bring
+- **Interface but self-assigned 169.254.x.x (seen on M2 + macOS, 2026-10-17):**
+  usb0 is up and the Mac receives the Pi's frames, but the Pi receives none
+  (`cat /sys/class/net/usb0/statistics/rx_packets` stays at 1). A clean
+  re-enumeration fixes it; M3 does this automatically (`zpod-usb-kick`). By
+  hand: `echo disconnect | sudo tee /sys/class/udc/*/soft_connect; sleep 2;
+  echo connect | sudo tee /sys/class/udc/*/soft_connect`.
+- **Interface but self-assigned 169.254.x.x (other cause):** NetworkManager did not bring
   up the shared profile: `sudo nmcli con up "USB Gadget (shared)"`, and
   check `nmcli device` shows usb0 as managed.
 - **Want the Pi to use the Mac's internet:** enable *Internet Sharing* on the

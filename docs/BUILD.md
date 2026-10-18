@@ -3,6 +3,51 @@
 This document is the construction recipe for ZPOD SD images produced from this repo.
 It is the human-readable twin of `./build.sh`. Follow it exactly so a second machine can reproduce the same class of artifact.
 
+## Scope of M3 (M2 hardware fixes + boot trims) — `v0.4.0-m3`
+
+Everything in M2, plus the fixes from the 2026-10-17 hardware test
+([TEST-M3.md](./TEST-M3.md)):
+
+- **USB:** `zpod-usb-kick.service` (wanted by the usb0 device): if usb0 has
+  carrier but has received ≤ 2 frames after 25 s, it soft-reconnects the UDC
+  (M2 on macOS: host→Pi frames never arrived until a re-enumeration, so the
+  Mac never got a DHCP lease).
+- **Battery:** `i2c-dev` in `modules-load.d/zpod.conf` (M2 had no `/dev/i2c-1`).
+- **Shutdown screen:** zpod-ui draws a final "ZPOD off / Safe to power off"
+  frame on poweroff (`/etc/zpod/ui.conf`, `[shutdown] screen = message|off`),
+  "Rebooting..." on reboot, and blanks on a plain service stop; a
+  `system-shutdown` hook forces GPIO27 low only in `off` mode.
+- **Buttons:** vendor-guide labels ([BUTTONS.md](./BUTTONS.md)); volume repeat
+  delay 0.4 → 0.6 s.
+- **Boot:** `apt-daily{,-upgrade}` timers/services and `console-setup` masked,
+  `NetworkManager-wait-online` and `udisks2` disabled.
+
+### M3 build commands (as run 2026-10-17)
+
+The box's `build/pi-gen` work tree was gone, so stages 0–2 were rebuilt from
+scratch at the pinned pi-gen commit. The build host could not reach
+`raspbian.raspberrypi.com` over plain HTTP, so a build-host-only remapping
+proxy (`APT_PROXY=http://127.0.0.1:3142`, in the local `build/pi-gen/config`)
+fetched the same signed packages over HTTPS from a Raspbian mirror;
+`export-image-offset.sh` removes `51cache` and the image keeps the official
+sources.
+
+On the box, `build/pi-gen` is a symlink to `/workspace/zpod-m3-pigen` and the
+image is exported to `/workspace/zpod-m3-deploy` (a box restore wiped the
+repo's gitignored `build/` contents twice).
+
+```
+git clone https://github.com/RPi-Distro/pi-gen.git /workspace/zpod-m3-pigen
+git -C /workspace/zpod-m3-pigen checkout 59b67461533c2eef3564bc48eb3ce5c16e5c62ee
+ln -sfn /workspace/zpod-m3-pigen build/pi-gen
+./build.sh --confirm --board pi0w                 # tweaks + 05-zpod-m2, writes build/pi-gen-config
+touch build/pi-gen/stage2/SKIP_IMAGES             # export via the offset path instead
+./build.sh --confirm --board pi0w --build         # stages 0-2
+sudo IMG_DATE=2026-10-17 ./scripts/export-image-offset.sh \
+  build/pi-gen/work/zpod-pi0w/stage2/rootfs /workspace/zpod-m3-deploy zpod-pi0w-m3
+sudo scripts/verify-m3-image.sh /workspace/zpod-m3-deploy/2026-10-17-zpod-pi0w-m3.img
+```
+
 ## Scope of M2 (display + audio + buttons + USB link) — `v0.3.0-m2`
 
 Same base and pins as M1.1 (pi0w armhf, pi-gen master `59b6746…`, trixie,
