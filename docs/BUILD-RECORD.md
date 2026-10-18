@@ -1,4 +1,89 @@
-# BUILD-RECORD: ZPOD M2 pi0w (display + audio + buttons) — `v0.3.0-m2`
+# BUILD-RECORD: ZPOD M3 pi0w (shutdown screen, battery, USB reconnect, vendor button labels, faster boot) — `v0.4.0-m3`
+
+**Status:** Built, exported, verified **offline** (62/62 checks), published. **Not flashed / not hardware-tested** — Paul flashes; see [TEST-M3.md](./TEST-M3.md).
+**Date:** 2026-10-17 (stages 0–2 20:30:56–21:03:20 PT; export + xz finished ~21:20 PT)
+
+| Field | Value |
+| --- | --- |
+| zpod repo commit (sources built) | 8674c2bd649243cf0e0658ee4827554bfa3bcd83 |
+| pi-gen commit | 59b67461533c2eef3564bc48eb3ce5c16e5c62ee (master, trixie armhf) |
+| Board | pi0w (armhf); kernels 6.18.50+rpt-rpi-v6 / -v7 |
+| Stages | stage0 stage1 stage2 rebuilt from scratch (`build/tweaks` + `05-zpod-m2`), stage2 `SKIP_IMAGES` |
+| ENABLE_SSH / ENABLE_CLOUD_INIT / WPA_COUNTRY | 1 / 0 / US |
+| Home SSID | configured via gitignored `config/wifi.local.env` (not recorded here) |
+| Hostname / user | zpod / `pi`, no baked password; userconfig.service enabled (create the user with `userconf.txt` — TEST-M3 §0) |
+| Export method | `scripts/export-image-offset.sh`, `IMG_DATE=2026-10-17`, name `zpod-pi0w-m3` |
+| Disk signature | d8bbdbf7 → PARTUUID=d8bbdbf7-01 (boot), d8bbdbf7-02 (root) |
+| stage2 rootfs (export `du`) | 1530036224 bytes |
+| DAC module | `aoide-zpod-dac.ko.xz` for rpi-v6 (vermagic `ARMv6 p2v8`) and rpi-v7 |
+
+### Build host (2026-10-17)
+
+Built on Paul's MacBook Air (Apple M1, macOS 26.4.1) instead of the agent box
+(the box was out of memory):
+
+- Docker Desktop 4.12.0 (engine 20.10.17), VM 6 CPU / 9 GiB; `qemu-arm` binfmt
+  (tonistiigi/binfmt, qemu 10.2.3, flags `POCF`).
+- Privileged `debian:trixie` container; the pi-gen work tree lives on a Docker
+  volume (case-sensitive ext4), not on the macOS filesystem.
+- Apple M1 has no AArch32, so the VM kernel rejects `setarch linux32`. A
+  build-host-only `/usr/local/bin/setarch` shim runs the command without the
+  personality (qemu-arm already reports `armv7l`). pi-gen sources are unchanged.
+- No APT proxy: `raspbian.raspberrypi.com` was reachable over HTTP from the
+  container. The image keeps the official sources (verifier checks this).
+
+```
+docker run -d --name zpod-pigen --privileged -v zpod-work:/workspace -v ~/zpod-build/zpod:/src:ro ... debian:trixie sleep infinity
+# in the container (repo rsynced from /src to /workspace/zpod-repo):
+git clone https://github.com/RPi-Distro/pi-gen.git /workspace/zpod-m3-pigen
+git -C /workspace/zpod-m3-pigen checkout 59b67461533c2eef3564bc48eb3ce5c16e5c62ee
+ln -sfn /workspace/zpod-m3-pigen build/pi-gen
+./build.sh --confirm --board pi0w
+touch build/pi-gen/stage2/SKIP_IMAGES
+./build.sh --confirm --board pi0w --build
+IMG_DATE=2026-10-17 ./scripts/export-image-offset.sh \
+  build/pi-gen/work/zpod-pi0w/stage2/rootfs /workspace/zpod-m3-deploy zpod-pi0w-m3
+scripts/verify-m3-image.sh /workspace/zpod-m3-deploy/2026-10-17-zpod-pi0w-m3.img
+```
+
+## Artifacts
+
+| File | Bytes | SHA-256 |
+| --- | --- | --- |
+| 2026-10-17-zpod-pi0w-m3.img.xz | 388416036 (370 MiB) | 44e18bf226ade73d17f58aab27f11527486fdf34c6b64e55af3464274309699e |
+| 2026-10-17-zpod-pi0w-m3.img | 2592079872 (2.4 GiB) | 37119893295780de06dd826a539885be07094caab74166bd8e41fa094548502d |
+
+## What M3 adds (vs M2)
+
+- **USB:** `zpod-usb-kick.service` soft-reconnects the UDC if usb0 has carrier but ≤ 2 received frames after 25 s (macOS DHCP fix).
+- **Battery:** `i2c-dev` loaded at boot (`/dev/i2c-1` for the MAX17048).
+- **Shutdown screen:** final "ZPOD off / Safe to power off" frame on poweroff, "Rebooting..." on reboot, blank on service stop; `zpod-lcd-off` system-shutdown hook for `screen = off`.
+- **Buttons:** vendor-guide labels ([BUTTONS.md](./BUTTONS.md)); volume repeat delay 0.4 → 0.6 s.
+- **Boot:** `apt-daily{,-upgrade}` and `console-setup` masked; `NetworkManager-wait-online` and `udisks2` disabled.
+
+## Offline verification (2026-10-17 ~21:21 PT)
+
+`scripts/verify-m3-image.sh 2026-10-17-zpod-pi0w-m3.img` → **62 passed, 0 failed**
+(all M2 checks plus: zpod-usb-kick enabled, i2c-dev, shutdown hook, ui.conf
+shutdown screen, end_screen/blank_off logic in a qemu chroot, 0.60 s volume
+repeat, masked/disabled boot units, no `51cache`, official raspbian sources).
+`sha256sum -c` and `xz -t` OK.
+
+**Not verifiable without hardware:** automatic USB fix on macOS, battery
+reading at boot via i2c-dev, final shutdown screen after a real poweroff, new
+button actions, 0.6 s volume repeat feel, boot-time gain.
+
+## Published
+
+| Item | URL |
+| --- | --- |
+| Source commit | https://github.com/nymble/zpod/commit/8674c2bd649243cf0e0658ee4827554bfa3bcd83 |
+| Release | https://github.com/nymble/zpod/releases/tag/v0.4.0-m3 |
+
+---
+
+## Previous: ZPOD M2 pi0w — `v0.3.0-m2`
+
 
 **Status:** Built, exported, verified **offline** (46/46 checks), published. **Not flashed / not hardware-tested** — Paul flashes; see [TEST-M2.md](./TEST-M2.md).
 **Date:** 2026-10-07 (stage2 14:10:41–14:19:43 PT; export finished ~14:26 PT)
