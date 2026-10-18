@@ -79,6 +79,11 @@ button actions, 0.6 s volume repeat feel, boot-time gain.
 | --- | --- |
 | Source commit | https://github.com/nymble/zpod/commit/8674c2bd649243cf0e0658ee4827554bfa3bcd83 |
 | Release | https://github.com/nymble/zpod/releases/tag/v0.4.0-m3 |
+| Issue #4 | https://github.com/nymble/zpod/issues/4#issuecomment-6245644724 |
+| Issue #6 | https://github.com/nymble/zpod/issues/6#issuecomment-6245644970 |
+| Issue #7 | https://github.com/nymble/zpod/issues/7#issuecomment-6245645205 |
+| Issue #13 | https://github.com/nymble/zpod/issues/13#issuecomment-6245645358 |
+| Issue #14 | https://github.com/nymble/zpod/issues/14#issuecomment-6245645537 |
 
 ---
 
