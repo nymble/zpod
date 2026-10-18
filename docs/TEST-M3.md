@@ -1,6 +1,7 @@
-# M3 on-device test checklist (`v0.4.0-m3`)
+# M3 on-device test checklist (`v0.4.1-m3`; `v0.4.0-m3` withdrawn)
 
-Board: Pi Zero W in the ZPOD case. Image: `2026-10-17-zpod-pi0w-m3.img.xz`
+Board: Pi Zero W in the ZPOD case. Image: `2026-10-18-zpod-pi0w-m3.img.xz` (`v0.4.1-m3`;
+same as the withdrawn `v0.4.0-m3` image, minus the embedded Wi-Fi profile, plus first-boot Wi-Fi import)
 (check it against `SHA256SUMS` first). Never flash a card you care about.
 M3 = M2 (confirmed on hardware 2026-10-17, see [BUILD-RECORD](./BUILD-RECORD.md))
 plus the fixes found on hardware and boot-time trims.
@@ -25,7 +26,19 @@ the user headlessly. After writing the image, re-mount the card and run
 echo "paul:$(openssl passwd -6)" > /Volumes/bootfs/userconf.txt
 ```
 
-Home SSID is configured in the image. Eject, insert, power on.
+**Wi-Fi (`v0.4.1-m3`+; the image has no Wi-Fi credentials):** add yours on the
+boot volume. It is imported on first boot and the file is deleted
+([BOOT-WIFI.md](./BOOT-WIFI.md)):
+
+```bash
+printf 'SSID=%s\nPSK=%s\n' 'YourSSID' 'YourPassword' > /Volumes/bootfs/zpod-wifi.txt
+```
+
+Skip this to use only the USB cable. USB networking does not need Wi-Fi.
+Eject, insert, power on. After boot: `journalctl -b -u zpod-wifi-import` shows
+"imported", `ls /boot/firmware/zpod-wifi.txt` → no such file, and
+`sudo ls -l /etc/NetworkManager/system-connections/` shows `zpod-wifi.nmconnection`
+with mode `-rw-------`.
 
 ## 1. USB link (M2 bug: Mac got only 169.254.x.x)
 

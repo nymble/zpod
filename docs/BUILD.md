@@ -3,7 +3,30 @@
 This document is the construction recipe for ZPOD SD images produced from this repo.
 It is the human-readable twin of `./build.sh`. Follow it exactly so a second machine can reproduce the same class of artifact.
 
-## Scope of M3 (M2 hardware fixes + boot trims) — `v0.4.0-m3`
+## Scope of M3.1 — `v0.4.1-m3` (no embedded Wi-Fi credentials)
+
+Same as M3, except:
+
+- **No Wi-Fi credentials in any image.** `build.sh` does not read
+  `config/wifi.local.env`. `export-image-offset.sh` no longer injects Wi-Fi
+  (`scripts/inject-wifi-nmconnection.sh` was removed) and refuses a rootfs
+  with Wi-Fi profiles or PSKs.
+- **First-boot import:** `zpod-wifi-import.service` turns
+  `/boot/firmware/zpod-wifi.txt` (`SSID=`/`PSK=`) or `*.nmconnection` into a
+  NetworkManager profile (0600, power save off), then deletes the file
+  ([BOOT-WIFI.md](./BOOT-WIFI.md)).
+- **Checks:** the verifier has the new credential and import checks.
+  `sudo scripts/check-image-secrets.sh <img>` greps the image for the real
+  SSID/password from the local env file and prints counts only.
+
+```
+IMG_DATE=2026-10-18 ./scripts/export-image-offset.sh \
+  build/pi-gen/work/zpod-pi0w/stage2/rootfs <deploy> zpod-pi0w-m3
+scripts/verify-m3-image.sh <deploy>/2026-10-18-zpod-pi0w-m3.img
+scripts/check-image-secrets.sh <deploy>/2026-10-18-zpod-pi0w-m3.img config/wifi.local.env
+```
+
+## Scope of M3 (M2 hardware fixes + boot trims) — `v0.4.0-m3` (withdrawn 2026-10-18)
 
 Everything in M2, plus the fixes from the 2026-10-17 hardware test
 ([TEST-M3.md](./TEST-M3.md)):
@@ -51,8 +74,8 @@ sudo scripts/verify-m3-image.sh /workspace/zpod-m3-deploy/2026-10-17-zpod-pi0w-m
 ## Scope of M2 (display + audio + buttons + USB link) — `v0.3.0-m2`
 
 Same base and pins as M1.1 (pi0w armhf, pi-gen master `59b6746…`, trixie,
-stage0–2 lite, user `pi` without a baked password, home SSID from gitignored
-`config/wifi.local.env`). `build/tweaks/apply.sh` adds a stage2 substep
+stage0–2 lite, user `pi` without a baked password; the M2 image also had a home
+SSID from the gitignored `config/wifi.local.env` — removed in M3.1). `build/tweaks/apply.sh` adds a stage2 substep
 **`05-zpod-m2`** (sources: `build/tweaks/stage2-05-zpod-m2/`, `overlay/`,
 `drivers/aoide-zpod-dac/`):
 

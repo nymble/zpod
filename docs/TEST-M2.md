@@ -13,7 +13,8 @@ Board: Pi Zero W in the ZPOD case. Image: `2026-10-07-zpod-pi0w-m2.img.xz`
    ```bash
    echo "paul:$(openssl passwd -6)" > /Volumes/bootfs/userconf.txt
    ```
-3. Home SSID is configured in the image. Eject, insert, power on.
+3. (Historical: the withdrawn M2 image had an embedded Wi-Fi profile. Current images
+   have none — add `zpod-wifi.txt`, see [BOOT-WIFI.md](./BOOT-WIFI.md).) Eject, insert, power on.
 
 ## 1. Boot + screen
 
