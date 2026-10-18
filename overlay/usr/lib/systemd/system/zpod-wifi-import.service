@@ -1,0 +1,18 @@
+[Unit]
+Description=ZPOD: import Wi-Fi from the boot partition (zpod-wifi.txt / *.nmconnection), then delete it
+Documentation=https://github.com/nymble/zpod/blob/main/docs/BOOT-WIFI.md
+DefaultDependencies=no
+RequiresMountsFor=/boot/firmware /etc/NetworkManager
+After=local-fs.target systemd-remount-fs.service
+Before=NetworkManager.service network-pre.target shutdown.target
+Wants=network-pre.target
+Conflicts=shutdown.target
+ConditionPathExists=|/boot/firmware/zpod-wifi.txt
+ConditionPathExistsGlob=|/boot/firmware/*.nmconnection
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/zpod/zpod-wifi-import.sh
+
+[Install]
+WantedBy=multi-user.target

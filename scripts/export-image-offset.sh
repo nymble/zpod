@@ -15,6 +15,8 @@
 # - 01-user-rename: chroot rename-user -f -s → enables userconfig.service
 #   (first-boot HDMI password wizard; pi has no baked password)
 # - 02-set-sources subset: remove the build-host APT proxy (51cache)
+# - never bakes Wi-Fi credentials (refuses if the rootfs has any); Wi-Fi comes
+#   from zpod-wifi.txt on the boot partition at first boot (zpod-wifi-import)
 # - 03-network: install resolv.conf
 # - 05-finalise subset: ld.so.preload, machine-id=uninitialized, clear logs,
 #   remove *- backups, mtab symlink. Skips update-initramfs, apt dist-upgrade,
@@ -46,13 +48,26 @@ if [[ ! -d "$ROOTFS/boot/firmware" ]]; then
   exit 1
 fi
 
-# If local Wi-Fi credentials exist (gitignored), bake NM + boot wpa before packing.
-INJECT_WIFI="${REPO_ROOT}/scripts/inject-wifi-nmconnection.sh"
-LOCAL_WIFI="${REPO_ROOT}/config/wifi.local.env"
-if [[ -f "$LOCAL_WIFI" && -x "$INJECT_WIFI" ]]; then
-  echo "injecting home SSID from config/wifi.local.env (gitignored)..."
-  "$INJECT_WIFI" "$ROOTFS"
-fi
+# M3.1+: never bake Wi-Fi credentials. config/wifi.local.env is NOT read here;
+# the image imports zpod-wifi.txt from the boot partition on first boot.
+# Refuse to export a rootfs that carries any Wi-Fi profile or PSK.
+cred_found=0
+for f in "$ROOTFS"/etc/NetworkManager/system-connections/*.nmconnection; do
+  [[ -e "$f" ]] || continue
+  if sudo grep -qE '^(type=(wifi|802-11-wireless)|psk=|\[wifi-security\])' "$f"; then
+    echo "error: Wi-Fi profile in rootfs: ${f#$ROOTFS}" >&2; cred_found=1
+  fi
+done
+for f in "$ROOTFS"/boot/firmware/wpa_supplicant.conf "$ROOTFS"/boot/firmware/zpod-wifi.txt \
+         "$ROOTFS"/boot/firmware/*.nmconnection "$ROOTFS"/etc/wpa_supplicant/*.conf; do
+  [[ -e "$f" ]] || continue
+  if [[ "$f" != *.conf ]] || sudo grep -qE '^[[:space:]]*(psk|wep_key[0-9]|password)=' "$f"; then
+    echo "error: Wi-Fi credentials file in rootfs: ${f#$ROOTFS}" >&2; cred_found=1
+  fi
+done
+[[ "$cred_found" -eq 0 ]] || { echo "error: refusing to export an image with Wi-Fi credentials" >&2; exit 1; }
+# Let NetworkManager start with WLAN enabled (no stale state from the build).
+sudo rm -f "$ROOTFS/var/lib/NetworkManager/NetworkManager.state"
 
 need() { command -v "$1" >/dev/null || { echo "missing $1" >&2; exit 1; }; }
 need truncate; need parted; need losetup; need mkdosfs; need mke2fs; need rsync

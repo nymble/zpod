@@ -99,12 +99,11 @@ fi
 # shellcheck disable=SC1090
 set -a
 source "$ENV_FILE"
-# Optional local Wi-Fi secrets (gitignored). Never commit.
-if [[ -f "${ROOT}/config/wifi.local.env" ]]; then
-  # shellcheck disable=SC1091
-  source "${ROOT}/config/wifi.local.env"
-fi
+# Wi-Fi credentials are NEVER read into a build (M3.1+). A local
+# config/wifi.local.env is only for writing zpod-wifi.txt onto a flashed card
+# (scripts/write-zpod-wifi-txt.sh); the image imports it on first boot.
 set +a
+unset WPA_SSID WPA_PASSWORD
 
 repo="${PI_GEN_REPO:?PI_GEN_REPO missing}"
 branch="${PI_GEN_BRANCH:?PI_GEN_BRANCH missing}"
@@ -145,7 +144,7 @@ wpa_line=""
 if [[ "$board" == "pi0w" ]]; then
   # Default US matches TIMEZONE America/Los_Angeles. Required so NetworkManager
   # does not leave WirelessEnabled=false (stock pi-gen when WPA_COUNTRY unset).
-  # SSID/password are NOT baked in — see docs/BOOT-WIFI.md.
+  # SSID/password are never baked in — see docs/BOOT-WIFI.md (zpod-wifi.txt).
   wpa_country="${WPA_COUNTRY:-US}"
   wireless_note="Zero W / Zero 2 W: onboard Wi-Fi enabled (WPA_COUNTRY=${wpa_country}). No SSID baked in."
   wpa_line="WPA_COUNTRY='${wpa_country}'"
@@ -173,13 +172,8 @@ EOF
 if [[ -n "$wpa_line" ]]; then
   echo "$wpa_line" >> "$GEN_CONFIG"
 fi
-# SSID/password only from local env (gitignored). Not required for build.
-if [[ -n "${WPA_SSID:-}" ]]; then
-  echo "WPA_SSID='${WPA_SSID}'" >> "$GEN_CONFIG"
-fi
-if [[ -n "${WPA_PASSWORD:-}" ]]; then
-  echo "WPA_PASSWORD='${WPA_PASSWORD}'" >> "$GEN_CONFIG"
-fi
+# No SSID/password in the pi-gen config: Wi-Fi comes from zpod-wifi.txt on the
+# boot partition at first boot (docs/BOOT-WIFI.md).
 
 cat >> "$GEN_CONFIG" <<EOF
 

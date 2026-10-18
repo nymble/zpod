@@ -144,6 +144,9 @@ on_chroot <<- 'CHROOT'
 	set -e
 	systemctl enable zpod-buttons.service zpod-ui.service zpod-audio-init.service
 	systemctl enable rpi-usb-gadget-ics.service zpod-usb-kick.service
+	# M3.1: first-boot Wi-Fi import from the boot partition (no credentials in the image)
+	systemctl enable zpod-wifi-import.service
+	systemctl is-enabled zpod-wifi-import.service
 	systemctl is-enabled zpod-buttons.service zpod-ui.service zpod-audio-init.service rpi-usb-gadget-ics.service
 	python3 -c "import spidev, lgpio, evdev, PIL, smbus2; import sys; sys.path.insert(0, '/usr/lib/zpod'); import zpod_hw, zpod_lcd; print('zpod python imports ok')"
 	python3 -m py_compile /usr/lib/zpod/zpod_ui.py /usr/lib/zpod/zpod_buttons.py

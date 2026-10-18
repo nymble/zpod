@@ -64,7 +64,6 @@ for u in zpod-ui zpod-buttons zpod-audio-init rpi-usb-gadget-ics; do
 done
 chk "asound.conf default = DAC"           grep -q 'sndrpiaoidezpod' "$R/etc/asound.conf"
 chk "NM wifi.powersave = 2"               grep -q 'wifi.powersave = 2' "$R/etc/NetworkManager/conf.d/90-zpod-wifi-powersave.conf"
-chk "NM preconfigured powersave=2"        grep -q '^powersave=2' "$R/etc/NetworkManager/system-connections/preconfigured.nmconnection"
 chk "NM usb0 shared profile (600)"        bash -c "[ \"\$(stat -c %a '$R/etc/NetworkManager/system-connections/usb-gadget-shared.nmconnection')\" = 600 ]"
 chk "usb0 NM-managed udev rule"           test -f "$R/etc/udev/rules.d/86-zpod-usb-gadget-nm-managed.rules"
 chk "g_ether loaded at boot"              grep -qx g_ether "$R/etc/modules-load.d/usb-gadget.conf"
@@ -95,6 +94,19 @@ chk "M3: NetworkManager-wait-online disabled" bash -c "! ls '$R'/etc/systemd/sys
 chk "no build-host APT proxy (51cache)"    test ! -e "$R/etc/apt/apt.conf.d/51cache"
 chk "apt sources = official raspbian"      grep -q 'raspbian.raspberrypi.com' "$R/etc/apt/sources.list.d/raspbian.sources"
 chk "M3: udisks2 not enabled"               bash -c "! ls '$R'/etc/systemd/system/*.wants/udisks2.service 2>/dev/null | grep -q ."
+
+# --- M3.1: no Wi-Fi credentials in the image; first-boot import instead -----
+NMC="$R/etc/NetworkManager/system-connections"
+extra=$(ls -A "$NMC" 2>/dev/null | grep -vxE 'usb-gadget-(shared|client)\.nmconnection' | tr '\n' ' ')
+chk "M3.1: system-connections holds only the usb0 profiles${extra:+ (extra: $extra)}" test -z "$extra"
+chk "M3.1: no Wi-Fi/PSK in any .nmconnection" bash -c "! grep -lsE '^(type=(wifi|802-11-wireless)|psk=|\[wifi-security\])' '$NMC'/*.nmconnection | grep -q ."
+chk "M3.1: no wpa_supplicant config with a psk (rootfs)" bash -c "! grep -rlsE '^[[:space:]]*(psk|wep_key[0-9]|password)=' '$R/etc/wpa_supplicant' '$R/boot/firmware' | grep -q ."
+bootls=$(MTOOLS_SKIP_CHECK=1 mdir -b -i "$BOOT" :: 2>/dev/null | tr 'A-Z' 'a-z')
+chk "M3.1: boot FAT has no wpa_supplicant.conf / zpod-wifi.txt / *.nmconnection" \
+  bash -c "! printf '%s\n' \"\$1\" | grep -qE '(wpa_supplicant\.conf|zpod-wifi\.txt|\.nmconnection)\$'" _ "$bootls"
+chk "M3.1: zpod-wifi-import enabled"         test -L "$R/etc/systemd/system/multi-user.target.wants/zpod-wifi-import.service"
+chk "M3.1: zpod-wifi-import.sh executable"   test -x "$R/usr/lib/zpod/zpod-wifi-import.sh"
+chk "M3.1: import runs before NetworkManager" grep -q '^Before=NetworkManager.service' "$R/usr/lib/systemd/system/zpod-wifi-import.service"
 
 # qemu chroot: imports + dkms status (read-only root; tmpfs /tmp)
 if command -v qemu-arm-static >/dev/null && [[ -e /proc/sys/fs/binfmt_misc/qemu-arm ]]; then
@@ -131,6 +143,19 @@ assert r == {('poweroff','message'):'show', ('poweroff','off'):'blank_off', ('re
 img = u.final_image('poweroff'); assert img.size == (320, 240)
 print('end_screen ok', sorted((str(k), v) for k, v in r.items()))
 " 2>&1) && ok "M3 chroot: shutdown screen logic ($out)" || bad "M3 chroot: shutdown screen logic: $out"
+  # M3.1: run the first-boot Wi-Fi import against a fake boot dir in /tmp
+  out=$(chroot "$MNT" /bin/bash -c '
+set -e
+B=/tmp/zw-boot C=/tmp/zw-conn; rm -rf $B $C; mkdir -p $B
+printf "\xef\xbb\xbfSSID=ZPOD Test;Net\r\nPSK=p\\\\ss w0rd!x\r\n" > $B/zpod-wifi.txt
+printf "[connection]\nid=extra\ntype=wifi\n\n[wifi]\nssid=Other\n" > $B/extra.nmconnection
+ZPOD_BOOT_DIR=$B ZPOD_CONN_DIR=$C ZPOD_NO_COUNTRY=1 /usr/lib/zpod/zpod-wifi-import.sh >/dev/null
+f=$C/zpod-wifi.nmconnection
+test ! -e $B/zpod-wifi.txt; test ! -e $B/extra.nmconnection
+test "$(stat -c %a $f)" = 600; test "$(stat -c %a $C/extra.nmconnection)" = 600
+grep -qx "ssid=ZPOD Test;Net" $f; grep -qx "psk=p\\\\\\\\ss w0rd!x" $f
+grep -qx "powersave=2" $f; grep -qx "key-mgmt=wpa-psk" $f; grep -qx "powersave=2" $C/extra.nmconnection
+rm -rf $B $C; echo import ok' 2>&1) && ok "M3.1 chroot: zpod-wifi-import (txt + nmconnection, 600, powersave=2, source deleted)" || bad "M3.1 chroot: zpod-wifi-import: $out"
   ds=$(chroot "$MNT" dkms status 2>&1 | tr '\n' ';')
   echo "--- dkms status: $ds"
   [[ "$ds" == *"rpi-v6"*"installed"* ]] && ok "dkms status shows rpi-v6 installed" || bad "dkms status"
