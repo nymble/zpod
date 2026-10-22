@@ -1,0 +1,5 @@
+# ZPOD USB cable networking mode (read at boot by zpod-usb-gadget).
+#   ncm     = CDC-NCM, default. Works on macOS (no setup), Linux, Windows 11.
+#   ecm     = CDC-ECM. macOS stops sending after ~160 frames (Apple bug).
+#   g_ether = the M3 module (RNDIS + ECM), for Windows 10 or debugging.
+mode=ncm

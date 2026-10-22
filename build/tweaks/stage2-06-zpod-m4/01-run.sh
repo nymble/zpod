@@ -1,9 +1,9 @@
 #!/bin/bash -e
-# DRAFT (M4, not yet wired into build/tweaks/apply.sh): install the Rust
+# ZPOD M4 (installed by build/tweaks/apply.sh as stage2/06-zpod-m4): the Rust
 # launcher, boot splash, drop server, zpod-app and the bundled apps.
-# Expects apps/dist from apps/tools/build-arm.sh (run on the build host first).
-M4="${BASE_DIR}/../apps"          # adjust to where apply.sh copies the repo
-DIST="${M4}/dist"
+# files/dist comes from apps/tools/build-arm.sh, files/system from apps/system.
+M4="files"
+DIST="files/dist"
 [ -d "${DIST}/core" ] || { echo "stage2-06-zpod-m4: run apps/tools/build-arm.sh first" >&2; exit 1; }
 
 install -d "${ROOTFS_DIR}/usr/lib/zpod/bin" "${ROOTFS_DIR}/opt/zpod/apps" "${ROOTFS_DIR}/etc/zpod"
@@ -26,9 +26,12 @@ set -e
 id zpod >/dev/null 2>&1 || useradd --system --home-dir /var/lib/zpod/home --create-home \
     --shell /usr/sbin/nologin zpod
 for g in spi gpio i2c input audio video; do getent group "$g" >/dev/null && usermod -aG "$g" zpod; done
-install -d -o pi -g pi -m 0775 /srv/zpod/media /srv/zpod/media/music /srv/zpod/media/playlists
-usermod -aG pi mpd || true     # mpd reads the music dir via group
-chmod 0775 /srv/zpod/media/playlists && chown pi:mpd /srv/zpod/media/playlists || true
+# The first user is created as "pi" (uid 1000) and renamed at first boot
+# (userconf.txt / Imager, e.g. to "paul"), so use the uid, never the name.
+U=$(getent passwd 1000 | cut -d: -f1)
+install -d -o 1000 -g 1000 -m 0775 /srv/zpod/media /srv/zpod/media/music /srv/zpod/media/playlists
+usermod -aG "$U" mpd || true   # mpd reads the music dir via the user's group
+chown 1000:mpd /srv/zpod/media/playlists || true
 for a in /tmp/zpod-m4-packages/*.zpa; do [ -e "$a" ] && ZPOD_CORE_VERSION_FILE=/etc/zpod/core-version /usr/lib/zpod/bin/zpod-app install --force "$a"; done
 systemctl disable zpod-ui.service || true
 systemctl enable zpod-bootsplash.service zpod-launcher.service zpod-drop.socket mpd.service

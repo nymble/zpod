@@ -1,0 +1,16 @@
+[Unit]
+Description=ZPOD: USB gadget Ethernet (configfs CDC-NCM; ECM / g_ether selectable)
+Documentation=https://github.com/nymble/zpod/blob/main/docs/USB-GADGET.md
+DefaultDependencies=no
+After=sys-kernel-config.mount systemd-modules-load.service local-fs.target
+Before=NetworkManager.service network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/zpod/zpod-usb-gadget.sh start
+ExecStop=/usr/lib/zpod/zpod-usb-gadget.sh stop
+
+[Install]
+WantedBy=sysinit.target

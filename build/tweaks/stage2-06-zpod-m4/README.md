@@ -1,4 +1,4 @@
-# stage2-06-zpod-m4 (DRAFT, not merged into apply.sh)
+# stage2-06-zpod-m4
 
 Installs the M4 Rust userland on top of stage2-05-zpod-m2:
 
@@ -8,10 +8,10 @@ Installs the M4 Rust userland on top of stage2-05-zpod-m2:
   zpod-drop.socket
 * `/opt/zpod/apps/{music,clock,tetris}` installed from the .zpa packages
 * MPD with `/etc/mpd.conf` -> `/srv/zpod/media/music`, ALSA hw on the PCM5122,
-  hardware mixer 'Digital' (the same control zpod-buttons drives)
-* system user `zpod` (apps run as it), media dirs owned by `pi`
+  no MPD mixer (mixer_type none): zpod-buttons is the only volume writer
+* system user `zpod` (apps run as it), media dirs owned by uid 1000 (the first user, `pi` renamed at first boot)
 
 Prerequisite on the build host: `apps/tools/build-arm.sh` (produces apps/dist).
-To wire in: copy this directory like stage2-05 in `build/tweaks/apply.sh` and
-make sure apps/dist is reachable from the pi-gen tree (`M4=` at the top).
+`build/tweaks/apply.sh` installs this stage (with files/dist and
+files/system) only when apps/dist exists.
 Rollback on a device: `sudo systemctl disable --now zpod-launcher zpod-bootsplash && sudo systemctl enable --now zpod-ui`.

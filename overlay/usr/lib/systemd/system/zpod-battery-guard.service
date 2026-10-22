@@ -1,0 +1,13 @@
+[Unit]
+Description=ZPOD: power off cleanly when the battery is empty (MAX17048)
+Documentation=https://github.com/nymble/zpod/blob/main/docs/ui/BUTTONS-AND-MENUS.md
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/lib/zpod/zpod_battery_guard.py
+Restart=on-failure
+RestartSec=30
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

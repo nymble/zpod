@@ -116,6 +116,17 @@ if ! grep -q 'ZPOD M2' "$CFG"; then
 		dtoverlay=dwc2,dr_mode=peripheral
 	CFGEOF
 fi
+if ! grep -q 'ZPOD M4' "$CFG"; then
+	cat >> "$CFG" <<- 'CFGEOF'
+		# --- ZPOD M4 ---
+		# DS3231 RTC on I2C1 @ 0x68 (confirmed present on hardware); zpod-rtc.service
+		# sets the system clock from it at boot (driver is a module: no hctosys)
+		dtoverlay=i2c-rtc,ds3231
+	CFGEOF
+fi
+grep -q '^dtoverlay=i2c-rtc,ds3231' "$CFG"
+# USB networking mode file (ncm default; see docs/USB-GADGET.md)
+install -m 644 files/zpod-usb.txt "${BOOTFW}/zpod-usb.txt"
 
 # 5. cmdline: drop the serial console (GPIO14 = UART TX = amp mute line)
 sed -i -e 's/console=serial0,[0-9]* *//' "${BOOTFW}/cmdline.txt"
@@ -144,12 +155,21 @@ on_chroot <<- 'CHROOT'
 	set -e
 	systemctl enable zpod-buttons.service zpod-ui.service zpod-audio-init.service
 	systemctl enable rpi-usb-gadget-ics.service zpod-usb-kick.service
+	# M4: configfs CDC-NCM gadget instead of g_ether (macOS AppleUserECM bug)
+	rm -f /etc/modules-load.d/usb-gadget.conf /etc/modprobe.d/zpod-g_ether.conf
+	systemctl enable zpod-usb-gadget.service
+	# M4: DS3231 RTC (fake-hwclock would fight it) + low-battery power-off
+	if dpkg -s fake-hwclock >/dev/null 2>&1; then apt-get purge -y fake-hwclock; fi
+	systemctl enable zpod-rtc.service zpod-rtc-sync.timer zpod-battery-guard.service
+	command -v hwclock
+	for d in /lib/modules/*; do modinfo -k "$(basename "$d")" usb_f_ncm >/dev/null; done
 	# M3.1: first-boot Wi-Fi import from the boot partition (no credentials in the image)
 	systemctl enable zpod-wifi-import.service
 	systemctl is-enabled zpod-wifi-import.service
 	systemctl is-enabled zpod-buttons.service zpod-ui.service zpod-audio-init.service rpi-usb-gadget-ics.service
 	python3 -c "import spidev, lgpio, evdev, PIL, smbus2; import sys; sys.path.insert(0, '/usr/lib/zpod'); import zpod_hw, zpod_lcd; print('zpod python imports ok')"
-	python3 -m py_compile /usr/lib/zpod/zpod_ui.py /usr/lib/zpod/zpod_buttons.py
+	python3 -m py_compile /usr/lib/zpod/zpod_ui.py /usr/lib/zpod/zpod_buttons.py /usr/lib/zpod/zpod_battery_guard.py
+	find /usr/lib/zpod -name __pycache__ -prune -exec rm -rf {} +
 CHROOT
 
 # 8. M3 boot-time trims (M2 on hardware: multi-user after 3 min 11 s;

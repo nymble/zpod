@@ -7,8 +7,8 @@ After=zpod-drop.socket
 [Service]
 Type=simple
 ExecStart=/usr/lib/zpod/bin/zpod-drop
-User=pi
-Group=pi
+User=1000
+Group=1000
 Nice=10
 NoNewPrivileges=yes
 ProtectSystem=strict

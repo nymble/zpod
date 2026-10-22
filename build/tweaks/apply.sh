@@ -34,6 +34,23 @@ install -m 644 "$SCRIPT_DIR/stage2-05-zpod-m2/00-packages" "$M2/00-packages"
 install -m 755 "$SCRIPT_DIR/stage2-05-zpod-m2/01-run.sh" "$M2/01-run.sh"
 cp -a "$REPO_ROOT/overlay" "$M2/files/overlay"
 find "$M2/files/overlay" -name __pycache__ -prune -exec rm -rf {} +
+install -m 644 "$SCRIPT_DIR/stage2-05-zpod-m2/zpod-usb.txt" "$M2/files/zpod-usb.txt"
 "$REPO_ROOT/drivers/aoide-zpod-dac/build-deb.sh" "$M2/files" >/dev/null
+
+# M4: stage2/06-zpod-m4 = Rust launcher + apps. Needs apps/dist from
+# apps/tools/build-arm.sh (cross-built on the build host first). Without it
+# the image is M3-style (Python zpod-ui) plus the M4 system fixes above.
+M4="$PI_GEN/stage2/06-zpod-m4"
+rm -rf "$M4"
+if [[ -d "$REPO_ROOT/apps/dist/core" ]]; then
+  install -d "$M4/files"
+  install -m 644 "$SCRIPT_DIR/stage2-06-zpod-m4/00-packages" "$M4/00-packages"
+  install -m 755 "$SCRIPT_DIR/stage2-06-zpod-m4/01-run.sh" "$M4/01-run.sh"
+  cp -a "$REPO_ROOT/apps/dist" "$M4/files/dist"
+  cp -a "$REPO_ROOT/apps/system" "$M4/files/system"
+  echo "M4 substep stage2/06-zpod-m4 applied (launcher + apps from apps/dist)"
+else
+  echo "NOTE: apps/dist missing: M4 launcher NOT included (run apps/tools/build-arm.sh)"
+fi
 
 echo "applied ZPOD M1.1 + M2 tweaks to $PI_GEN"

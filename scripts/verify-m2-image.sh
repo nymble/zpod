@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Offline checks of an M2/M3 .img (never flashes anything). Mounts the root
+# Offline checks of an M2/M3/M4 .img (never flashes anything). Mounts the root
 # partition READ-ONLY via losetup --offset and reads the FAT with mtools
 # (IMG@@offset), then runs the Python imports / dkms status in a qemu chroot.
 # Usage: sudo scripts/verify-m2-image.sh path/to/image.img
@@ -59,14 +59,15 @@ for k in "$R"/lib/modules/*-rpi-v6 "$R"/lib/modules/*-rpi-v7; do
   chk "dkms module for $kv" bash -c "ls '$k'/updates/dkms/aoide-zpod-dac.ko*"
 done
 chk "dkms source /usr/src/aoide-zpod-dac-1.0.0" test -f "$R/usr/src/aoide-zpod-dac-1.0.0/dkms.conf"
-for u in zpod-ui zpod-buttons zpod-audio-init rpi-usb-gadget-ics; do
-  chk "service enabled: $u" test -L "$R/etc/systemd/system/multi-user.target.wants/$u.service"
+M4=0; [[ -x "$R/usr/lib/zpod/bin/zpod-launcher" ]] && M4=1
+UI=zpod-ui; [[ $M4 = 1 ]] && UI=zpod-launcher
+for u in $UI zpod-buttons zpod-audio-init rpi-usb-gadget-ics; do
+  chk "service enabled: $u" bash -c "ls '$R'/etc/systemd/system/multi-user.target.wants/$u.service"
 done
 chk "asound.conf default = DAC"           grep -q 'sndrpiaoidezpod' "$R/etc/asound.conf"
 chk "NM wifi.powersave = 2"               grep -q 'wifi.powersave = 2' "$R/etc/NetworkManager/conf.d/90-zpod-wifi-powersave.conf"
 chk "NM usb0 shared profile (600)"        bash -c "[ \"\$(stat -c %a '$R/etc/NetworkManager/system-connections/usb-gadget-shared.nmconnection')\" = 600 ]"
 chk "usb0 NM-managed udev rule"           test -f "$R/etc/udev/rules.d/86-zpod-usb-gadget-nm-managed.rules"
-chk "g_ether loaded at boot"              grep -qx g_ether "$R/etc/modules-load.d/usb-gadget.conf"
 chk "uinput loaded at boot"               grep -qx uinput "$R/etc/modules-load.d/zpod.conf"
 chk "journald persistent"                 grep -q 'Storage=persistent' "$R/etc/systemd/journald.conf.d/90-zpod-persistent.conf"
 chk "/var/log/journal exists"             test -d "$R/var/log/journal"
@@ -86,7 +87,8 @@ chk "M3: shutdown hook zpod-lcd-off (755)"  bash -c "[ \"\$(stat -c %a '$R/usr/l
 chk "M3: ui.conf shutdown screen = message" grep -qx 'screen = message' "$R/etc/zpod/ui.conf"
 chk "M3: zpod-ui end_screen()"              grep -q 'def end_screen' "$R/usr/lib/zpod/zpod_ui.py"
 chk "M3: zpod_lcd blank_off()"              grep -q 'def blank_off' "$R/usr/lib/zpod/zpod_lcd.py"
-chk "M3: VOL_REPEAT_DELAY_S = 0.60"         grep -qx 'VOL_REPEAT_DELAY_S = 0.60' "$R/usr/lib/zpod/zpod_buttons.py"
+chk "M4: volume repeat delay 650 ms"         grep -q '^VOL_REPEAT_DELAY_S = 0.650' "$R/usr/lib/zpod/zpod_buttons.py"
+chk "M4: volume cap 80 %"                     grep -qx 'VOL_CAP_PCT = 80' "$R/usr/lib/zpod/zpod_buttons.py"
 for u in apt-daily.timer apt-daily-upgrade.timer console-setup.service; do
   chk "M3: $u masked"                       bash -c "[ \"\$(readlink '$R/etc/systemd/system/$u')\" = /dev/null ]"
 done
@@ -108,6 +110,33 @@ chk "M3.1: zpod-wifi-import enabled"         test -L "$R/etc/systemd/system/mult
 chk "M3.1: zpod-wifi-import.sh executable"   test -x "$R/usr/lib/zpod/zpod-wifi-import.sh"
 chk "M3.1: import runs before NetworkManager" grep -q '^Before=NetworkManager.service' "$R/usr/lib/systemd/system/zpod-wifi-import.service"
 
+# --- M4 system fixes ------------------------------------------------------
+chk "M4: config dtoverlay=i2c-rtc,ds3231"     grep -qx 'dtoverlay=i2c-rtc,ds3231' "$TMP/config.txt"
+chk "M4: boot zpod-usb.txt mode=ncm"          bash -c "MTOOLS_SKIP_CHECK=1 mtype -i '$BOOT' ::zpod-usb.txt | grep -qx 'mode=ncm'"
+chk "M4: g_ether NOT loaded at boot"          bash -c "! grep -rqsx g_ether '$R'/etc/modules-load.d/"
+chk "M4: no g_ether modprobe options"         test ! -e "$R/etc/modprobe.d/zpod-g_ether.conf"
+chk "M4: zpod-usb-gadget enabled"             test -L "$R/etc/systemd/system/sysinit.target.wants/zpod-usb-gadget.service"
+chk "M4: zpod-usb-gadget.sh executable"       test -x "$R/usr/lib/zpod/zpod-usb-gadget.sh"
+chk "M4: usb_f_ncm module (rpi-v6)"           bash -c "ls '$R'/lib/modules/*-rpi-v6/kernel/drivers/usb/gadget/function/usb_f_ncm.ko* || grep -q usb_f_ncm '$R'/lib/modules/*-rpi-v6/modules.builtin"
+chk "M4: zpod-rtc enabled"                    test -L "$R/etc/systemd/system/sysinit.target.wants/zpod-rtc.service"
+chk "M4: zpod-rtc-sync.timer enabled"         test -L "$R/etc/systemd/system/timers.target.wants/zpod-rtc-sync.timer"
+chk "M4: hwclock installed"                   bash -c "ls '$R'/usr/sbin/hwclock '$R'/sbin/hwclock 2>/dev/null | grep -q ."
+chk "M4: fake-hwclock absent"                 bash -c "! ls '$R'/etc/systemd/system/*.wants/fake-hwclock.service '$R'/sbin/fake-hwclock 2>/dev/null | grep -q ."
+chk "M4: zpod-battery-guard enabled"          test -L "$R/etc/systemd/system/multi-user.target.wants/zpod-battery-guard.service"
+chk "M4: ui.conf [battery] shutdown_pct = 5"  grep -qx 'shutdown_pct = 5' "$R/etc/zpod/ui.conf"
+chk "M4: ui.conf [display] spi_mhz = 32"      grep -qx 'spi_mhz = 32' "$R/etc/zpod/ui.conf"
+if [[ $M4 = 1 ]]; then
+  for b in zpod-launcher zpod-bootsplash zpod-drop zpod-app; do
+    chk "M4: $b is ARMv6"                     bash -c "readelf -A '$R/usr/lib/zpod/bin/$b' | grep -qE 'Tag_CPU_arch: v6'"
+  done
+  chk "M4: zpod-ui disabled (launcher owns the LCD)" bash -c "! ls '$R'/etc/systemd/system/*.wants/zpod-ui.service 2>/dev/null | grep -q ."
+  chk "M4: zpod-bootsplash enabled"           test -L "$R/etc/systemd/system/sysinit.target.wants/zpod-bootsplash.service"
+  chk "M4: apps installed (music clock tetris)" bash -c "for a in music clock tetris; do test -x '$R'/opt/zpod/apps/\$a/bin/\$a || exit 1; done"
+  chk "M4: drop service runs as uid 1000"     grep -qx 'User=1000' "$R/etc/systemd/system/zpod-drop.service"
+else
+  echo "info  M4 launcher not in this image (M3-style UI)"
+fi
+
 # qemu chroot: imports + dkms status (read-only root; tmpfs /tmp)
 if command -v qemu-arm-static >/dev/null && [[ -e /proc/sys/fs/binfmt_misc/qemu-arm ]]; then
   mount -t tmpfs tmpfs "$MNT/tmp"
@@ -118,7 +147,7 @@ sys.path.insert(0, '/usr/lib/zpod')
 import zpod_hw, zpod_lcd
 from evdev import ecodes as e
 import importlib.util
-for m in ('zpod_ui', 'zpod_buttons'):
+for m in ('zpod_ui', 'zpod_buttons', 'zpod_battery_guard'):
     spec = importlib.util.spec_from_file_location(m, '/usr/lib/zpod/%s.py' % m)
     mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
 img = PIL.Image.new('RGB', (320, 240), (255, 0, 0))

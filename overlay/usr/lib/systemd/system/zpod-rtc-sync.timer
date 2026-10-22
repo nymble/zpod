@@ -1,0 +1,9 @@
+[Unit]
+Description=ZPOD: hourly RTC sync from NTP (when synchronised)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=ZPOD: system clock from the DS3231 RTC (and back at shutdown)
+Documentation=https://github.com/nymble/zpod/blob/main/docs/ui/BUTTONS-AND-MENUS.md
+DefaultDependencies=no
+After=systemd-modules-load.service systemd-udevd.service
+Before=time-set.target sysinit.target shutdown.target systemd-timesyncd.service
+Wants=time-set.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/zpod/zpod-rtc.sh start
+ExecStop=/usr/lib/zpod/zpod-rtc.sh stop
+TimeoutSec=15
+
+[Install]
+WantedBy=sysinit.target

@@ -21,3 +21,7 @@ build/deploy/
 config/wifi.local.env
 **/wifi.local.env
 ui_screens.png
+
+# Rust build output (apps/tools/build-arm.sh)
+apps/target/
+apps/dist/

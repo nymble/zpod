@@ -1,0 +1,6 @@
+[Unit]
+Description=ZPOD: copy the NTP-synchronised clock into the DS3231 RTC
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/zpod/zpod-rtc.sh sync
