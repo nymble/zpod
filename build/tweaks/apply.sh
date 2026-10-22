@@ -44,7 +44,7 @@ M4="$PI_GEN/stage2/06-zpod-m4"
 rm -rf "$M4"
 if [[ -d "$REPO_ROOT/apps/dist/core" ]]; then
   install -d "$M4/files"
-  install -m 644 "$SCRIPT_DIR/stage2-06-zpod-m4/00-packages" "$M4/00-packages"
+  install -m 644 "$SCRIPT_DIR/stage2-06-zpod-m4/00-packages-nr" "$M4/00-packages-nr"   # no Recommends: mpd would pull ~180 MiB of GL/VA/X libs
   install -m 755 "$SCRIPT_DIR/stage2-06-zpod-m4/01-run.sh" "$M4/01-run.sh"
   cp -a "$REPO_ROOT/apps/dist" "$M4/files/dist"
   cp -a "$REPO_ROOT/apps/system" "$M4/files/system"

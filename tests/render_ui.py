@@ -14,7 +14,9 @@ import zpod_hw as hw
 hw.battery = lambda: (87.3, 3.98)
 hw.volume_get = lambda: 80
 hw.card_present = lambda: True
-hw.wifi_info = lambda: {'ssid': 'HomeNet', 'signal': '72', 'ip': '192.168.1.81', 'powersave': 'off'}
+hw.wifi_info = lambda: {'ssid': 'HomeNet', 'signal': '72', 'ip': '192.168.1.81', 'powersave': 'off', 'mac': 'b8:27:eb:00:00:01'}
+_vs = [(46, False)]
+hw.volume_state = lambda: _vs[0]
 _ip = {'wlan0': '192.168.1.81', 'usb0': '10.12.194.1'}
 hw.ipv4 = lambda i: _ip.get(i)
 import zpod_ui
