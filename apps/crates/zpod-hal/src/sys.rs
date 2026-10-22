@@ -33,6 +33,9 @@ pub fn now_local() -> DateTime {
     if let Some(t) = std::env::var("ZPOD_FAKE_TIME").ok().and_then(|s| DateTime::parse(&s)) {
         return DateTime::from_unix(t.to_unix() + start.elapsed().as_secs() as i64);
     }
+    // libc::time_t is deprecated on musl (planned move to 64-bit); the libc
+    // crate's localtime_r binding uses the same width, so this is consistent.
+    #[allow(deprecated)]
     let now = unix_now() as libc::time_t;
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     if unsafe { libc::localtime_r(&now, &mut tm) }.is_null() {
@@ -102,20 +105,27 @@ pub fn parse_amixer_pct(out: &str) -> Option<u8> {
     rest[..j].parse().ok()
 }
 
-/// ALSA 'Digital' volume in percent.
-pub fn volume_get() -> Option<u8> {
+/// Volume state published by zpod-buttons in /run/zpod/volume:
+/// (percent, a volume key is held). None if the daemon has not written it.
+pub fn volume_state() -> Option<(u8, bool)> {
     if sim() {
-        return env_f32("ZPOD_SIM_VOL").map(|v| v as u8);
+        return env_f32("ZPOD_SIM_VOL").map(|v| (v as u8, false));
     }
-    parse_amixer_pct(&run(&["amixer", "-c", CARD, "sget", MIXER]))
+    let p = std::env::var("ZPOD_VOLUME_FILE").unwrap_or_else(|_| zpod_core::volume::STATE_FILE.into());
+    zpod_core::volume::parse_state(&std::fs::read_to_string(p).ok()?)
 }
 
-pub fn volume_step(delta: i32) -> Option<u8> {
-    if !sim() {
-        let arg = format!("{}%{}", delta.abs(), if delta >= 0 { "+" } else { "-" });
-        run(&["amixer", "-q", "-c", CARD, "sset", MIXER, &arg]);
+/// ALSA 'Digital' volume in percent: the daemon's state file (cheap, no
+/// subprocess), else one amixer read (daemon not running yet).
+/// Apps never *set* the volume: zpod-buttons is the only writer.
+pub fn volume_get() -> Option<u8> {
+    if let Some((v, _)) = volume_state() {
+        return Some(v);
     }
-    volume_get()
+    if sim() {
+        return None;
+    }
+    parse_amixer_pct(&run(&["amixer", "-c", CARD, "sget", MIXER]))
 }
 
 pub fn card_present() -> bool {
@@ -128,10 +138,22 @@ pub struct WifiInfo {
     pub signal: Option<String>,
     pub ip: Option<String>,
     pub powersave: Option<String>,
+    /// wlan0 hardware (MAC) address.
+    pub mac: Option<String>,
+}
+
+/// MAC address of an interface from sysfs.
+pub fn mac_address(ifname: &str) -> Option<String> {
+    if sim() {
+        return std::env::var(format!("ZPOD_SIM_MAC_{}", ifname.to_uppercase())).ok();
+    }
+    let a = std::fs::read_to_string(format!("/sys/class/net/{ifname}/address")).ok()?;
+    let a = a.trim();
+    (!a.is_empty()).then(|| a.to_string())
 }
 
 pub fn wifi_info() -> WifiInfo {
-    let mut w = WifiInfo { ip: ipv4("wlan0"), ..Default::default() };
+    let mut w = WifiInfo { ip: ipv4("wlan0"), mac: mac_address("wlan0"), ..Default::default() };
     if sim() {
         w.ssid = std::env::var("ZPOD_SIM_SSID").ok();
         w.signal = Some("72".into());
@@ -277,6 +299,74 @@ impl StatusSource {
         }
         self.info.clone()
     }
+}
+
+/// Global Play/Pause: toggle MPD. Returns a short message for a toast.
+/// Never plays a test tone (that lives in Settings > Diagnostics).
+pub fn mpd_toggle() -> (PlayState, &'static str) {
+    if sim() && std::env::var_os("MPD_HOST").is_none() {
+        return match std::env::var("ZPOD_SIM_PLAY").as_deref() {
+            Ok("play") => (PlayState::Paused, "Paused"),
+            Ok("pause") => (PlayState::Playing, "Playing"),
+            _ => (PlayState::Stopped, "Nothing queued: open Music"),
+        };
+    }
+    let Ok(mut c) = zpod_mpd::Client::connect_default() else {
+        return (PlayState::Unknown, "Music service not running");
+    };
+    let Ok(s) = c.status() else {
+        return (PlayState::Unknown, "Music service not running");
+    };
+    if s.playlist_len == 0 {
+        return (PlayState::Stopped, "Nothing queued: open Music");
+    }
+    let (cmd, st, msg) = match s.state.as_str() {
+        "play" => ("pause 1", PlayState::Paused, "Paused"),
+        "pause" => ("pause 0", PlayState::Playing, "Playing"),
+        _ => ("play", PlayState::Playing, "Playing"),
+    };
+    let _ = c.simple(cmd);
+    (st, msg)
+}
+
+/// RTC: (name, "YYYY-MM-DD HH:MM:SS" UTC) of /dev/rtc0, if the DS3231 is bound.
+pub fn rtc_info() -> Option<(String, String)> {
+    if sim() {
+        return std::env::var("ZPOD_SIM_RTC").ok().map(|t| ("ds3231".into(), t));
+    }
+    let b = "/sys/class/rtc/rtc0";
+    let name = std::fs::read_to_string(format!("{b}/name")).ok()?.trim().to_string();
+    let d = std::fs::read_to_string(format!("{b}/date")).unwrap_or_default();
+    let t = std::fs::read_to_string(format!("{b}/time")).unwrap_or_default();
+    Some((name, format!("{} {}", d.trim(), t.trim())))
+}
+
+/// Set the system clock (local time) and write it to the RTC (`hwclock -w`),
+/// the way the vendor clock menu did. Needs root (the launcher).
+pub fn set_local_time(t: &DateTime) -> Result<(), String> {
+    let s = format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", t.year, t.month, t.day, t.hour, t.minute, t.second);
+    if sim() {
+        return Ok(());
+    }
+    let ok = |args: &[&str]| {
+        std::process::Command::new(args[0])
+            .args(&args[1..])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|st| st.success())
+            .unwrap_or(false)
+    };
+    if !ok(&["date", "-s", &s]) {
+        return Err("date -s failed".into());
+    }
+    if rtc_info().is_none() {
+        return Err("time set; no RTC (rtc0) to save it".into());
+    }
+    if !ok(&["hwclock", "-w"]) {
+        return Err("time set; hwclock -w failed".into());
+    }
+    Ok(())
 }
 
 pub fn mpd_play_state() -> PlayState {

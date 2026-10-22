@@ -1,5 +1,8 @@
-//! ZPOD Clock app. Left/Right: face, OK/Circle: seconds on/off,
-//! Triangle: 12/24 h, Home/X: back to the menu.
+//! ZPOD Clock app (a menu entry; no button is dedicated to it).
+//! Up/Down or Right: face, OK/Circle: seconds on/off, Triangle: 12/24 h,
+//! Left/X/Home: back to the launcher, Play/Pause: music (global).
+//! Setting the time lives in Settings > Date & time (the launcher runs as
+//! root and writes the DS3231 with `hwclock -w`; this app runs unprivileged).
 //! Sleeps until the next second (seconds on) or minute (seconds off).
 
 use std::time::Duration;
@@ -49,18 +52,20 @@ fn main() {
         }
         let mut changed = true;
         match ev.key {
-            Key::Home | Key::Cross => break,
+            Key::Home | Key::Cross | Key::Left => break,
             Key::Right | Key::Down => s.face = FACES[(s.face.index() + 1) % FACES.len()],
-            Key::Left | Key::Up => s.face = FACES[(s.face.index() + FACES.len() - 1) % FACES.len()],
+            Key::Up => s.face = FACES[(s.face.index() + FACES.len() - 1) % FACES.len()],
+            Key::PlayPause => {
+                let (st, _) = sys::mpd_toggle();
+                p.status.set_play(st);
+                changed = false;
+            }
             Key::Ok | Key::Circle => s.seconds = !s.seconds,
             Key::Triangle => {
                 s.h24 = !s.h24;
                 painter.invalidate();
             }
-            Key::VolUp | Key::VolDown => {
-                p.status.volume_changed();
-                changed = false;
-            }
+            Key::VolUp | Key::VolDown => changed = false, // overlay: platform layer
             _ => changed = false,
         }
         if changed {

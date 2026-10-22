@@ -12,6 +12,7 @@
 //!
 //! Nothing here depends on systemd.
 
+pub mod conf;
 pub mod input;
 pub mod lcd;
 pub mod platform;

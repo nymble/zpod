@@ -78,22 +78,26 @@ pub fn draw_status_bar<D: Canvas>(d: &mut D, title: &str, st: &StatusInfo) {
     text::draw_fit(d, Font::Title, title, 6, 3, x - 6, ACCENT);
 }
 
+/// 6-step battery icon (0 = empty/shutdown zone, 1..=5 bars), see
+/// [`zpod_core::volume::battery_level6`].
 pub fn battery_icon<D: Canvas>(d: &mut D, x: i32, y: i32, pct: f32, charging: bool) {
-    let c = if pct > 30.0 {
-        OK
-    } else if pct > 15.0 {
-        ACCENT
-    } else {
-        WARN
+    let level = zpod_core::volume::battery_level6(pct);
+    let c = match level {
+        0 | 1 => WARN,
+        2 => ACCENT,
+        _ => OK,
     };
     // outline 18x10 + nub
-    fill(d, x, y, 18, 1, FG);
-    fill(d, x, y + 9, 18, 1, FG);
-    fill(d, x, y, 1, 10, FG);
-    fill(d, x + 17, y, 1, 10, FG);
-    fill(d, x + 18, y + 3, 2, 4, FG);
-    let w = ((pct.clamp(0.0, 100.0) / 100.0) * 14.0 + 0.5) as u32;
-    fill(d, x + 2, y + 2, w.max(1), 6, c);
+    let edge = if level == 0 { WARN } else { FG };
+    fill(d, x, y, 18, 1, edge);
+    fill(d, x, y + 9, 18, 1, edge);
+    fill(d, x, y, 1, 10, edge);
+    fill(d, x + 17, y, 1, 10, edge);
+    fill(d, x + 18, y + 3, 2, 4, edge);
+    // five 2-px bars with 1-px gaps inside the 14-px cavity
+    for i in 0..level as i32 {
+        fill(d, x + 2 + i * 3, y + 2, 2, 6, c);
+    }
     if charging {
         let _ = Triangle::new(Point::new(x + 10, y + 1), Point::new(x + 6, y + 6), Point::new(x + 9, y + 6))
             .into_styled(PrimitiveStyle::with_fill(WHITE))

@@ -1,8 +1,10 @@
 //! ZPOD launcher: the one LCD owner between apps.
 //!
-//! * Home: installed apps (from /opt/zpod/apps/*/manifest.toml) + System.
-//! * System: everything the M3 Python zpod-ui did (Status, test tone,
-//!   Volume, Wi-Fi info, Reboot, Shutdown) plus File transfer and Apps.
+//! * Top menu: installed apps (from /opt/zpod/apps/*/manifest.toml), File
+//!   transfer, Wi-Fi info, Settings >, Power >. Multi-level menu tree in
+//!   [`menu`]; button conventions in docs/ui/BUTTONS-AND-MENUS.md:
+//!   Up/Down move, Right/OK/Circle enter, Left/X back one level, Home = top
+//!   menu, Play/Pause = music (never a test tone), Vol+/- = volume overlay.
 //! * Launching: draw a launch card, release spidev/GPIO, run the app as the
 //!   unprivileged app user in its own process group, wait. Holding Home for
 //!   3 s kills a hung app. Afterwards re-acquire the panel (warm, no flash).
@@ -12,6 +14,7 @@
 //!   (for BusyBox shutdown scripts).
 
 mod icons;
+mod menu;
 mod proc;
 
 use std::path::PathBuf;
@@ -19,69 +22,97 @@ use std::process::Child;
 use std::time::{Duration, Instant};
 
 use embedded_graphics::{pixelcolor::Rgb565, prelude::*, primitives::*};
+use menu::{Effect, Item, MenuId, Menus, Page};
 use proc::StopKind;
 use zpod_apps::AppInfo;
-use zpod_core::{Event, Key, KeyState, PlayState, StatusInfo};
-use zpod_hal::{sys, Platform};
+use zpod_core::{classify, DateTime, Event, Key, KeyState, Nav, PlayState, StatusInfo};
+use zpod_hal::{conf, lcd, sys, Platform};
 use zpod_ui::{
     fill, rect,
-    status::draw_status_bar,
+    status::{battery_icon, draw_status_bar},
     text::{self, Align},
     theme::*,
-    widgets::{self, ListState, Row, HINTS_H},
+    widgets::{self, Row, HINTS_H},
     Font,
 };
 
 const LIST_Y: i32 = STATUS_H;
 const LIST_H: i32 = 240 - STATUS_H - HINTS_H;
 const HOME_ROW: i32 = 40;
-const SYS_ROW: i32 = 25;
+const SUB_ROW: i32 = 30;
+const APPS_ROW: i32 = 34;
 const KILL_HOLD: Duration = Duration::from_secs(3);
 const DROP_PORT: u16 = 8080;
 const MUSIC_DIR: &str = "/srv/zpod/media/music";
+const SPI_KEEP_WINDOW: Duration = Duration::from_secs(10);
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum SysItem {
-    Status,
-    Volume,
-    Wifi,
-    Transfer,
-    Apps,
-    Tone,
-    Reboot,
-    Shutdown,
+/// Date & time editor (Settings > Date & time). App-local bindings:
+/// Up/Down change the field, Right next field, Left previous field (Left on
+/// the first field = back), OK/Circle save (date + `hwclock -w`), X cancel.
+#[derive(Clone, Debug, PartialEq)]
+struct TimeEdit {
+    t: DateTime,
+    field: usize,
 }
 
-const SYS_ITEMS: [(SysItem, &str); 8] = [
-    (SysItem::Status, "Status"),
-    (SysItem::Volume, "Volume"),
-    (SysItem::Wifi, "Wi-Fi info"),
-    (SysItem::Transfer, "File transfer"),
-    (SysItem::Apps, "Installed apps"),
-    (SysItem::Tone, "Play test tone"),
-    (SysItem::Reboot, "Reboot"),
-    (SysItem::Shutdown, "Shutdown"),
+const TIME_FIELDS: [&str; 5] = ["Year", "Month", "Day", "Hour", "Minute"];
+
+fn days_in_month(y: i32, m: u8) -> u8 {
+    match m {
+        2 if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
+impl TimeEdit {
+    fn new(now: DateTime) -> Self {
+        TimeEdit { t: DateTime { second: 0, ..now }, field: 0 }
+    }
+    fn adjust(&mut self, d: i32) {
+        let t = &mut self.t;
+        let wrap = |v: i32, lo: i32, hi: i32| lo + (v - lo).rem_euclid(hi - lo + 1);
+        match self.field {
+            0 => t.year = (t.year + d).clamp(2024, 2099),
+            1 => t.month = wrap(t.month as i32 + d, 1, 12) as u8,
+            2 => t.day = wrap(t.day as i32 + d, 1, days_in_month(t.year, t.month) as i32) as u8,
+            3 => t.hour = wrap(t.hour as i32 + d, 0, 23) as u8,
+            _ => t.minute = wrap(t.minute as i32 + d, 0, 59) as u8,
+        }
+        t.day = t.day.min(days_in_month(t.year, t.month));
+    }
+}
+
+/// Diagnostics > Button test: shows every button as it is pressed/held.
+/// Every key is captured (Left/X do not go back); Home exits (press it last).
+#[derive(Clone, Debug, Default, PartialEq)]
+struct ButtonTest {
+    held: Vec<Key>,
+    seen: Vec<Key>,
+    last: Option<(Key, KeyState)>,
+    repeats: u32,
+}
+
+const ALL_KEYS: [(Key, &str); 13] = [
+    (Key::Up, "Up"),
+    (Key::Down, "Down"),
+    (Key::Left, "Left"),
+    (Key::Right, "Right"),
+    (Key::Ok, "Centre"),
+    (Key::Home, "Home"),
+    (Key::PlayPause, "Play"),
+    (Key::Triangle, "Tri (I)"),
+    (Key::Square, "Sq (U)"),
+    (Key::Circle, "Circ (K)"),
+    (Key::Cross, "X (J)"),
+    (Key::VolUp, "Vol+"),
+    (Key::VolDown, "Vol-"),
 ];
-
-#[derive(Clone, PartialEq, Debug)]
-enum Screen {
-    Home,
-    System,
-    Status,
-    Volume,
-    Wifi(sys::WifiInfo),
-    Transfer,
-    Apps,
-    Confirm(StopKind),
-    Busy(String),
-}
 
 struct Launcher {
     p: Platform,
-    screen: Screen,
-    home: ListState,
-    sys: ListState,
-    apps_list: ListState,
+    menus: Menus,
     apps: Vec<AppInfo>,
     broken: Vec<(String, String)>,
     icons: Vec<icons::Icon>,
@@ -94,12 +125,25 @@ struct Launcher {
     tone: Option<Child>,
     redraw: bool,
     app_user: Option<proc::AppUser>,
+    wifi: sys::WifiInfo,
+    time_edit: TimeEdit,
+    buttons: ButtonTest,
+    /// SPI clock trial: (previous MHz, revert deadline).
+    spi_trial: Option<(u32, Instant)>,
 }
 
 fn dir_stamp(p: &std::path::Path) -> Option<std::time::SystemTime> {
     let a = std::fs::metadata(p).and_then(|m| m.modified()).ok();
     let b = std::fs::metadata("/run/zpod/apps-changed").and_then(|m| m.modified()).ok();
     a.max(b)
+}
+
+fn spi_mhz_now() -> u32 {
+    lcd::spi_hz() / 1_000_000
+}
+
+fn low_batt_pct() -> f32 {
+    conf::get("battery", "shutdown_pct").and_then(|s| s.parse().ok()).unwrap_or(5.0)
 }
 
 impl Launcher {
@@ -117,10 +161,7 @@ impl Launcher {
         };
         let mut l = Launcher {
             p,
-            screen: Screen::Home,
-            home: ListState::default(),
-            sys: ListState::default(),
-            apps_list: ListState::default(),
+            menus: Menus::new(),
             apps: Vec::new(),
             broken: Vec::new(),
             icons: Vec::new(),
@@ -133,6 +174,10 @@ impl Launcher {
             tone: None,
             redraw: true,
             app_user,
+            wifi: sys::WifiInfo::default(),
+            time_edit: TimeEdit::new(sys::now_local()),
+            buttons: ButtonTest::default(),
+            spi_trial: None,
         };
         l.rescan(true);
         l
@@ -151,7 +196,10 @@ impl Launcher {
         self.icons = apps.iter().map(|a| icons::load(a.icon_path().as_deref())).collect();
         self.apps = apps;
         self.broken = broken;
-        self.home.scroll_into_view(self.apps.len() + 1, (LIST_H / HOME_ROW) as usize);
+        let n = menu::items(MenuId::Top, self.apps.len()).len();
+        if let Some((_, ls)) = self.menus.stack.first_mut() {
+            ls.scroll_into_view(n, (LIST_H / HOME_ROW) as usize);
+        }
         self.redraw = true;
     }
 
@@ -160,58 +208,71 @@ impl Launcher {
         self.redraw = true;
     }
 
-    // ---------------------------------------------------------------- draw
-    fn title(&self) -> &'static str {
-        match self.screen {
-            Screen::Home => "ZPOD",
-            Screen::System => "System",
-            Screen::Status => "Status",
-            Screen::Volume => "Volume",
-            Screen::Wifi(_) => "Wi-Fi",
-            Screen::Transfer => "File transfer",
-            Screen::Apps => "Apps",
-            Screen::Confirm(_) | Screen::Busy(_) => "ZPOD",
+    fn rows_for(&self, page: Page) -> (usize, usize) {
+        match page {
+            Page::Menu(MenuId::Top) => (0, (LIST_H / HOME_ROW) as usize),
+            Page::Menu(_) => (0, (LIST_H / SUB_ROW) as usize),
+            Page::Apps => (self.apps.len() + self.broken.len(), (LIST_H / APPS_ROW) as usize),
+            _ => (0, 1),
         }
     }
 
+    // ---------------------------------------------------------------- draw
     fn draw(&mut self) {
         let st = self.status.clone();
-        let title = self.title();
+        let page = self.menus.page();
+        let title = menu::title(page);
         let fb = &mut self.p.fb;
         draw_status_bar(fb, title, &st);
         let area = rect(0, LIST_Y, 320, LIST_H as u32);
-        match &self.screen {
-            Screen::Home => {
-                let n = self.apps.len() + 1;
-                let sel = self.home.sel;
+        let n_apps = self.apps.len();
+        match page {
+            Page::Menu(id) => {
+                let items = menu::items(id, n_apps);
+                let ls = *self.menus.list();
+                let sel = ls.sel;
                 let (apps, icons, sysi) = (&self.apps, &self.icons, &self.system_icon);
-                widgets::draw_list(fb, area, HOME_ROW, &self.home, n, |i| {
-                    if i < apps.len() {
-                        let a = &apps[i].manifest.app;
-                        let ic = if i == sel { &icons[i].selected } else { &icons[i].normal };
-                        Row { title: &a.name, sub: Some(&a.description), right: None, icon: Some(ic), mark: None }
-                    } else {
-                        let ic = if i == sel { &sysi.selected } else { &sysi.normal };
-                        Row { title: "System", sub: Some("Status, volume, Wi-Fi, transfer, power"), right: None, icon: Some(ic), mark: None }
+                let top = id == MenuId::Top;
+                let row_h = if top { HOME_ROW } else { SUB_ROW };
+                widgets::draw_list(fb, area, row_h, &ls, items.len(), |i| {
+                    let it = items[i];
+                    let (t, sub) = menu::label(it);
+                    let mut r = match it {
+                        Item::App(a) => {
+                            let m = &apps[a].manifest.app;
+                            let ic = if i == sel { &icons[a].selected } else { &icons[a].normal };
+                            Row { title: &m.name, sub: Some(&m.description), right: None, icon: Some(ic), mark: None }
+                        }
+                        _ => {
+                            let ic = if i == sel { &sysi.selected } else { &sysi.normal };
+                            Row { title: t, sub: if sub.is_empty() { None } else { Some(sub) }, right: None, icon: if top { Some(ic) } else { None }, mark: None }
+                        }
+                    };
+                    if matches!(it, Item::Menu(_)) {
+                        r.right = Some(">");
                     }
-                });
-                widgets::hints(fb, &[("OK", "open"), ("Tri", "clock"), ("Play", "music"), ("Vol", "volume")]);
-            }
-            Screen::System => {
-                widgets::draw_list(fb, area, SYS_ROW, &self.sys, SYS_ITEMS.len(), |i| {
-                    let (it, name) = SYS_ITEMS[i];
-                    let mut r = Row::simple(name);
-                    if it == SysItem::Tone && self.tone.is_some() {
+                    if it == Item::Tone && self.tone.is_some() {
                         r.right = Some("playing");
                     }
-                    if matches!(it, SysItem::Reboot | SysItem::Shutdown) {
+                    if matches!(it, Item::Reboot | Item::Shutdown) {
                         r.mark = Some(WARN);
+                    }
+                    if !top && sub.is_empty() {
+                        r.sub = None;
                     }
                     r
                 });
-                widgets::hints(fb, &[("OK", "select"), ("X", "back"), ("Play", "tone/music")]);
+                if top {
+                    widgets::hints(fb, &[("OK/Rt", "open"), ("Play", "play/pause"), ("Vol", "volume")]);
+                } else {
+                    widgets::hints(fb, &[("OK/Rt", "open"), ("Lt/X", "back"), ("Home", "top")]);
+                }
+                if it_is_spi(&items, sel) {
+                    let s = format!("now {} MHz", spi_mhz_now());
+                    text::draw_aligned(fb, Font::Small, &s, 300, LIST_Y + 4 + (sel as i32 - ls.top as i32) * row_h + 8, Align::Right, ACCENT);
+                }
             }
-            Screen::Status => {
+            Page::Status => {
                 let _ = fb.fill_solid(&area, BG);
                 let t = sys::now_local();
                 let batt = self.gauge.read();
@@ -226,7 +287,7 @@ impl Launcher {
                     ("wlan0", sys::ipv4("wlan0").unwrap_or_else(|| "--".into())),
                     ("usb0", sys::ipv4("usb0").unwrap_or_else(|| "--".into())),
                     ("Battery", batt.map(|(p, v, c)| format!("{p:.0}%  {v:.2} V{}", if c { "  charging" } else { "" })).unwrap_or_else(|| "n/a".into())),
-                    ("Volume", st.volume_pct.map(|v| format!("{v}%")).unwrap_or_else(|| "n/a".into())),
+                    ("Volume", st.volume_pct.map(|v| format!("{v}%  (side buttons)")).unwrap_or_else(|| "n/a".into())),
                     ("DAC", if sys::card_present() || sys::sim() { "ok".into() } else { "missing".into() }),
                     ("Music", mpd.into()),
                     ("Uptime", sys::uptime()),
@@ -237,88 +298,89 @@ impl Launcher {
                     text::draw(fb, Font::Small, k, 10, y + 3, DIM);
                     text::draw_fit(fb, Font::Body, v, 84, y, 230, if v == "missing" { WARN } else { FG });
                 }
-                widgets::hints(fb, &[("X", "back"), ("Home", "menu")]);
+                widgets::hints(fb, &[("Lt/X", "back"), ("Home", "top")]);
             }
-            Screen::Volume => {
+            Page::About => {
                 let _ = fb.fill_solid(&area, BG);
-                let v = st.volume_pct;
-                let s = v.map(|v| format!("{v}%")).unwrap_or_else(|| "n/a".into());
-                text::draw_aligned(fb, Font::Digits58, &s.replace('%', ""), 160, 48, Align::Center, ACCENT);
-                if v.is_some() {
-                    text::draw(fb, Font::Title, "%", 160 + text::width(Font::Digits58, &s.replace('%', "")) / 2 + 4, 62, ACCENT);
+                let batt = self.gauge.read();
+                let rtc = sys::rtc_info();
+                let kernel = std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default();
+                let host = std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default();
+                let rows: [(&str, String); 7] = [
+                    ("Battery", batt.map(|(p, v, c)| format!("{p:.0}%  {v:.2} V{}", if c { "  charging" } else { "" })).unwrap_or_else(|| "n/a (gauge 0x36)".into())),
+                    ("Low batt", format!("shuts down below {:.0}%", low_batt_pct())),
+                    ("RTC", rtc.map(|(n, t)| format!("{n}  {t} UTC")).unwrap_or_else(|| "none (DS3231 0x68 not bound)".into())),
+                    ("Host", host.trim().to_string()),
+                    ("Kernel", kernel.trim().to_string()),
+                    ("Core", format!("zpod {}  ({} apps)", zpod_apps::core_version(), self.apps.len())),
+                    ("Uptime", sys::uptime()),
+                ];
+                for (i, (k, v)) in rows.iter().enumerate() {
+                    let y = LIST_Y + 6 + i as i32 * 24;
+                    text::draw(fb, Font::Small, k, 10, y + 3, DIM);
+                    text::draw_fit(fb, Font::Body, v, 84, y, 230, FG);
                 }
-                let _ = RoundedRectangle::with_equal_corners(rect(20, 130, 280, 26), Size::new(6, 6))
-                    .into_styled(PrimitiveStyle::with_stroke(FG, 2))
-                    .draw(fb);
-                if let Some(v) = v {
-                    let w = (274 * v as u32 / 100).max(1);
-                    let _ = RoundedRectangle::with_equal_corners(rect(23, 133, w, 20), Size::new(4, 4))
-                        .into_styled(PrimitiveStyle::with_fill(OK))
-                        .draw(fb);
+                if let Some((p, _, c)) = batt {
+                    battery_icon(fb, 280, LIST_Y + 9, p, c);
                 }
-                text::draw_aligned(fb, Font::Small, "ALSA 'Digital' on the PCM5122 (also: Vol+/- keys)", 160, 172, Align::Center, DIM);
-                widgets::hints(fb, &[("Up/Rt", "+3%"), ("Dn/Lt", "-3%"), ("X", "back")]);
+                widgets::hints(fb, &[("Lt/X", "back"), ("Home", "top")]);
             }
-            Screen::Wifi(w) => {
+            Page::Wifi => {
                 let _ = fb.fill_solid(&area, BG);
+                let w = &self.wifi;
                 let rows = [
                     ("SSID", w.ssid.clone().unwrap_or_else(|| "--".into())),
                     ("Signal", w.signal.as_ref().map(|s| format!("{s}%")).unwrap_or_else(|| "--".into())),
                     ("IP", w.ip.clone().unwrap_or_else(|| "--".into())),
+                    ("MAC", w.mac.clone().unwrap_or_else(|| "--".into())),
                     ("Pwr save", w.powersave.clone().unwrap_or_else(|| "?".into())),
                     ("usb0", sys::ipv4("usb0").unwrap_or_else(|| "--".into())),
                 ];
                 for (i, (k, v)) in rows.iter().enumerate() {
-                    let y = LIST_Y + 10 + i as i32 * 30;
+                    let y = LIST_Y + 8 + i as i32 * 30;
                     text::draw(fb, Font::Small, k, 12, y + 4, DIM);
                     text::draw_fit(fb, Font::BodyBold, v, 96, y, 216, FG);
                 }
-                widgets::hints(fb, &[("OK", "refresh"), ("X", "back")]);
+                widgets::hints(fb, &[("OK", "refresh"), ("Lt/X", "back"), ("Home", "top")]);
             }
-            Screen::Transfer => {
+            Page::Transfer => {
                 let _ = fb.fill_solid(&area, BG);
                 let usb = sys::ipv4("usb0");
                 let wlan = sys::ipv4("wlan0");
                 let drop_on = drop_running();
-                let mut lines: Vec<(Font, String, Rgb565, i32)> = Vec::new();
-                lines.push((Font::BodyBold, "USB cable (fastest)".into(), ACCENT, 18));
+                let mut y = LIST_Y + 6;
+                let line = |fb: &mut zpod_ui::Framebuffer, y: &mut i32, f: Font, s: &str, c: Rgb565, dy: i32| {
+                    text::draw_fit(fb, f, s, 12, *y, 300, c);
+                    *y += dy;
+                };
+                line(fb, &mut y, Font::BodyBold, "USB cable (fastest)", ACCENT, 18);
                 match &usb {
                     Some(ip) => {
-                        lines.push((Font::Body, format!("rsync / scp:  pi@{ip}"), FG, 17));
+                        line(fb, &mut y, Font::Body, &format!("rsync / scp:  <user>@{ip}"), FG, 17);
                         if drop_on {
-                            lines.push((Font::Body, format!("browser:  http://{ip}:{DROP_PORT}/"), FG, 17));
+                            line(fb, &mut y, Font::Body, &format!("browser:  http://{ip}:{DROP_PORT}/"), FG, 17);
                         }
                     }
-                    None => lines.push((Font::Body, "not connected".into(), DIM, 17)),
+                    None => line(fb, &mut y, Font::Body, "not connected", DIM, 17),
                 }
-                lines.push((Font::BodyBold, "Wi-Fi  (or zpod.local)".into(), ACCENT, 18));
+                y += 4;
+                line(fb, &mut y, Font::BodyBold, "Wi-Fi", ACCENT, 18);
                 match &wlan {
                     Some(ip) => {
-                        lines.push((Font::Body, format!("rsync / scp:  pi@{ip}"), FG, 17));
+                        line(fb, &mut y, Font::Body, &format!("rsync / scp:  <user>@{ip}  (zpod.local)"), FG, 17);
                         if drop_on {
-                            lines.push((Font::Body, format!("browser:  http://{ip}:{DROP_PORT}/ +token"), FG, 17));
+                            line(fb, &mut y, Font::Body, &format!("browser:  http://{ip}:{DROP_PORT}/  (token)"), FG, 17);
                         }
                     }
-                    None => lines.push((Font::Body, "not connected".into(), DIM, 17)),
+                    None => line(fb, &mut y, Font::Body, "not connected", DIM, 17),
                 }
-                lines.push((Font::Small, format!("Music goes to {MUSIC_DIR}"), DIM, 14));
-                lines.push((Font::Small, "Mac: scripts/zpod-push-music.sh ~/Music/Album".into(), DIM, 14));
-                lines.push(if drop_on {
-                    (Font::Small, "Drop server: running".into(), OK, 14)
-                } else {
-                    (Font::Small, "Drop server: off (sudo systemctl start zpod-drop.socket)".into(), DIM, 14)
-                });
-                let mut y = LIST_Y + 6;
-                for (f, s, c, dy) in &lines {
-                    if *f == Font::BodyBold && y > LIST_Y + 6 {
-                        y += 4;
-                    }
-                    text::draw_fit(fb, *f, s, 12, y, 300, *c);
-                    y += dy;
-                }
-                widgets::hints(fb, &[("X", "back"), ("Home", "menu")]);
+                y += 4;
+                line(fb, &mut y, Font::Small, &format!("Music goes to {MUSIC_DIR}"), DIM, 14);
+                line(fb, &mut y, Font::Small, "Mac: scripts/zpod-push-music.sh ~/Music/Album", DIM, 14);
+                line(fb, &mut y, Font::Small, if drop_on { "Drop server: running" } else { "Drop server: off (sudo systemctl start zpod-drop.socket)" }, if drop_on { OK } else { DIM }, 14);
+                widgets::hints(fb, &[("Lt/X", "back"), ("Home", "top")]);
             }
-            Screen::Apps => {
+            Page::Apps => {
                 let n = self.apps.len() + self.broken.len();
                 let (apps, broken) = (&self.apps, &self.broken);
                 let mut subs: Vec<String> = Vec::with_capacity(n);
@@ -328,7 +390,8 @@ impl Launcher {
                 for (_, why) in broken {
                     subs.push(why.clone());
                 }
-                widgets::draw_list(fb, area, 34, &self.apps_list, n, |i| {
+                let ls = *self.menus.list();
+                widgets::draw_list(fb, area, APPS_ROW, &ls, n, |i| {
                     if i < apps.len() {
                         let a = &apps[i].manifest.app;
                         Row { title: &a.name, sub: Some(&subs[i]), right: Some(&a.version), icon: None, mark: None }
@@ -337,21 +400,63 @@ impl Launcher {
                         Row { title: id, sub: Some(&subs[i]), right: Some("BROKEN"), icon: None, mark: Some(WARN) }
                     }
                 });
-                widgets::hints(fb, &[("X", "back"), ("ssh", "sudo zpod-app install x.zpa")]);
+                widgets::hints(fb, &[("Lt/X", "back"), ("", "install: sudo zpod-app install x.zpa")]);
             }
-            Screen::Confirm(kind) => {
-                let (t, l1) = match kind {
-                    StopKind::Reboot => ("Reboot?", "The ZPOD restarts (about 40 s)."),
-                    StopKind::Poweroff => ("Shut down?", "Wait for \"Safe to power off\"."),
+            Page::DateTime => {
+                let _ = fb.fill_solid(&area, BG);
+                let e = &self.time_edit;
+                let vals = [
+                    format!("{:04}", e.t.year),
+                    format!("{:02}", e.t.month),
+                    format!("{:02}", e.t.day),
+                    format!("{:02}", e.t.hour),
+                    format!("{:02}", e.t.minute),
+                ];
+                // lay out "YYYY-MM-DD  HH:MM" from measured glyph widths
+                let seps = ["-", "-", "  ", ":", ""];
+                let total: i32 = (0..5).map(|i| text::width(Font::Huge, &vals[i]) + text::width(Font::Huge, seps[i]) + 4).sum();
+                let mut x = (320 - total) / 2;
+                for i in 0..5 {
+                    let selc = i == e.field;
+                    let w = text::width(Font::Huge, &vals[i]);
+                    if selc {
+                        fill(fb, x - 3, LIST_Y + 50, (w + 6) as u32, 34, SEL);
+                    }
+                    text::draw(fb, Font::Huge, &vals[i], x, LIST_Y + 54, if selc { WHITE } else { FG });
+                    text::draw(fb, Font::Tiny, TIME_FIELDS[i], x, LIST_Y + 90, DIM);
+                    x += w + 2;
+                    text::draw(fb, Font::Huge, seps[i], x, LIST_Y + 54, DIM);
+                    x += text::width(Font::Huge, seps[i]) + 2;
+                }
+                text::draw_aligned(fb, Font::Body, "Local time. OK = set clock + save to RTC", 160, LIST_Y + 116, Align::Center, DIM);
+                let rtc = sys::rtc_info().map(|(n, t)| format!("RTC {n}: {t} UTC")).unwrap_or_else(|| "No RTC bound (DS3231 0x68)".into());
+                text::draw_aligned(fb, Font::Small, &rtc, 160, LIST_Y + 138, Align::Center, FAINT);
+                widgets::hints(fb, &[("Up/Dn", "change"), ("Lt/Rt", "field"), ("OK", "save"), ("X", "cancel")]);
+            }
+            Page::ButtonTest => {
+                let _ = fb.fill_solid(&area, BG);
+                let b = &self.buttons;
+                for (i, (k, name)) in ALL_KEYS.iter().enumerate() {
+                    let (cx, cy) = (8 + (i as i32 % 4) * 78, LIST_Y + 8 + (i as i32 / 4) * 34);
+                    let held = b.held.contains(k);
+                    let seen = b.seen.contains(k);
+                    let bg = if held { OK } else if seen { SEL } else { PANEL };
+                    fill(fb, cx, cy, 72, 28, bg);
+                    text::draw_aligned(fb, Font::BodyBold, name, cx + 36, cy + 8, Align::Center, if held { BLACK } else { FG });
+                }
+                let last = b.last.map(|(k, s)| format!("last: {:?} {:?}   repeats: {}   seen {}/13", k, s, b.repeats, b.seen.len())).unwrap_or_else(|| "press any button".into());
+                text::draw_aligned(fb, Font::Small, &last, 160, LIST_Y + 150, Align::Center, DIM);
+                widgets::hints(fb, &[("", "every key is captured"), ("Home", "exit (press it last)")]);
+            }
+            Page::Confirm(reboot) => {
+                let (t, l1) = if reboot {
+                    ("Reboot?", "The ZPOD restarts (about 90 s).")
+                } else {
+                    ("Shut down?", "Wait for \"Safe to power off\".")
                 };
                 let _ = fb.fill_solid(&area, BG);
-                widgets::dialog(fb, t, &[l1, "OK = yes      X = cancel"], WARN);
-                widgets::hints(fb, &[("OK", "yes"), ("X", "cancel")]);
-            }
-            Screen::Busy(msg) => {
-                let _ = fb.fill_solid(&area, BG);
-                text::draw_aligned(fb, Font::Huge, msg, 160, 100, Align::Center, ACCENT);
-                fill(fb, 0, 240 - HINTS_H, 320, HINTS_H as u32, BAR);
+                widgets::dialog(fb, t, &[l1, "OK = yes      Left/X = cancel"], WARN);
+                widgets::hints(fb, &[("OK", "yes"), ("Lt/X", "cancel")]);
             }
         }
         if let Some((msg, _)) = &self.toast {
@@ -360,131 +465,101 @@ impl Launcher {
         self.redraw = false;
     }
 
-    // -------------------------------------------------------------- input
-    fn back(&mut self) {
-        self.screen = match self.screen {
-            Screen::Home => Screen::Home,
-            Screen::System | Screen::Busy(_) => Screen::Home,
-            _ => Screen::System,
-        };
-        self.redraw = true;
+    fn busy(&mut self, msg: &str) {
+        let fb = &mut self.p.fb;
+        let area = rect(0, LIST_Y, 320, LIST_H as u32);
+        let _ = fb.fill_solid(&area, BG);
+        text::draw_aligned(fb, Font::Huge, msg, 160, 100, Align::Center, ACCENT);
+        fill(fb, 0, 240 - HINTS_H, 320, HINTS_H as u32, BAR);
+        self.p.flush();
     }
 
+    // -------------------------------------------------------------- input
     fn key(&mut self, ev: Event) -> Option<Action> {
-        if !ev.is_down() {
-            return None;
-        }
-        let k = ev.key;
-        if matches!(k, Key::VolUp | Key::VolDown) {
-            // zpod-buttons already changed the ALSA volume; just show it.
-            std::thread::sleep(Duration::from_millis(60));
-            let v = sys::volume_get();
-            self.p.status.set_volume(v);
-            self.status.volume_pct = v;
-            self.toast(v.map(|v| format!("Vol {v}%")).unwrap_or_else(|| "Vol n/a".into()), 1500);
-            return None;
-        }
-        if ev.state != KeyState::Press && !matches!(k, Key::Up | Key::Down | Key::Left | Key::Right) {
-            return None; // autorepeat only for navigation
-        }
-        if matches!(self.screen, Screen::Busy(_)) {
-            return None;
-        }
-        if let Screen::Confirm(kind) = self.screen {
-            match k {
-                Key::Ok | Key::Circle => return Some(Action::Power(kind)),
-                Key::Cross | Key::Left | Key::Home | Key::Square => self.screen = Screen::System,
-                _ => {}
-            }
-            self.redraw = true;
-            return None;
-        }
-        match k {
-            Key::PlayPause => return Some(Action::PlayPause),
-            Key::Triangle => {
-                if self.apps.iter().any(|a| a.manifest.app.id == "clock") {
-                    return Some(Action::LaunchId("clock".into()));
+        let page = self.menus.page();
+        // Diagnostics > Button test captures every key; Home (press) exits.
+        if page == Page::ButtonTest {
+            let b = &mut self.buttons;
+            match ev.state {
+                KeyState::Press => {
+                    if !b.held.contains(&ev.key) {
+                        b.held.push(ev.key);
+                    }
+                    if !b.seen.contains(&ev.key) {
+                        b.seen.push(ev.key);
+                    }
                 }
+                KeyState::Release => b.held.retain(|k| *k != ev.key),
+                KeyState::Repeat => b.repeats += 1,
             }
-            Key::Home => {
-                self.screen = Screen::Home;
-                self.redraw = true;
+            b.last = Some((ev.key, ev.state));
+            self.redraw = true;
+            if ev.key == Key::Home && ev.state == KeyState::Press {
+                self.menus.back();
+            }
+            return None;
+        }
+        let nav = classify(&ev)?;
+        // SPI trial: OK (or any Enter) keeps the new clock.
+        if let Some((_, _)) = self.spi_trial {
+            if nav == Nav::Enter {
+                let mhz = spi_mhz_now();
+                let _ = conf::set("display", "spi_mhz", &mhz.to_string());
+                self.spi_trial = None;
+                self.toast(format!("SPI {mhz} MHz kept"), 1500);
                 return None;
             }
-            _ => {}
         }
-        let vis_home = (LIST_H / HOME_ROW) as usize;
-        let vis_sys = (LIST_H / SYS_ROW) as usize;
-        let is_ok = matches!(k, Key::Ok | Key::Circle | Key::Right);
-        let is_back = matches!(k, Key::Cross | Key::Left | Key::Square);
-        self.redraw = true;
-        match self.screen.clone() {
-            Screen::Home => match k {
-                Key::Up => self.home.step(-1, self.apps.len() + 1, vis_home),
-                Key::Down => self.home.step(1, self.apps.len() + 1, vis_home),
-                _ if is_ok && ev.state == KeyState::Press => {
-                    if self.home.sel < self.apps.len() {
-                        return Some(Action::Launch(self.home.sel));
+        if page == Page::DateTime && !matches!(nav, Nav::Home | Nav::PlayPause | Nav::Volume) {
+            let e = &mut self.time_edit;
+            self.redraw = true;
+            match ev.key {
+                Key::Up => e.adjust(1),
+                Key::Down => e.adjust(-1),
+                Key::Right => e.field = (e.field + 1).min(TIME_FIELDS.len() - 1),
+                Key::Left if e.field > 0 => e.field -= 1,
+                Key::Left | Key::Cross => self.menus.back(),
+                Key::Ok | Key::Circle => {
+                    let t = self.time_edit.t;
+                    match sys::set_local_time(&t) {
+                        Ok(()) => self.toast("Time set + saved to RTC", 1800),
+                        Err(e) => self.toast(e, 2500),
                     }
-                    self.screen = Screen::System;
+                    self.menus.back();
                 }
                 _ => {}
-            },
-            Screen::System => match k {
-                Key::Up => self.sys.step(-1, SYS_ITEMS.len(), vis_sys),
-                Key::Down => self.sys.step(1, SYS_ITEMS.len(), vis_sys),
-                _ if is_back => self.back(),
-                _ if is_ok && ev.state == KeyState::Press => match SYS_ITEMS[self.sys.sel].0 {
-                    SysItem::Status => self.screen = Screen::Status,
-                    SysItem::Volume => {
-                        self.p.status.volume_changed();
-                        self.screen = Screen::Volume;
-                    }
-                    SysItem::Wifi => self.screen = Screen::Wifi(sys::wifi_info()),
-                    SysItem::Transfer => self.screen = Screen::Transfer,
-                    SysItem::Apps => {
-                        self.rescan(true);
-                        self.screen = Screen::Apps;
-                    }
-                    SysItem::Tone => return Some(Action::Tone),
-                    SysItem::Reboot => self.screen = Screen::Confirm(StopKind::Reboot),
-                    SysItem::Shutdown => self.screen = Screen::Confirm(StopKind::Poweroff),
-                },
-                _ => {}
-            },
-            Screen::Volume => match k {
-                Key::Up | Key::Right => self.set_vol(3),
-                Key::Down | Key::Left => self.set_vol(-3),
-                Key::Cross | Key::Ok | Key::Square => self.back(),
-                _ => {}
-            },
-            Screen::Wifi(_) => match k {
-                Key::Ok | Key::Circle => self.screen = Screen::Wifi(sys::wifi_info()),
-                _ if is_back => self.back(),
-                _ => {}
-            },
-            Screen::Apps => {
-                let n = self.apps.len() + self.broken.len();
-                match k {
-                    Key::Up => self.apps_list.step(-1, n, (LIST_H / 34) as usize),
-                    Key::Down => self.apps_list.step(1, n, (LIST_H / 34) as usize),
-                    _ if is_back || k == Key::Ok => self.back(),
+            }
+            return None;
+        }
+        if matches!(page, Page::Menu(_)) || nav != Nav::Volume {
+            // fallthrough to conventional handling
+        }
+        let rows = self.rows_for(page);
+        let eff = self.menus.handle(nav, self.apps.len(), rows);
+        self.redraw = true;
+        match eff {
+            Effect::None | Effect::Redraw => None,
+            Effect::Launch(i) => Some(Action::Launch(i)),
+            Effect::PlayPause => Some(Action::PlayPause),
+            Effect::Tone => Some(Action::Tone),
+            Effect::BacklightTest => Some(Action::Backlight),
+            Effect::CycleSpi => Some(Action::CycleSpi),
+            Effect::RefreshWifi => {
+                self.wifi = sys::wifi_info();
+                None
+            }
+            Effect::Opened(p) => {
+                match p {
+                    Page::Wifi => self.wifi = sys::wifi_info(),
+                    Page::Apps => self.rescan(true),
+                    Page::DateTime => self.time_edit = TimeEdit::new(sys::now_local()),
+                    Page::ButtonTest => self.buttons = ButtonTest::default(),
                     _ => {}
                 }
+                None
             }
-            _ => {
-                if is_back || k == Key::Ok {
-                    self.back();
-                }
-            }
+            Effect::Power(reboot) => Some(Action::Power(if reboot { StopKind::Reboot } else { StopKind::Poweroff })),
         }
-        None
-    }
-
-    fn set_vol(&mut self, d: i32) {
-        let v = sys::volume_step(d);
-        self.p.status.set_volume(v);
-        self.status.volume_pct = v;
     }
 
     fn toggle_tone(&mut self) {
@@ -507,31 +582,76 @@ impl Launcher {
         match if sys::sim() { Err(std::io::Error::other("sim")) } else { cmd.spawn() } {
             Ok(c) => {
                 self.tone = Some(c);
-                self.toast("Tone 440 Hz", 1500);
+                self.toast("Tone 440 Hz (OK again = stop)", 1500);
             }
             Err(_) if sys::sim() => self.toast("Tone 440 Hz", 1500),
             Err(_) => self.toast("Tone FAILED", 2000),
         }
     }
 
-    /// Play/Pause on the menus: toggle MPD if it has a queue, else the M3 test tone.
+    /// Global Play/Pause: toggle MPD. Stops a running test tone first.
     fn play_pause(&mut self) {
-        if let Ok(mut c) = zpod_mpd::Client::connect_default() {
-            if let Ok(s) = c.status() {
-                if s.playlist_len > 0 {
-                    let (cmd, st, msg) = match s.state.as_str() {
-                        "play" => ("pause 1", PlayState::Paused, "Paused"),
-                        "pause" => ("pause 0", PlayState::Playing, "Playing"),
-                        _ => ("play", PlayState::Playing, "Playing"),
-                    };
-                    let _ = c.simple(cmd);
-                    self.p.status.set_play(st);
-                    self.toast(msg, 1200);
-                    return;
-                }
+        if let Some(mut t) = self.tone.take() {
+            proc::stop_child(&mut t, Duration::from_millis(300));
+        }
+        let (st, msg) = sys::mpd_toggle();
+        if st != PlayState::Unknown {
+            self.p.status.set_play(st);
+        }
+        self.toast(msg, 1400);
+    }
+
+    /// Settings > Display > Backlight test: GPIO27 low for 3 s (inferred
+    /// backlight pin; if the screen does not go dark, GPIO27 is not it).
+    fn backlight_test(&mut self) {
+        self.busy("Backlight off 3 s");
+        if let Some(l) = self.p.lcd.as_mut() {
+            l.backlight(false);
+            std::thread::sleep(Duration::from_secs(3));
+            l.backlight(true);
+        }
+        self.p.fb.mark_all_dirty();
+        self.toast("Back on. Did it go dark?", 2500);
+    }
+
+    /// Settings > Display > Panel SPI speed: 32 -> 48 -> 64 -> 32 MHz. The
+    /// new clock is tried at once; OK within 10 s keeps it, otherwise it
+    /// reverts (so an unreadable screen fixes itself).
+    fn cycle_spi(&mut self) {
+        let cur = spi_mhz_now();
+        let ch = lcd::SPI_MHZ_CHOICES;
+        let next = ch[(ch.iter().position(|m| *m == cur).unwrap_or(0) + 1) % ch.len()];
+        self.apply_spi(next);
+        if next == lcd::SPI_HZ / 1_000_000 {
+            let _ = conf::set("display", "spi_mhz", &next.to_string());
+            self.spi_trial = None;
+            self.toast(format!("SPI {next} MHz (safe default)"), 1800);
+        } else {
+            self.spi_trial = Some((cur, Instant::now() + SPI_KEEP_WINDOW));
+            self.toast(format!("SPI {next} MHz: OK = keep (10 s)"), 9500);
+        }
+    }
+
+    fn apply_spi(&mut self, mhz: u32) {
+        std::env::set_var("ZPOD_SPI_MHZ", mhz.to_string());
+        if !self.p.is_sim() {
+            self.p.release_display();
+            if let Err(e) = self.p.reacquire_display() {
+                eprintln!("launcher: SPI {mhz} MHz reopen failed: {e}");
             }
         }
-        self.toggle_tone();
+        self.p.fb.mark_all_dirty();
+        self.redraw = true;
+    }
+
+    fn spi_trial_tick(&mut self) {
+        if let Some((prev, until)) = self.spi_trial {
+            if Instant::now() >= until {
+                self.spi_trial = None;
+                self.apply_spi(prev);
+                self.toast(format!("Reverted to SPI {prev} MHz"), 2000);
+            }
+        }
     }
 
     // ------------------------------------------------------------- launch
@@ -633,18 +753,19 @@ impl Launcher {
         self.redraw = true;
     }
 
-    fn launch_id(&mut self, id: &str) {
-        if let Some(i) = self.apps.iter().position(|a| a.manifest.app.id == id) {
-            self.launch(i);
-        }
-    }
+}
+
+
+fn it_is_spi(items: &[Item], sel: usize) -> bool {
+    items.get(sel) == Some(&Item::SpiSpeed)
 }
 
 enum Action {
     Launch(usize),
-    LaunchId(String),
     PlayPause,
     Tone,
+    Backlight,
+    CycleSpi,
     Power(StopKind),
 }
 
@@ -746,6 +867,7 @@ fn main() {
     let mut l = Launcher::new(p);
     l.p.fb.mark_all_dirty();
     let mut status_redraw_at = Instant::now();
+    let mut powering = false;
 
     loop {
         if proc::terminating() {
@@ -769,38 +891,48 @@ fn main() {
                 l.redraw = true;
             }
         }
-        if l.screen == Screen::Status && Instant::now() >= status_redraw_at {
+        l.spi_trial_tick();
+        let page = l.menus.page();
+        let live = matches!(page, Page::Status | Page::About | Page::DateTime);
+        if live && page != Page::DateTime && Instant::now() >= status_redraw_at {
             l.redraw = true;
             status_redraw_at = Instant::now() + Duration::from_secs(1);
         }
-        if l.screen == Screen::Home {
+        if page == Page::Menu(MenuId::Top) {
             l.rescan(false);
         }
-        if l.redraw {
+        if l.redraw && !powering {
             l.draw();
         }
         l.p.flush();
 
-        let timeout = match (&l.screen, &l.toast) {
-            (_, Some((_, until))) => until.saturating_duration_since(Instant::now()).max(Duration::from_millis(20)),
-            (Screen::Status, _) => Duration::from_millis(1000 - sys::subsec_ms().min(999) + 5),
+        let mut timeout = match (&l.toast, live) {
+            (Some((_, until)), _) => until.saturating_duration_since(Instant::now()).max(Duration::from_millis(20)),
+            (None, true) => Duration::from_millis(1000 - sys::subsec_ms().min(999) + 5),
             _ => Duration::from_secs(1),
         };
+        if let Some((_, until)) = l.spi_trial {
+            timeout = timeout.min(until.saturating_duration_since(Instant::now()).max(Duration::from_millis(20)));
+        }
         let Some(ev) = l.p.next_event(Some(timeout)) else {
             if l.p.is_sim() && sim_done() {
                 break;
             }
             continue;
         };
+        if powering {
+            continue;
+        }
         match l.key(ev) {
             Some(Action::Launch(i)) => l.launch(i),
-            Some(Action::LaunchId(id)) => l.launch_id(&id),
             Some(Action::PlayPause) => l.play_pause(),
             Some(Action::Tone) => l.toggle_tone(),
+            Some(Action::Backlight) => l.backlight_test(),
+            Some(Action::CycleSpi) => l.cycle_spi(),
             Some(Action::Power(kind)) => {
-                l.screen = Screen::Busy(if kind == StopKind::Reboot { "Rebooting...".into() } else { "Shutting down".into() });
-                l.draw();
-                l.p.flush();
+                powering = true;
+                l.toast = None;
+                l.busy(if kind == StopKind::Reboot { "Rebooting..." } else { "Shutting down" });
                 if l.p.is_sim() {
                     end_screen(&mut l.p, Some(kind));
                     return;

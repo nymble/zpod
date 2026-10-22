@@ -158,6 +158,42 @@ pub fn toast<D: Canvas>(d: &mut D, msg: &str) {
 /// Toast area (to restore what was under it).
 pub const TOAST_AREA: (i32, i32, u32, u32) = (10, 96, 300, 48);
 
+/// Where the side-button volume overlay is drawn (x, y, w, h). The same
+/// box on every screen and in every app (drawn by the platform layer).
+pub const VOLUME_OVERLAY: (i32, i32, u32, u32) = (50, 88, 220, 64);
+
+/// The one volume overlay: speaker, "Volume 46%", a bar with the 80 % cap.
+pub fn volume_overlay<D: Canvas>(d: &mut D, pct: Option<u8>, cap: u8) {
+    let (x, y, w, h) = VOLUME_OVERLAY;
+    // inset by 2 px: the 2-px stroke must stay inside VOLUME_OVERLAY, which
+    // is the area the platform layer saves and restores
+    let r = rect(x + 2, y + 2, w - 4, h - 4);
+    let _ = RoundedRectangle::with_equal_corners(r, Size::new(8, 8))
+        .into_styled(PrimitiveStyle::with_fill(PANEL))
+        .draw(d);
+    let _ = RoundedRectangle::with_equal_corners(r, Size::new(8, 8))
+        .into_styled(PrimitiveStyle::with_stroke(ACCENT, 2))
+        .draw(d);
+    crate::status::speaker_icon(d, x + 14, y + 12, ACCENT);
+    let label = match pct {
+        Some(p) => alloc::format!("Volume {p}%"),
+        None => alloc::string::String::from("Volume --"),
+    };
+    text::draw(d, Font::Large, &label, x + 34, y + 8, ACCENT);
+    let (bx, by, bw, bh) = (x + 14, y + 40, w - 28, 12u32);
+    fill(d, bx, by, bw, bh, BAR);
+    let cap = cap.clamp(1, 100) as u32;
+    if let Some(p) = pct {
+        let fw = (bw * (p as u32).min(cap) / cap).min(bw);
+        if fw > 0 {
+            fill(d, bx, by, fw, bh, OK);
+        }
+    }
+    let _ = Rectangle::new(Point::new(bx - 1, by - 1), Size::new(bw + 2, bh + 2))
+        .into_styled(PrimitiveStyle::with_stroke(FG, 1))
+        .draw(d);
+}
+
 /// Confirmation dialog: title + lines; OK/X hints drawn by caller via hints().
 pub fn dialog<D: Canvas>(d: &mut D, title: &str, lines: &[&str], title_color: Rgb565) {
     let r = rect(16, 44, 288, 150);

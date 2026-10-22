@@ -68,7 +68,6 @@ fn main() {
         if let Some(ev) = p.next_event(Some(timeout)) {
             match ev.key {
                 Key::Home if ev.state == KeyState::Press => break,
-                Key::VolUp | Key::VolDown => p.status.volume_changed(),
                 _ => {}
             }
             if let Some(a) = map(&g, ev) {

@@ -14,7 +14,21 @@ use zpod_panel::{NoopReset, ZpodIli9340};
 use zpod_ui::fb::Framebuffer;
 
 pub const SPI_DEV: &str = "/dev/spidev0.0";
+/// Safe default panel clock (M2/M3, confirmed on hardware).
 pub const SPI_HZ: u32 = 32_000_000;
+/// Clocks offered in Settings > Display (vendor ran 64-80 MHz; 48/64 are
+/// untested on ZPOD: see docs/ui/BUTTONS-AND-MENUS.md "SPI speed test").
+pub const SPI_MHZ_CHOICES: [u32; 3] = [32, 48, 64];
+
+/// Panel SPI clock from /etc/zpod/ui.conf `[display] spi_mhz` (32/48/64),
+/// else the safe 32 MHz. `ZPOD_SPI_MHZ` overrides (testing).
+pub fn spi_hz() -> u32 {
+    let v = std::env::var("ZPOD_SPI_MHZ").ok().or_else(|| crate::conf::get("display", "spi_mhz"));
+    match v.and_then(|s| s.trim().parse::<u32>().ok()) {
+        Some(m) if SPI_MHZ_CHOICES.contains(&m) => m * 1_000_000,
+        _ => SPI_HZ,
+    }
+}
 pub const PIN_DC: u32 = 25;
 pub const PIN_BL: u32 = 27;
 /// Headphone amp mute (owned by config.txt `gpio=14=op,dl`). Never touched.
@@ -126,7 +140,7 @@ impl Lcd {
     /// `None`: cold only if no process has initialised the panel this boot.
     pub fn open(cold: Option<bool>) -> io::Result<Self> {
         let mut spi = SpidevDevice::open(SPI_DEV).map_err(ioerr("open spidev0.0"))?;
-        spi.configure(&SpidevOptions::new().bits_per_word(8).max_speed_hz(SPI_HZ).mode(SpiModeFlags::SPI_MODE_0).build())?;
+        spi.configure(&SpidevOptions::new().bits_per_word(8).max_speed_hz(spi_hz()).mode(SpiModeFlags::SPI_MODE_0).build())?;
 
         let mut chip = soc_chip()?;
         let dc = match chip

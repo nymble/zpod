@@ -1,49 +1,91 @@
+# Top menu: apps (clock, music, tetris), File transfer, Wi-Fi info, Settings >, Power >
 wait 300
 shot launcher-home
+# Wi-Fi info (with MAC): Up x3 from the first row wraps to Wi-Fi? use Down instead
 key down
 key down
 key down
-key ok
-wait 100
-shot launcher-system
-key ok
-wait 200
-shot launcher-status
-key x
-key down
-key ok
-key up
-key up
-wait 100
-shot launcher-volume
-key x
 key down
 key ok
 wait 100
 shot launcher-wifi
-key x
-key down
+key left
+key up
 key ok
 wait 100
 shot launcher-transfer
+key left
+# Settings >
+key down
+key down
+key right
+wait 100
+shot launcher-settings
+# Settings > Display >
+key ok
+wait 100
+shot launcher-display
+key left
+# Settings > Date & time (editor)
+key down
+key ok
+key up
+key right
+key up
+wait 100
+shot launcher-datetime
 key x
+# Battery & about
+key down
+key ok
+wait 100
+shot launcher-about
+key left
+# Installed apps
 key down
 key ok
 wait 100
 shot launcher-apps
-key x
+key left
+# Diagnostics >
 key down
+key ok
+wait 100
+shot launcher-diagnostics
+key ok
+wait 200
+shot launcher-status
+key left
 key down
+key ok
+key up
+key volup
+key ok
+wait 100
+shot launcher-buttontest
+wait 1500
+key home
+wait 100
+# Home from Diagnostics -> top menu in one press
+key home
+wait 100
+shot launcher-home-again
+# Power > Shut down (confirm), Left cancels (top selection is still Settings)
+key down
+key ok
 key down
 key ok
 wait 100
 shot launcher-confirm-shutdown
-key x
+key left
 key home
-key up
-key ok
+# volume overlay: held = stays visible
+hold volup 1500
+wait 200
+shot launcher-volume-overlay
 wait 1500
-shot launcher-after-tetris
-key volup
+shot launcher-volume-overlay-gone
+# Play/Pause = music, never a tone
+key play
 wait 100
-shot launcher-volume-toast
+shot launcher-play-nothing-queued

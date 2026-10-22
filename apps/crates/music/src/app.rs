@@ -5,7 +5,10 @@
 //!   Square add to queue, Triangle now playing.
 //! * Now playing: Left previous, Right next (hold = seek +10 s),
 //!   Up repeat (off / all / one), Down shuffle on/off, OK queue, X back.
-//! * Everywhere: Play/Pause toggles playback, Home returns to the ZPOD menu.
+//! * Everywhere: Play/Pause toggles playback, Home returns to the ZPOD menu,
+//!   Vol+/- = shared overlay (platform layer). Left at the music menu = exit.
+//! * Now Playing overrides Left/Right (previous/next, documented in
+//!   docs/ui/BUTTONS-AND-MENUS.md); X = back.
 
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -239,16 +242,9 @@ impl MusicApp {
                 self.need_full = true;
                 return Outcome::Changed;
             }
-            Key::VolUp | Key::VolDown => {
-                // zpod-buttons already changed the ALSA 'Digital' control
-                self.poll(be);
-                let v = self.status.as_ref().and_then(|s| s.volume);
-                self.toast(match v {
-                    Some(v) => format!("Volume {v}%"),
-                    None => "Volume".to_string(),
-                });
-                return Outcome::Changed;
-            }
+            // Volume: zpod-buttons changes it and the platform layer draws the
+            // one shared overlay; the music app shows nothing of its own.
+            Key::VolUp | Key::VolDown => return Outcome::Nothing,
             Key::Triangle if !rep && self.top().screen != Screen::NowPlaying => {
                 self.push(Screen::NowPlaying);
                 return Outcome::Changed;
@@ -269,7 +265,12 @@ impl MusicApp {
                 self.top_mut().ls.step(1, len, vis);
                 self.need_full = true;
             }
-            Key::Cross | Key::Left if !rep => self.pop(),
+            Key::Cross | Key::Left if !rep => {
+                if self.stack.len() <= 1 {
+                    return Outcome::Exit; // back one level = leave the app
+                }
+                self.pop()
+            }
             Key::Ok | Key::Circle | Key::Right if !rep => self.open(be, false),
             Key::Square if !rep => self.open(be, true),
             _ => return Outcome::Nothing,

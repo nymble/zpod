@@ -13,4 +13,3 @@ wait 300
 shot clock-analog-noseconds
 key ok
 key left
-key home

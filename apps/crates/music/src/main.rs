@@ -46,9 +46,7 @@ fn main() {
         }
         if let Some(st) = &app.status {
             p.status.set_play(st.state);
-            if st.volume.is_some() {
-                p.status.set_volume(st.volume);
-            }
+            // volume shown = zpod-buttons' value (not MPD's mixer scale)
         } else {
             p.status.set_play(PlayState::Unknown);
         }
