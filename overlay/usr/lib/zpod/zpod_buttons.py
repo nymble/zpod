@@ -10,8 +10,18 @@ D-pad centre has no pin of its own: it is reported when GPIO 4, 17, 22 and 23
 all go low within COMBO_WINDOW (~40 ms observed). Directions are therefore
 emitted after a short hold-off so a centre press never leaks an arrow key.
 
-Side volume buttons adjust the DAC's ALSA "Digital" control directly and also
-emit KEY_VOLUMEUP / KEY_VOLUMEDOWN (apps must not apply them a second time).
+Side volume buttons: this daemon is the ONLY writer of the DAC's ALSA
+"Digital" control. Timing (Howard Qiao's zpod/settings.ini, approved
+2026-10-22): a press must last >= 75 ms (shorter = ignored), it then steps
+once (2 %); held past 650 ms it repeats one step every 150 ms, steadily,
+until released. Volume is capped at 80 %. Each step is computed here from an
+integer (no amixer relative steps, no rounding drift, no jumps) and applied
+by one writer thread with "latest value wins" (no amixer backlog). Before
+each key event the daemon writes /run/zpod/volume = "<pct> <held>" so every
+UI shows the same number with no subprocess. Events: KEY_VOLUMEUP/DOWN press
+(first step), one autorepeat (value 2) per further step, release on key-up.
+Kernel autorepeat is not used for any key; the daemon generates D-pad
+repeats itself (400 ms delay, 120 ms period), so events are deterministic.
 
 Optional overrides: /etc/zpod/buttons.conf (INI, see the shipped example).
 """
@@ -22,6 +32,7 @@ import signal
 import struct
 import subprocess
 import sys
+import threading
 import time
 
 import evdev
@@ -51,9 +62,15 @@ DPAD = ("up", "down", "left", "right")
 POLL_S = 0.005
 DEBOUNCE_S = 0.020
 COMBO_WINDOW_S = 0.050
-VOL_STEP_PCT = 3
-VOL_REPEAT_DELAY_S = 0.60
-VOL_REPEAT_S = 0.15
+VOL_STEP_PCT = 2
+VOL_CAP_PCT = 80
+KEY_SHORT_MIN_S = 0.075      # shorter presses are ignored
+VOL_REPEAT_DELAY_S = 0.650   # key_short_max: held longer = repeat
+VOL_REPEAT_S = 0.150
+KEY_LONG_MAX_S = 1.200       # long-press actions (documented for apps)
+NAV_REPEAT_DELAY_S = 0.400
+NAV_REPEAT_S = 0.120
+VOL_STATE = "/run/zpod/volume"
 
 GPLEV0 = 0x34
 GPPUD = 0x94
@@ -118,7 +135,9 @@ def load_config():
     pins = {n: p for n, (p, _) in BUTTONS.items()}
     center = CENTER_KEY
     opts = {"combo_window_ms": COMBO_WINDOW_S * 1000, "debounce_ms": DEBOUNCE_S * 1000,
-            "volume_step_pct": VOL_STEP_PCT, "volume_adjusts_alsa": True}
+            "volume_step_pct": VOL_STEP_PCT, "volume_adjusts_alsa": True,
+            "volume_cap_pct": VOL_CAP_PCT, "key_short_min_ms": KEY_SHORT_MIN_S * 1000,
+            "volume_repeat_delay_ms": VOL_REPEAT_DELAY_S * 1000, "volume_repeat_ms": VOL_REPEAT_S * 1000}
     cp = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
     if os.path.exists(CONF):
         cp.read(CONF)
@@ -133,14 +152,64 @@ def load_config():
             opts["debounce_ms"] = o.getfloat("debounce_ms", opts["debounce_ms"])
             opts["volume_step_pct"] = o.getint("volume_step_pct", opts["volume_step_pct"])
             opts["volume_adjusts_alsa"] = o.getboolean("volume_adjusts_alsa", True)
+            opts["volume_cap_pct"] = max(0, min(100, o.getint("volume_cap_pct", opts["volume_cap_pct"])))
+            for k in ("key_short_min_ms", "volume_repeat_delay_ms", "volume_repeat_ms"):
+                opts[k] = o.getfloat(k, opts[k])
     codes = {n: e.ecodes[k] for n, k in keys.items()}
     return pins, keys, codes, center, e.ecodes[center], opts
 
 
-def alsa_volume(step_pct):
-    sign = "+" if step_pct > 0 else "-"
-    subprocess.Popen(["amixer", "-q", "-c", CARD, "sset", "Digital", f"{abs(step_pct)}%{sign}"],
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def vol_step(pct, up, step, cap):
+    """One volume step from an integer, clamped to [0, cap] (no drift)."""
+    p = min(pct, cap)
+    return max(0, min(cap, p + step if up else p - step))
+
+
+def alsa_get():
+    try:
+        out = subprocess.run(["amixer", "-c", CARD, "sget", "Digital"],
+                             capture_output=True, text=True, timeout=3).stdout
+    except Exception:
+        return None
+    import re
+    m = re.search(r"\[(\d+)%\]", out)
+    return int(m.group(1)) if m else None
+
+
+class VolumeWriter:
+    """Single writer of ALSA 'Digital' (absolute %, latest value wins) and of
+    the /run/zpod/volume state file."""
+
+    def __init__(self, enabled):
+        self.enabled = enabled
+        self.want = None
+        self.cv = threading.Condition()
+        if enabled:
+            threading.Thread(target=self._run, daemon=True).start()
+
+    def publish(self, pct, held):
+        try:
+            os.makedirs(os.path.dirname(VOL_STATE), exist_ok=True)
+            tmp = VOL_STATE + ".tmp"
+            with open(tmp, "w") as f:
+                f.write(f"{pct} {1 if held else 0}\n")
+            os.replace(tmp, VOL_STATE)
+        except OSError:
+            pass
+
+    def set(self, pct):
+        with self.cv:
+            self.want = pct
+            self.cv.notify()
+
+    def _run(self):
+        while True:
+            with self.cv:
+                while self.want is None:
+                    self.cv.wait()
+                pct, self.want = self.want, None
+            subprocess.run(["amixer", "-q", "-c", CARD, "sset", "Digital", f"{pct}%"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 class Debounced:
@@ -164,6 +233,15 @@ def main():
     debounce = opts["debounce_ms"] / 1000.0
     window = opts["combo_window_ms"] / 1000.0
     vstep = opts["volume_step_pct"]
+    vcap = opts["volume_cap_pct"]
+    short_min = opts["key_short_min_ms"] / 1000.0
+    vdelay = opts["volume_repeat_delay_ms"] / 1000.0
+    vperiod = opts["volume_repeat_ms"] / 1000.0
+    vw = VolumeWriter(opts["volume_adjusts_alsa"])
+    vol = alsa_get() if opts["volume_adjusts_alsa"] else None
+    if vol is None:
+        vol = vcap
+    vw.publish(vol, False)
 
     gm = GpioMem()
     set_pullups(gm, pins.values())
@@ -171,12 +249,8 @@ def main():
 
     caps = {e.EV_KEY: sorted(set(codes.values()) | {center_code})}
     ui = evdev.UInput(caps, name="zpod-buttons", vendor=0x5a50, product=0x0d02, version=2)
-    # Kernel software autorepeat for held keys (arrows etc.)
-    try:
-        ui.write(e.EV_REP, e.REP_DELAY, 400)
-        ui.write(e.EV_REP, e.REP_PERIOD, 120)
-    except Exception:
-        pass
+    # No kernel autorepeat (EV_REP is not in caps): repeats are generated
+    # below so held volume keys step steadily and D-pad repeat is uniform.
     log("uinput 'zpod-buttons' ready: " +
         ", ".join(f"{n}=GPIO{pins[n]}->{keys[n]}" for n in pins) +
         f", center=GPIO4+17+22+23->{center_name}")
@@ -193,7 +267,9 @@ def main():
     last_raw_any = 0.0
     seen = set()
     dir_down = set()
-    vol_next = {"volup": None, "voldown": None}
+    # volume key state: name -> {"t0": press time, "next": next step time, "on": event sent}
+    vol_keys = {"volup": None, "voldown": None}
+    nav_next = {}                     # D-pad key -> next autorepeat time
 
     running = True
 
@@ -210,7 +286,8 @@ def main():
         # is mid-debounce, mid-combo or auto-repeating.
         if (lev == last_lev and mode == "idle"
                 and all(d.cand == d.state for d in deb.values())
-                and vol_next["volup"] is None and vol_next["voldown"] is None):
+                and vol_keys["volup"] is None and vol_keys["voldown"] is None
+                and not nav_next):
             time.sleep(POLL_S)
             continue
         last_lev = lev
@@ -220,19 +297,39 @@ def main():
         # --- simple buttons ---------------------------------------------
         for n in others:
             if deb[n].update(raw[n], now, debounce):
-                emit(codes[n], 1 if deb[n].state else 0)
-                if n in vol_next:
+                if n in vol_keys:
                     if deb[n].state:
-                        if opts["volume_adjusts_alsa"]:
-                            alsa_volume(vstep if n == "volup" else -vstep)
-                        vol_next[n] = now + VOL_REPEAT_DELAY_S
+                        if all(v is None for v in vol_keys.values()) and opts["volume_adjusts_alsa"]:
+                            cur = alsa_get()       # re-sync if something else set it
+                            if cur is not None:
+                                vol = min(cur, vcap)
+                        vol_keys[n] = {"t0": now, "next": now + short_min, "on": False}
                     else:
-                        vol_next[n] = None
-        for n, t in vol_next.items():
-            if t is not None and now >= t and deb[n].state:
-                if opts["volume_adjusts_alsa"]:
-                    alsa_volume(vstep if n == "volup" else -vstep)
-                vol_next[n] = now + VOL_REPEAT_S
+                        st = vol_keys[n]
+                        vol_keys[n] = None
+                        held = any(v is not None for v in vol_keys.values())
+                        vw.publish(vol, held)
+                        if st and st["on"]:
+                            emit(codes[n], 0)
+                    continue
+                emit(codes[n], 1 if deb[n].state else 0)
+        for n, st in vol_keys.items():
+            if st is None or now < st["next"]:
+                continue
+            # first step at 75 ms (short_min), repeats from 650 ms every 150 ms
+            nv = vol_step(vol, n == "volup", vstep, vcap)
+            changed, vol = nv != vol, nv
+            vw.publish(vol, True)
+            if opts["volume_adjusts_alsa"] and changed:
+                vw.set(vol)
+            if not st["on"]:
+                st["on"] = True
+                emit(codes[n], 1)
+                st["next"] = st["t0"] + vdelay
+            else:
+                ui.write(e.EV_KEY, codes[n], 2)
+                ui.syn()
+                st["next"] = max(st["next"] + vperiod, now + vperiod * 0.5)
 
         # --- D-pad + centre combo ----------------------------------------
         for n in DPAD:
@@ -260,6 +357,7 @@ def main():
                     for n in held:
                         dir_down.add(n)
                         emit(codes[n], 1)
+                        nav_next[n] = now + NAV_REPEAT_DELAY_S
                 else:
                     for n in seen:                  # quick tap inside window
                         emit(codes[n], 1); emit(codes[n], 0)
@@ -277,6 +375,7 @@ def main():
                 for n in list(dir_down):
                     emit(codes[n], 0)
                 dir_down.clear()
+                nav_next.clear()
                 emit(center_code, 1)
                 mode = "center"
             else:
@@ -284,12 +383,21 @@ def main():
                     if deb[n].state and n not in dir_down:
                         dir_down.add(n)
                         emit(codes[n], 1)
+                        nav_next[n] = now + NAV_REPEAT_DELAY_S
                     elif not deb[n].state and n in dir_down:
                         dir_down.discard(n)
+                        nav_next.pop(n, None)
                         emit(codes[n], 0)
+                for n, t in list(nav_next.items()):
+                    if n in dir_down and now >= t:
+                        ui.write(e.EV_KEY, codes[n], 2)
+                        ui.syn()
+                        nav_next[n] = t + NAV_REPEAT_S
                 if not dir_down and deb_none:
                     mode = "idle"
 
+        if mode != "dir" and nav_next:
+            nav_next.clear()
         time.sleep(POLL_S)
 
     ui.close()

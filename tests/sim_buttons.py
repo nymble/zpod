@@ -25,7 +25,16 @@ class FakeGM:
     def pullup_legacy(self, mask): pass
 zb.GpioMem = FakeGM
 zb.soc_family = lambda: 'bcm2835'
-zb.alsa_volume = lambda s: events.append((round(time.monotonic() - T0, 3), 'ALSA', s))
+cur = {'v': 50}
+zb.alsa_get = lambda: cur['v']
+zb.VOL_STATE = '/tmp/zpod-sim-volume'
+class FakeVW:
+    def __init__(self, enabled): self.enabled = enabled
+    def publish(self, pct, held): events.append((round(time.monotonic() - T0, 3), 'STATE', pct, int(held)))
+    def set(self, pct):
+        cur['v'] = pct
+        events.append((round(time.monotonic() - T0, 3), 'ALSA', pct))
+zb.VolumeWriter = FakeVW
 zb.CONF = '/nonexistent'
 def press(pins):
     for p in pins: state['lev'] &= ~(1 << p)
@@ -43,14 +52,33 @@ def script():
     # 4. bouncy HOME press
     for _ in range(3): press([24]); time.sleep(0.003); release([24]); time.sleep(0.003)
     press([24]); time.sleep(0.1); release([24]); time.sleep(0.2)
-    # 5. volume up hold 800 ms (repeat)
-    press([5]); time.sleep(0.8); release([5]); time.sleep(0.2)
+    # 5. volume up hold 1400 ms (repeat)
+    press([5]); time.sleep(1.4); release([5]); time.sleep(0.2)
+    # 5b. volume up glitch 40 ms (must be ignored)
+    press([5]); time.sleep(0.04); release([5]); time.sleep(0.2)
     # 6. vol down (GPIO20) tap
     press([20]); time.sleep(0.1); release([20]); time.sleep(0.2)
-    # 7. RIGHT hold 300ms
-    press([23]); time.sleep(0.3); release([23]); time.sleep(0.2)
+    # 7. RIGHT hold 700ms (autorepeat from 400 ms)
+    press([23]); time.sleep(0.7); release([23]); time.sleep(0.2)
+    # 8. hold vol up to the cap: 20 s
+    press([5]); time.sleep(5.0); release([5]); time.sleep(0.2)
     import signal, os; os.kill(os.getpid(), signal.SIGINT)
 T0 = time.monotonic()
 threading.Thread(target=script, daemon=True).start()
 zb.main()
 for e_ in events: print(e_)
+# --- assertions ----------------------------------------------------------
+alsa = [x[2] for x in events if x[1] == 'ALSA']
+steps = [b - a for a, b in zip([50] + alsa, alsa)]
+assert all(abs(d) == 2 for d in steps if d), steps          # single steps, no jumps
+assert max(alsa) == 80 and alsa[-1] == 80, alsa              # capped at 80
+first_hold = [x for x in events if x[1] == 'ALSA'][:6]
+rep = [x for x in events if x[1] == 'KEY_VOLUMEUP' and x[2] == 2]
+gaps = [round(b[0] - a[0], 3) for a, b in zip(rep, rep[1:])]
+assert all(0.13 <= g <= 0.2 for g in gaps[:4]), gaps          # steady 150 ms repeat
+assert any(x[1] == 'KEY_RIGHT' and x[2] == 2 for x in events)  # D-pad repeats
+held_off = [x for x in events if x[1] == 'STATE' and x[3] == 0]
+assert len(held_off) >= 3                                     # release clears 'held'
+ups = [x for x in events if x[1] == 'KEY_VOLUMEUP' and x[2] == 1]
+assert len(ups) == 2, ups                                     # 40 ms glitch ignored
+print('SIM_BUTTONS_OK', 'steps', len(alsa), 'repeat gaps', gaps[:5])
