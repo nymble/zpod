@@ -1,0 +1,4 @@
+wait 400
+shot bootsplash-early
+wait 1200
+shot bootsplash

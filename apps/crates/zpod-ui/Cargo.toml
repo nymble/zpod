@@ -1,0 +1,11 @@
+[package]
+name = "zpod-ui"
+description = "no_std + alloc ZPOD UI kit on embedded-graphics: framebuffer with dirty rects, theme, u8g2 fonts, status bar, lists, dialogs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zpod-core.workspace = true
+embedded-graphics.workspace = true
+u8g2-fonts.workspace = true

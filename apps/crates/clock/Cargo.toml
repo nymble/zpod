@@ -1,0 +1,25 @@
+[package]
+name = "zpod-clock"
+description = "ZPOD clock: three faces (digital, analog, word), optional seconds, redraws only on change"
+version = "1.0.0"
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "clock_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "clock"
+path = "src/main.rs"
+required-features = ["std"]
+
+[features]
+default = ["std"]
+std = ["dep:zpod-hal"]
+
+[dependencies]
+zpod-core.workspace = true
+zpod-ui.workspace = true
+embedded-graphics.workspace = true
+zpod-hal = { workspace = true, optional = true }

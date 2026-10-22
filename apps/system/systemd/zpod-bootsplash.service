@@ -1,0 +1,21 @@
+[Unit]
+Description=ZPOD boot splash on the SPI LCD
+Documentation=https://github.com/nymble/zpod/blob/main/docs/APPS.md
+# As early as possible: no default dependencies (does not wait for
+# basic.target / local-fs). It polls for /dev/spidev0.0 itself, so it does
+# not need to be ordered after udev either.
+DefaultDependencies=no
+Conflicts=shutdown.target
+Before=shutdown.target sysinit.target
+ConditionPathExists=!/etc/zpod/no-splash
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/zpod/bin/zpod-bootsplash
+# Exits on SIGTERM leaving the frame on the panel for the launcher.
+KillMode=process
+TimeoutStopSec=3
+Nice=-5
+
+[Install]
+WantedBy=sysinit.target

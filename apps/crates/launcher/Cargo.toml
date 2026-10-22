@@ -1,0 +1,20 @@
+[package]
+name = "zpod-launcher"
+description = "ZPOD launcher: app menu, built-in system screens (replaces the Python zpod-ui), single LCD owner, M3 shutdown end-screen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "zpod-launcher"
+path = "src/main.rs"
+
+[dependencies]
+zpod-core.workspace = true
+zpod-ui.workspace = true
+zpod-hal.workspace = true
+zpod-apps.workspace = true
+zpod-mpd.workspace = true
+embedded-graphics.workspace = true
+libc.workspace = true
+png.workspace = true

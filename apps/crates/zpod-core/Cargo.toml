@@ -1,0 +1,8 @@
+[package]
+name = "zpod-core"
+description = "Platform-agnostic (no_std) ZPOD types and platform traits: input events, clock, storage, battery, audio sink, status"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]

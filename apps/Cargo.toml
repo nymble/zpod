@@ -1,0 +1,42 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.5.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/nymble/zpod"
+
+[workspace.dependencies]
+embedded-graphics = "0.8.1"
+u8g2-fonts = { version = "0.8", default-features = false }
+libc = "0.2"
+png = "0.18"
+jpeg-decoder = { version = "0.3", default-features = false }
+embedded-hal = "1.0"
+mipidsi = "0.10"
+linux-embedded-hal = { version = "0.5", default-features = false, features = ["gpio_cdev", "spi", "i2c"] }
+tar = { version = "0.4", default-features = false }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+toml = { version = "0.8", default-features = false, features = ["parse", "display"] }
+serde = { version = "1", features = ["derive"] }
+zpod-core = { path = "crates/zpod-core" }
+zpod-drivers = { path = "crates/zpod-drivers" }
+zpod-panel = { path = "crates/zpod-panel" }
+zpod-hal = { path = "crates/zpod-hal" }
+zpod-ui = { path = "crates/zpod-ui" }
+zpod-mpd = { path = "crates/zpod-mpd" }
+zpod-apps = { path = "crates/zpod-apps" }
+tetris-core = { path = "crates/tetris-core" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Size-optimised profile for the boot splash (smallest possible static binary)
+[profile.release.package.zpod-bootsplash]
+opt-level = "z"

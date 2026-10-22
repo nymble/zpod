@@ -1,0 +1,16 @@
+wait 300
+shot clock-digital
+key right
+wait 300
+shot clock-analog
+key right
+wait 300
+shot clock-words
+key right
+key right
+key ok
+wait 300
+shot clock-analog-noseconds
+key ok
+key left
+key home

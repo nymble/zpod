@@ -1,0 +1,28 @@
+[package]
+name = "zpod-music"
+description = "ZPOD music player: no_std browse/now-playing core + MPD backend, album art, status bar"
+version = "1.0.0"
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "music_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "music"
+path = "src/main.rs"
+required-features = ["std"]
+
+[features]
+default = ["std"]
+std = ["dep:zpod-hal", "dep:zpod-mpd", "dep:jpeg-decoder", "dep:png"]
+
+[dependencies]
+zpod-core.workspace = true
+zpod-ui.workspace = true
+embedded-graphics.workspace = true
+zpod-hal = { workspace = true, optional = true }
+zpod-mpd = { workspace = true, optional = true }
+jpeg-decoder = { workspace = true, optional = true }
+png = { workspace = true, optional = true }

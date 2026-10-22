@@ -1,0 +1,17 @@
+[Unit]
+Description=ZPOD drop (HTTP music upload)
+Documentation=https://github.com/nymble/zpod/blob/main/docs/FILE-TRANSFER.md
+Requires=zpod-drop.socket
+After=zpod-drop.socket
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/zpod/bin/zpod-drop
+User=pi
+Group=pi
+Nice=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/srv/zpod/media

@@ -1,0 +1,19 @@
+[package]
+name = "zpod-hal"
+description = "ZPOD Linux platform layer: mipidsi panel over spidev + gpio-cdev, evdev buttons, battery/network/volume, headless simulator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zpod-core.workspace = true
+zpod-ui.workspace = true
+zpod-panel.workspace = true
+zpod-drivers.workspace = true
+embedded-graphics.workspace = true
+embedded-hal.workspace = true
+mipidsi.workspace = true
+linux-embedded-hal.workspace = true
+libc.workspace = true
+png.workspace = true
+zpod-mpd.workspace = true

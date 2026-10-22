@@ -1,0 +1,22 @@
+[Unit]
+Description=ZPOD launcher (menu + apps on the SPI LCD; replaces zpod-ui)
+Documentation=https://github.com/nymble/zpod/blob/main/docs/APPS.md
+After=zpod-buttons.service sound.target zpod-audio-init.service zpod-bootsplash.service
+Wants=zpod-buttons.service
+# Single LCD owner: starting the launcher stops the splash (it keeps its last
+# frame; we warm-init with no flash) and the old Python UI.
+Conflicts=zpod-ui.service zpod-bootsplash.service
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/zpod/bin/zpod-launcher
+Environment=ZPOD_APP_USER=zpod
+# SIGTERM goes to the launcher only: it stops the running app itself and then
+# draws the M3 end screen (/etc/zpod/ui.conf [shutdown] screen=message|off).
+KillMode=mixed
+TimeoutStopSec=8
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+[package]
+name = "zpod-mpd"
+description = "Minimal blocking MPD protocol client (std, no dependencies) for the ZPOD music player and status bar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]

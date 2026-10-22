@@ -1,0 +1,16 @@
+[package]
+name = "tetris-core"
+description = "Portable no_std Tetris engine (SRS, wall kicks, 7-bag, hold, ghost, T-spins, lock delay) with an embedded-graphics renderer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["render"]
+# Renderer on any embedded-graphics DrawTarget<Color = Rgb565> (needs alloc via zpod-ui)
+render = ["dep:embedded-graphics", "dep:zpod-ui"]
+
+[dependencies]
+zpod-core.workspace = true
+embedded-graphics = { workspace = true, optional = true }
+zpod-ui = { workspace = true, optional = true }

@@ -1,0 +1,10 @@
+[app]
+id = "tetris"
+name = "Tetris"
+version = "1.0.0"
+exec = "bin/tetris"
+icon = "icon.png"
+description = "Falling blocks: SRS, hold, ghost, high scores"
+min_core = "0.5.0"
+order = 30
+arch = "arm-unknown-linux-musleabihf"

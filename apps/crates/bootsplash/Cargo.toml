@@ -1,0 +1,16 @@
+[package]
+name = "zpod-bootsplash"
+description = "ZPOD boot splash: earliest possible LCD frame, progress bar, streamed boot status lines, hands the panel to the launcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "zpod-bootsplash"
+path = "src/main.rs"
+
+[dependencies]
+zpod-ui.workspace = true
+zpod-hal.workspace = true
+embedded-graphics.workspace = true
+libc.workspace = true

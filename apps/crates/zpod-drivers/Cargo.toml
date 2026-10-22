@@ -1,0 +1,10 @@
+[package]
+name = "zpod-drivers"
+description = "no_std embedded-hal 1.0 drivers for the ZPOD I2C chips: MAX17048 fuel gauge, DS3231 RTC"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+embedded-hal.workspace = true
+zpod-core.workspace = true

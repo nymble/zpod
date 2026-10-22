@@ -1,0 +1,10 @@
+# Pi Zero W = ARM1176JZF-S (ARMv6 + VFPv2). Never use an armv7 target.
+# Build:  cargo zigbuild --release --target arm-unknown-linux-musleabihf
+# Tests on the ARMv6 target run under qemu-user emulating the ARM1176 core.
+[target.arm-unknown-linux-musleabihf]
+runner = "qemu-arm -cpu arm1176"
+rustflags = ["-C", "target-cpu=arm1176jzf-s"]
+
+[target.arm-unknown-linux-gnueabihf]
+runner = "qemu-arm -cpu arm1176 -L /usr/arm-linux-gnueabihf"
+rustflags = ["-C", "target-cpu=arm1176jzf-s"]

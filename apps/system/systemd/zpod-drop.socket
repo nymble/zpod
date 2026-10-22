@@ -1,0 +1,11 @@
+[Unit]
+Description=ZPOD drop (HTTP music upload) socket
+Documentation=https://github.com/nymble/zpod/blob/main/docs/FILE-TRANSFER.md
+
+[Socket]
+ListenStream=8080
+# zpod-drop itself rejects non-USB peers unless a token is configured.
+FreeBind=yes
+
+[Install]
+WantedBy=sockets.target

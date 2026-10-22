@@ -1,0 +1,11 @@
+[package]
+name = "zpod-panel"
+description = "no_std mipidsi model for the ZPOD 320x240 ILI9340-style SPI panel (hardware-confirmed init, MADCTL 0xE8)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mipidsi.workspace = true
+embedded-hal.workspace = true
+embedded-graphics.workspace = true

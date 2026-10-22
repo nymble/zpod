@@ -1,0 +1,11 @@
+#!/bin/sh
+# BusyBox/Buildroot init: the launcher stops the splash itself (pid file) and
+# respawns are handled by inittab if preferred:
+#   ::respawn:/usr/lib/zpod/bin/zpod-launcher
+# Other init scripts can report progress meanwhile:
+#   zpod-bootsplash msg "Mounting /data"; zpod-bootsplash progress 60
+case "$1" in
+  start) start-stop-daemon -S -b -m -p /run/zpod/launcher.pid -x /usr/lib/zpod/bin/zpod-launcher ;;
+  stop)  echo "${ZPOD_STOP_KIND:-poweroff}" > /run/zpod/stop-kind
+         start-stop-daemon -K -p /run/zpod/launcher.pid -s TERM; sleep 2 ;;
+esac

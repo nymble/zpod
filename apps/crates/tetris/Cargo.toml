@@ -1,0 +1,16 @@
+[package]
+name = "zpod-tetris"
+description = "Tetris for ZPOD: tetris-core engine + ZPOD platform frontend (LCD, evdev buttons, simulator)"
+version = "1.0.0"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "tetris"
+path = "src/main.rs"
+
+[dependencies]
+tetris-core.workspace = true
+zpod-core.workspace = true
+zpod-ui.workspace = true
+zpod-hal.workspace = true

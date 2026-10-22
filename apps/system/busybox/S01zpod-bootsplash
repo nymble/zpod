@@ -1,0 +1,6 @@
+#!/bin/sh
+# BusyBox/Buildroot init: start the splash first thing (no systemd needed).
+case "$1" in
+  start) mkdir -p /run/zpod; start-stop-daemon -S -b -x /usr/lib/zpod/bin/zpod-bootsplash ;;
+  stop)  [ -f /run/zpod/bootsplash.pid ] && kill "$(cat /run/zpod/bootsplash.pid)" 2>/dev/null ;;
+esac
