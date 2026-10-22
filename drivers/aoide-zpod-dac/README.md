@@ -17,6 +17,11 @@ both 32-bit kernel flavours. The arm64 `rpi-v8` kernel shipped in the armhf
 image is **not** covered (no arm64 toolchain in an armhf userland); the Zero W
 never boots it.
 
+Origin: the vendor module (GPL v2, author `WWW.AOIDE.CC`) and its `.dtbo` were published as prebuilt binaries by Howard Q. (Howard Qiao) in
+[howardqiao/aoide-dac-drivers](https://github.com/howardqiao/aoide-dac-drivers) and
+[howardqiao/zpod](https://github.com/howardqiao/zpod). No vendor C source is public, so this is a
+rebuild. See [docs/vendor/HOWARDQIAO.md](../../docs/vendor/HOWARDQIAO.md).
+
 Required `config.txt` lines (the image sets these):
 
 ```

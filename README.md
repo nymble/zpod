@@ -51,6 +51,12 @@ it. Without it, use the USB cable: `ssh paul@10.12.194.1`. Details:
 
 A local pi-gen scaffold also lives on the agent computer at `/workspace/zpod-image`. Useful pieces will be merged here as the pipeline lands. `./build.sh` without flags must remain a no-op.
 
+## Credits
+
+- **Howard Q. (Howard Qiao)**, <https://github.com/howardqiao>, created the original uGeek / AOIDE ZPOD software: the player, setup scripts, and the screen and input configuration. He also published the AOIDE DAC drivers, including `aoide-zpod-dac`. His repos, their licenses, and what we use from each are in [docs/vendor/HOWARDQIAO.md](./docs/vendor/HOWARDQIAO.md).
+- `drivers/aoide-zpod-dac/` is a GPL-2.0 out-of-tree rebuild of the vendor `aoide-zpod-dac` ASoC module (`MODULE_LICENSE("GPL v2")`, `MODULE_AUTHOR("WWW.AOIDE.CC")`), first distributed as prebuilt modules in [howardqiao/aoide-dac-drivers](https://github.com/howardqiao/aoide-dac-drivers) and [howardqiao/zpod](https://github.com/howardqiao/zpod). The overlay source compiles byte-identical to the vendor `aoide-zpod-dac.dtbo`.
+- Hardware: uGeek ZPOD (AOIDE ZPOD DAC, PCM5122). The 2017 vendor user guide is in [docs/vendor/](./docs/vendor/README.md).
+
 ## Build and test docs
 
 - [docs/BUILD.md](./docs/BUILD.md) — repeatable construction recipe and pins

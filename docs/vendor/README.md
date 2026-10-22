@@ -1,5 +1,7 @@
 # Vendor documents
 
+Original ZPOD software and drivers: **Howard Q. (Howard Qiao)**, <https://github.com/howardqiao>. See [HOWARDQIAO.md](./HOWARDQIAO.md) for his repositories, their licenses, and what we use from each.
+
 | File | Source | sha256 |
 |---|---|---|
 | `ZPOD-HiFi-Music-Player-User-Guide-2017.pdf` | [play-zone.ch download](https://www.play-zone.ch/en/fileuploader/download/download/?d=1&file=custom%2Fupload%2FFile-1492794401.pdf) (uGeek ZPOD HiFi Music Player User Guide, created 2017-03-03, modified 2017-04-21) | `ca8fc6dc8f1181c1cf856d6ea007a9b5032eebb7c663f9ac51bad66429d6f4f9` |
