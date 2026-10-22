@@ -28,6 +28,8 @@ M1 lite image **hardware-passed** on Pi Zero 2 W (HDMI, user `paul`, console). R
 
 **2026-10-17:** M2 confirmed on hardware (audio, buttons, LCD; red LED by the volume buttons = DAC GPIO4 play indicator). Release **`v0.4.0-m3`** ships the M2 hardware fixes (USB DHCP on macOS, battery via `i2c-dev`, shutdown screen, vendor button labels, boot trims); the Radios milestone below keeps its scope.
 
+**2026-10-22:** `v0.4.1-m3` tested on hardware (boot 1 min 32 s, Wi-Fi via `zpod-wifi.txt`, battery: pass; volume hold, USB DHCP, Wi-Fi MAC, menu conventions: fail/changes). The fixes and the M4 Rust launcher are tracked in [docs/plan/ROADMAP.md](./docs/plan/ROADMAP.md); USB root cause in [docs/USB-GADGET.md](./docs/USB-GADGET.md).
+
 M3 includes association **plus** low-level radio interfaces (`iw`, `btmon`, etc.). Heavy RF apps / 2nd adapter / BitChat stay M8 (#10).
 
 ## Stages

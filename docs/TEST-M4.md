@@ -36,7 +36,7 @@ Pi$  sudo install -m644 /tmp/m4/system/etc/zpod/core-version /tmp/m4/system/etc/
 Pi$  sudo cp /etc/mpd.conf /etc/mpd.conf.dist && sudo install -m644 /tmp/m4/system/etc/mpd/mpd.conf /etc/mpd.conf
 Pi$  sudo useradd --system --home-dir /var/lib/zpod/home --create-home --shell /usr/sbin/nologin zpod
 Pi$  for g in spi gpio i2c input audio video; do sudo usermod -aG $g zpod; done
-Pi$  sudo install -d -o pi -g pi -m 0775 /srv/zpod/media /srv/zpod/media/music /srv/zpod/media/playlists
+Pi$  sudo install -d -o 1000 -g 1000 -m 0775 /srv/zpod/media /srv/zpod/media/music /srv/zpod/media/playlists
 Pi$  sudo usermod -aG pi mpd
 Pi$  for p in /tmp/m4/*.zpa; do sudo zpod-app install "$p"; done; zpod-app list
 Pi$  sudo systemctl daemon-reload && sudo systemctl restart mpd
@@ -113,7 +113,7 @@ Pi$  mpc stats                                   # artists/albums/songs counted
   launcher toggles MPD.
 * [ ] Gapless across tracks of one album.
 * [ ] CPU while playing FLAC with the UI on Now Playing: `top` (record mpd% and music%).
-* [ ] Volume: Vol+/- changes loudness (hardware mixer 'Digital', shared with zpod-buttons).
+* [ ] Volume: Vol+/- changes loudness (zpod-buttons sets ALSA 'Digital'; MPD has no mixer).
 
 ## 6. File transfer
 
@@ -153,3 +153,30 @@ Pi$ systemd-analyze; systemd-analyze critical-chain zpod-launcher.service
 
 Note the binary sizes from `build-arm.sh`, the timings from step 7, the CPU
 numbers from step 5, the transfer speeds from step 6, and every unchecked box.
+
+## 9. M4 candidate image (fixes from the 2026-10-22 test)
+
+Image: `~/zpod-build/deploy/m4/` on the Mac (not published). Write it to a
+card yourself, add `userconf.txt` and (optionally) `zpod-wifi.txt` as for
+v0.4.1. Button and menu spec: [ui/BUTTONS-AND-MENUS.md](./ui/BUTTONS-AND-MENUS.md).
+
+| # | Check | Pass |
+| --- | --- | --- |
+| 9.1 | USB: data cable Mac ↔ Pi `USB` port, no Mac settings changed | within ~90 s an interface "ZPOD USB Ethernet" with a 10.12.194.x address; `ping 10.12.194.1` and `ssh <user>@10.12.194.1` work and **keep working for 5 minutes** (`ping -c 300`) |
+| 9.2 | USB, if 9.1 fails | report `system_profiler SPUSBDataType \| grep -A8 -i zpod` and `netstat -I enX -b`; then try `mode=ecm` in `zpod-usb.txt` on the boot volume |
+| 9.3 | Volume: hold Vol+ 3 s | overlay appears at once, **stays while held**, number climbs 2 % at a time with no jumps, stops at 80 %; hides ~1 s after release |
+| 9.4 | Volume: quick tap | exactly one 2 % step |
+| 9.5 | Home from any screen/app | top menu |
+| 9.6 | Left / X | back one level in Settings > Display, Diagnostics, Power |
+| 9.7 | Play/Pause | music play/pause (or "Nothing queued" toast); never the tone |
+| 9.8 | Settings > Diagnostics > Tone test | 440 Hz tone; Play or the item again stops it |
+| 9.9 | Wi-Fi info | SSID, signal, IP, **MAC** (matches `ip link show wlan0`) |
+| 9.10 | Clock app (menu) | 3 faces with Up/Down/Right, OK = seconds, Left exits |
+| 9.11 | RTC: Settings > Date & time → set, OK; shut down; boot again away from Wi-Fi | time is right without network; `sudo hwclock -r` matches |
+| 9.12 | Settings > Display > Backlight test | screen goes dark for 3 s → GPIO27 **is** the backlight (report yes/no) |
+| 9.13 | Settings > Display > Panel SPI speed | 48 then 64 MHz: report whether the screen stays clean; press OK only if it does |
+| 9.14 | Battery & about | battery %, "shuts down below 5%", RTC time |
+| 9.15 | Low battery (optional, long) | run on battery until it powers itself off cleanly ("ZPOD off" screen) |
+| 9.16 | Button test (Diagnostics) | every button lights its box; Home exits |
+
+Logs: `journalctl -b -u zpod-usb-gadget -u zpod-usb-kick -u zpod-buttons -u zpod-launcher -u zpod-rtc -u zpod-battery-guard`.

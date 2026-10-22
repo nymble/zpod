@@ -64,5 +64,8 @@ A local pi-gen scaffold also lives on the agent computer at `/workspace/zpod-ima
 - [docs/TEST-M3.md](./docs/TEST-M3.md) — M3 on-device checklist
 - [docs/TEST-M2.md](./docs/TEST-M2.md) — M2 on-device checklist
 - [docs/BUTTONS.md](./docs/BUTTONS.md) — button → key code map
+- [docs/ui/BUTTONS-AND-MENUS.md](./docs/ui/BUTTONS-AND-MENUS.md) — M4 button state machine, menu tree, app conventions
+- [docs/plan/ROADMAP.md](./docs/plan/ROADMAP.md) — milestones in small pieces, action items, latest hardware results
+- [docs/TEST-M4.md](./docs/TEST-M4.md) — M4 apps + candidate image checklist
 - [docs/USB-GADGET.md](./docs/USB-GADGET.md) — USB cable networking from a Mac
 - [docs/BUILD-RECORD.md](./docs/BUILD-RECORD.md) — what was built, checksums
