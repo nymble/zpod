@@ -56,17 +56,35 @@ def card_present():
         return False
 
 
+VOL_STATE = "/run/zpod/volume"
+
+
+def volume_state():
+    """(pct, held) published by zpod-buttons (the only volume writer), or None."""
+    try:
+        with open(VOL_STATE) as f:
+            a = f.read().split()
+        return int(a[0]), len(a) > 1 and a[1] == "1"
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def mac_address(ifname):
+    try:
+        with open(f"/sys/class/net/{ifname}/address") as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
 def volume_get():
     """Digital playback volume in percent (amixer scale) or None."""
+    st = volume_state()
+    if st is not None:
+        return st[0]
     out = _run(["amixer", "-c", CARD, "sget", MIXER])
     m = re.search(r"\[(\d+)%\]", out)
     return int(m.group(1)) if m else None
-
-
-def volume_step(delta_pct):
-    sign = "+" if delta_pct >= 0 else "-"
-    _run(["amixer", "-q", "-c", CARD, "sset", MIXER, f"{abs(delta_pct)}%{sign}"])
-    return volume_get()
 
 
 def test_tone(seconds=2, freq=440):
@@ -83,7 +101,8 @@ def test_tone(seconds=2, freq=440):
 
 def wifi_info():
     """Dict with ssid, signal (%), ip, powersave for wlan0 (best effort)."""
-    info = {"ssid": None, "signal": None, "ip": ipv4("wlan0"), "powersave": None}
+    info = {"ssid": None, "signal": None, "ip": ipv4("wlan0"), "powersave": None,
+            "mac": mac_address("wlan0")}
     out = _run(["nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL", "device", "wifi", "list",
                 "--rescan", "no"])
     for line in out.splitlines():

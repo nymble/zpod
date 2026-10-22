@@ -8,12 +8,14 @@ Input comes from the uinput keyboard published by zpod-buttons (device name
   UP/DOWN        move selection (vendor: repeat / shuffle, kept for the player)
   Circle(K) / centre(ENTER) / RIGHT   OK / select
   X(J) / LEFT    cancel / back         Square(U)      back to menu
-  HOME           back to main menu     Triangle(I)    clock on/off
-  PLAY/PAUSE     start/stop the test tone
-  VOLUMEUP/DOWN  (already applied to ALSA by zpod-buttons) -> volume overlay
+  HOME           back to main menu
+  PLAY/PAUSE     no-op here (play/pause belongs to the music player, M4)
+  VOLUMEUP/DOWN  applied by zpod-buttons (single writer); the overlay shows
+                 /run/zpod/volume and stays up while the key is held
 
-Menu: Status, Play test tone, Volume, Wi-Fi info, Reboot, Shutdown
-(Reboot / Shutdown ask for confirmation).
+Menu: Status, Wi-Fi info, Diagnostics: tone test, Reboot, Shutdown
+(Reboot / Shutdown ask for confirmation). M4 replaces this UI with the Rust
+launcher (docs/ui/BUTTONS-AND-MENUS.md); this is the fallback.
 """
 import os
 import select
@@ -50,7 +52,7 @@ WARN = (255, 80, 60)
 UI_CONF = "/etc/zpod/ui.conf"
 SHUTDOWN_SCREENS = ("message", "off")
 
-MENU = ["Status", "Play test tone", "Volume", "Wi-Fi info", "Reboot", "Shutdown"]
+MENU = ["Status", "Wi-Fi info", "Diagnostics: tone test", "Reboot", "Shutdown"]
 
 
 def font(size, bold=False):
@@ -191,6 +193,7 @@ class UI:
         self.last_draw = 0.0
         self.status = {}
         self.lock = threading.Lock()
+        self.vol_until = 0.0
 
     # --- data ----------------------------------------------------------
     def refresh_status(self):
@@ -258,33 +261,25 @@ class UI:
                 d.text((10, y), k, font=F_SMALL, fill=DIM)
                 d.text((100, y), v, font=F_ITEM, fill=FG)
                 y += 28
-        elif self.screen == "volume":
-            self.header(d, "Volume")
-            v = self.status.get("vol")
-            d.text((16, 50), f"{v}%" if v is not None else "n/a", font=F_BIG, fill=ACCENT)
-            d.rectangle([16, 110, WIDTH - 16, 140], outline=FG, width=2)
-            if v is not None:
-                d.rectangle([19, 113, 19 + int((WIDTH - 38) * v / 100), 137], fill=OK)
-            d.text((16, 160), "UP/RIGHT +   DOWN/LEFT -", font=F_SMALL, fill=DIM)
-            d.text((16, 182), "X / HOME = back", font=F_SMALL, fill=DIM)
-        elif self.screen == "clock":
-            d.text((20, 60), time.strftime("%H:%M"), font=font(80, True), fill=FG)
-            d.text((24, 170), time.strftime("%a %Y-%m-%d"), font=F_ITEM, fill=DIM)
-            b = self.status.get("batt")
-            if b:
-                d.text((230, 10), f"{b[0]:.0f}%", font=F_SMALL, fill=OK)
         elif self.screen == "wifi":
             self.header(d, "Wi-Fi")
             w = self.wifi or {}
             lines = [("SSID", w.get("ssid") or "--"), ("Signal", f"{w['signal']}%" if w.get("signal") else "--"),
-                     ("IP", w.get("ip") or "--"), ("Pwr save", w.get("powersave") or "?"),
+                     ("IP", w.get("ip") or "--"), ("MAC", w.get("mac") or "--"),
+                     ("Pwr save", w.get("powersave") or "?"),
                      ("usb0", self.status.get("usb0") or "--")]
-            y = 40
+            y = 36
             for k, v in lines:
                 d.text((10, y), k, font=F_SMALL, fill=DIM)
                 d.text((100, y), v, font=F_ITEM, fill=FG)
-                y += 30
-        if self.overlay and time.monotonic() < self.overlay[1]:
+                y += 28
+        vs = hw.volume_state()
+        if vs is not None and (vs[1] or time.monotonic() < self.vol_until):
+            d.rectangle([50, 88, WIDTH - 50, 152], fill=(30, 30, 30), outline=ACCENT, width=2)
+            d.text((66, 94), f"Volume {vs[0]}%", font=F_ITEM, fill=ACCENT)
+            d.rectangle([66, 126, WIDTH - 66, 140], outline=FG, width=1)
+            d.rectangle([67, 127, 67 + int((WIDTH - 134) * min(vs[0], 80) / 80), 139], fill=OK)
+        elif self.overlay and time.monotonic() < self.overlay[1]:
             d.rectangle([40, 90, WIDTH - 40, 150], fill=(30, 30, 30), outline=ACCENT, width=2)
             d.text((60, 105), self.overlay[0], font=F_BIG, fill=ACCENT)
         self.lcd.show(img)
@@ -324,10 +319,8 @@ class UI:
         item = MENU[self.sel]
         if item == "Status":
             self.screen = "status"
-        elif item == "Play test tone":
+        elif item == "Diagnostics: tone test":
             self.toggle_tone()
-        elif item == "Volume":
-            self.screen = "volume"
         elif item == "Wi-Fi info":
             self.wifi = hw.wifi_info()
             self.screen = "wifi"
@@ -347,10 +340,9 @@ class UI:
         back = (K.KEY_LEFT, K.KEY_J, K.KEY_ESC, K.KEY_BACKSPACE)
         ok = (K.KEY_ENTER, K.KEY_K, K.KEY_RIGHT)
         if code in (K.KEY_VOLUMEUP, K.KEY_VOLUMEDOWN):
-            time.sleep(0.05)                   # let zpod-buttons' amixer land
-            self.status["vol"] = hw.volume_get()
-            v = self.status["vol"]
-            self.overlay = (f"Vol {v}%" if v is not None else "Vol n/a", time.monotonic() + 1.5)
+            # zpod-buttons already set the volume and /run/zpod/volume; the
+            # overlay stays while held and 1.2 s after release
+            self.vol_until = time.monotonic() + 1.2
             self.dirty = True
             return
         if self.busy:
@@ -364,10 +356,10 @@ class UI:
             return
         if code in (K.KEY_HOME, K.KEY_U):          # Home / Square: back to menu
             self.screen = "main"
-        elif code == K.KEY_I:                        # Triangle: clock on/off
-            self.screen = "main" if self.screen == "clock" else "clock"
-        elif code == K.KEY_PLAYPAUSE:                # Play/Pause: test tone
-            self.toggle_tone()
+        elif code == K.KEY_PLAYPAUSE:                # Play/Pause: stop a running tone only
+            p = getattr(self, "tone_proc", None)
+            if p is not None and p.poll() is None:
+                self.toggle_tone()
         elif self.screen == "main":
             if code == K.KEY_UP:
                 self.sel = (self.sel - 1) % len(MENU)
@@ -375,13 +367,6 @@ class UI:
                 self.sel = (self.sel + 1) % len(MENU)
             elif code in ok:
                 self.select()
-        elif self.screen == "volume":
-            if code in (K.KEY_UP, K.KEY_RIGHT):
-                self.status["vol"] = hw.volume_step(+3)
-            elif code == K.KEY_DOWN or code == K.KEY_LEFT:
-                self.status["vol"] = hw.volume_step(-3)
-            elif code in (K.KEY_J, K.KEY_ESC, K.KEY_ENTER):
-                self.screen = "main"
         else:
             if code in back or code == K.KEY_ENTER:
                 self.screen = "main"
@@ -410,6 +395,11 @@ class UI:
                         self.key(code)
             else:
                 time.sleep(timeout)
+            vs = hw.volume_state()
+            if vs is not None and (vs[1] or 0 < self.vol_until - time.monotonic() < 1.3):
+                self.dirty = True
+                if not vs[1] and time.monotonic() >= self.vol_until:
+                    self.vol_until = 0.0
             if self.overlay and time.monotonic() >= self.overlay[1]:
                 self.overlay = None
                 self.dirty = True
