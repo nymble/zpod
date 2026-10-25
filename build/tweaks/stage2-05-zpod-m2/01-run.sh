@@ -15,6 +15,8 @@ BOOTFW="${ROOTFS_DIR}/boot/firmware"
 install -d -m 2755 -o root -g systemd-journal "${ROOTFS_DIR}/var/log/journal" 2>/dev/null \
 	|| install -d -m 2755 "${ROOTFS_DIR}/var/log/journal"
 install -d -m 755 "${ROOTFS_DIR}/var/lib/zpod"
+# M4.1: build identity (version, git commit, build date); see apply.sh
+install -m 644 files/zpod-release "${ROOTFS_DIR}/etc/zpod-release"
 
 # 2. Gadget netdev (usb0) must be managed by NetworkManager. NM's
 #    85-nm-unmanaged.rules unmanages DEVTYPE=gadget by default.

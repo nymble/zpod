@@ -181,6 +181,19 @@ if [[ "$QEMU_ADDED" -eq 1 ]]; then
   QEMU_ADDED=0
 fi
 
+# M4.1: build identity: add the final image name; derive ZPOD_VERSION from it
+# when the build did not set one (e.g. zpod-pi0w-m4.1-candidate -> m4.1-candidate).
+REL="$MNT/etc/zpod-release"
+[[ -f "$REL" ]] || echo "# ZPOD build identity" | sudo tee "$REL" >/dev/null
+sudo sed -i '/^ZPOD_IMAGE=/d' "$REL"
+echo "ZPOD_IMAGE=${IMG_DATE}-${IMG_NAME}" | sudo tee -a "$REL" >/dev/null
+if ! grep -q '^ZPOD_VERSION=.' "$REL"; then
+  sudo sed -i '/^ZPOD_VERSION=/d' "$REL"
+  echo "ZPOD_VERSION=${IMG_NAME#zpod-pi0w-}" | sudo tee -a "$REL" >/dev/null
+fi
+sudo chmod 644 "$REL"
+echo "zpod-release:"; sed 's/^/  /' "$REL"
+
 # 03-network
 if [[ -f "$RESOLV_SRC" ]]; then
   sudo install -m 644 "$RESOLV_SRC" "$MNT/etc/resolv.conf"

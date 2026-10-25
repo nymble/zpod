@@ -158,7 +158,9 @@ numbers from step 5, the transfer speeds from step 6, and every unchecked box.
 
 Image: `~/zpod-build/deploy/m4/` on the Mac (not published). Write it to a
 card yourself, add `userconf.txt` and (optionally) `zpod-wifi.txt` as for
-v0.4.1. Button and menu spec: [ui/BUTTONS-AND-MENUS.md](./ui/BUTTONS-AND-MENUS.md).
+v0.4.1. **Without `userconf.txt` no login works** (SSH shows the rptl.io/newuser
+banner): see [FIRST-LOGIN.md](./FIRST-LOGIN.md), which also covers
+`zpod-ssh.pub` (M4.1+). Button and menu spec: [ui/BUTTONS-AND-MENUS.md](./ui/BUTTONS-AND-MENUS.md).
 
 | # | Check | Pass |
 | --- | --- | --- |
@@ -180,3 +182,18 @@ v0.4.1. Button and menu spec: [ui/BUTTONS-AND-MENUS.md](./ui/BUTTONS-AND-MENUS.m
 | 9.16 | Button test (Diagnostics) | every button lights its box; Home exits |
 
 Logs: `journalctl -b -u zpod-usb-gadget -u zpod-usb-kick -u zpod-buttons -u zpod-launcher -u zpod-rtc -u zpod-battery-guard`.
+
+## 10. M4.1 candidate (login setup, storage & build screens)
+
+Write the card, then on bootfs: `userconf.txt` (password) and/or
+`zpod-ssh.pub` (+ optional `zpod-user.txt`), see [FIRST-LOGIN.md](./FIRST-LOGIN.md).
+
+| # | Check | Pass |
+| --- | --- | --- |
+| 10.1 | `userconf.txt` + `zpod-ssh.pub` | `ssh -o BatchMode=yes paul@zpod.local true` works (key); password works too; `ls /boot/firmware` shows neither file |
+| 10.2 | Key-only (no `userconf.txt`, `zpod-user.txt` = paul) on a fresh card | key login as paul; `sudo -n true` works; no SSH banner |
+| 10.3 | Settings > Battery & about | Build row = version, git commit, build date; SD card row; Host row shows `login paul` |
+| 10.4 | Settings > Diagnostics > Storage & build | values match `cat /etc/zpod-release` and `df -h / /srv/zpod/media /boot/firmware`; SD card size matches `lsblk -b /dev/mmcblk0` |
+| 10.5 | Diagnostics > System status | SD card + Build rows present |
+| 10.6 | Music push | `scripts/zpod-push-music.sh -u paul ~/Music/...` then `mpc stats` counts the albums |
+

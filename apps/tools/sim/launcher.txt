@@ -56,6 +56,13 @@ key ok
 wait 200
 shot launcher-status
 key left
+# Diagnostics > Storage & build
+key down
+key ok
+wait 100
+shot launcher-storage
+key left
+# Diagnostics > Button test
 key down
 key ok
 key up

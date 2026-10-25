@@ -107,9 +107,10 @@ Settings:
 | Display > Brightness | next | PWM on GPIO27, only if the backlight test proves it switches the LED |
 | Display > Panel SPI speed | M4 | cycles 32 → 48 → 64 MHz; the new speed is kept only if you press OK within 10 s, otherwise it reverts (default stays 32 MHz) |
 | Date & time | M4 | set date/time; OK saves with `date -s` + `hwclock -w` (DS3231) |
-| Battery & about | M4 | battery %/V, low-battery shutdown threshold, RTC time, host, kernel, core version, uptime |
+| Battery & about | M4 (M4.1: build, SD card, login) | battery %/V, low-battery shutdown threshold, RTC time, **build** (version, git commit, build date from `/etc/zpod-release`), **SD card** (card size, root use), host + login user (or "NOT SET UP"), kernel, core version |
 | Installed apps | M4 | name, id, version |
-| Diagnostics > System status | M4 | IPs, battery, volume, DAC, music service, uptime |
+| Diagnostics > System status | M4 (M4.1: SD, build) | time, IPs, battery, volume, DAC, music service, uptime, **SD card** summary, **build** + core version |
+| Diagnostics > Storage & build | M4.1 | image version, git commit, build date, image name; SD card size; use per partition: **Root /**, **Music** (`/srv/zpod/media`; "on root" when it shares the root file system), **Boot** (`/boot/firmware`), each as used / total, %, free (red at 90 %+); login user, or "NOT SET UP" if the card was booted without `userconf.txt` / `zpod-ssh.pub` |
 | Diagnostics > Button test | M4 | shows each key as it is pressed, repeats, last event; Home exits |
 | Diagnostics > Tone test (440 Hz) | M4 | start/stop the sine tone (Play also stops it) |
 
@@ -133,7 +134,7 @@ Other planned items (not in the menu yet):
 | --- | --- | --- | --- | --- |
 | Menu (any level) | move (wraps), repeat | enter item / open app | back one level (nothing at top) | — |
 | Wi-Fi info | — | OK = refresh | back | — |
-| File transfer, Installed apps, Battery & about, System status | — | — | back | — |
+| File transfer, Installed apps, Battery & about, System status, Storage & build | — | — | back | — |
 | Date & time editor | change field value (repeat) | Right = next field; OK/Circle = **save** | Left = previous field (on the first field = back, no save); X = cancel | — |
 | Confirm (Reboot/Shut down) | — | OK/Circle = yes | no | — |
 | SPI speed trial | — | OK = keep new speed | back (reverts in 10 s anyway) | — |

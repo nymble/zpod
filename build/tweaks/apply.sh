@@ -37,6 +37,20 @@ find "$M2/files/overlay" -name __pycache__ -prune -exec rm -rf {} +
 install -m 644 "$SCRIPT_DIR/stage2-05-zpod-m2/zpod-usb.txt" "$M2/files/zpod-usb.txt"
 "$REPO_ROOT/drivers/aoide-zpod-dac/build-deb.sh" "$M2/files" >/dev/null
 
+# M4.1: build identity -> /etc/zpod-release (shown on the launcher's About,
+# Status and Diagnostics > Storage & build screens). export-image-offset.sh
+# adds ZPOD_IMAGE (final file name) and, if unset, ZPOD_VERSION from it.
+git_rev="$(git -c safe.directory='*' -C "$REPO_ROOT" rev-parse --short=7 HEAD 2>/dev/null || echo unknown)"
+if [[ "$git_rev" != unknown ]] && ! git -c safe.directory='*' -C "$REPO_ROOT" diff --quiet HEAD -- . ':!build/pi-gen' 2>/dev/null; then
+  git_rev="${git_rev}+dirty"
+fi
+{
+  echo "# ZPOD build identity (written by build/tweaks/apply.sh at image build time)"
+  echo "ZPOD_VERSION=${ZPOD_VERSION:-}"
+  echo "ZPOD_GIT=${git_rev}"
+  echo "ZPOD_BUILD_DATE=${ZPOD_BUILD_DATE:-$(date +%Y-%m-%d)}"
+} > "$M2/files/zpod-release"
+
 # M4: stage2/06-zpod-m4 = Rust launcher + apps. Needs apps/dist from
 # apps/tools/build-arm.sh (cross-built on the build host first). Without it
 # the image is M3-style (Python zpod-ui) plus the M4 system fixes above.

@@ -17,6 +17,7 @@ pub mod input;
 pub mod lcd;
 pub mod platform;
 pub mod sim;
+pub mod storage;
 pub mod sys;
 
 pub use platform::Platform;

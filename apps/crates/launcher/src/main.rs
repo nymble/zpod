@@ -26,7 +26,7 @@ use menu::{Effect, Item, MenuId, Menus, Page};
 use proc::StopKind;
 use zpod_apps::AppInfo;
 use zpod_core::{classify, DateTime, Event, Key, KeyState, Nav, PlayState, StatusInfo};
-use zpod_hal::{conf, lcd, sys, Platform};
+use zpod_hal::{conf, lcd, storage, sys, Platform};
 use zpod_ui::{
     fill, rect,
     status::{battery_icon, draw_status_bar},
@@ -282,7 +282,8 @@ impl Launcher {
                     PlayState::Stopped => "stopped",
                     PlayState::Unknown => "not running",
                 };
-                let rows: [(&str, String); 9] = [
+                let rel = storage::release();
+                let rows: [(&str, String); 10] = [
                     ("Time", format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", t.year, t.month, t.day, t.hour, t.minute, t.second)),
                     ("wlan0", sys::ipv4("wlan0").unwrap_or_else(|| "--".into())),
                     ("usb0", sys::ipv4("usb0").unwrap_or_else(|| "--".into())),
@@ -291,10 +292,11 @@ impl Launcher {
                     ("DAC", if sys::card_present() || sys::sim() { "ok".into() } else { "missing".into() }),
                     ("Music", mpd.into()),
                     ("Uptime", sys::uptime()),
-                    ("Core", format!("{}  ({} apps)", zpod_apps::core_version(), self.apps.len())),
+                    ("SD card", storage::sd_summary()),
+                    ("Build", rel.brief()),
                 ];
                 for (i, (k, v)) in rows.iter().enumerate() {
-                    let y = LIST_Y + 4 + i as i32 * 22;
+                    let y = LIST_Y + 2 + i as i32 * 20;
                     text::draw(fb, Font::Small, k, 10, y + 3, DIM);
                     text::draw_fit(fb, Font::Body, v, 84, y, 230, if v == "missing" { WARN } else { FG });
                 }
@@ -306,14 +308,15 @@ impl Launcher {
                 let rtc = sys::rtc_info();
                 let kernel = std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default();
                 let host = std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default();
-                let rows: [(&str, String); 7] = [
+                let rows: [(&str, String); 8] = [
                     ("Battery", batt.map(|(p, v, c)| format!("{p:.0}%  {v:.2} V{}", if c { "  charging" } else { "" })).unwrap_or_else(|| "n/a (gauge 0x36)".into())),
                     ("Low batt", format!("shuts down below {:.0}%", low_batt_pct())),
                     ("RTC", rtc.map(|(n, t)| format!("{n}  {t} UTC")).unwrap_or_else(|| "none (DS3231 0x68 not bound)".into())),
-                    ("Host", host.trim().to_string()),
+                    ("Build", storage::release().brief()),
+                    ("SD card", storage::sd_summary()),
+                    ("Host", format!("{}  login {}", host.trim(), storage::login_line())),
                     ("Kernel", kernel.trim().to_string()),
                     ("Core", format!("zpod {}  ({} apps)", zpod_apps::core_version(), self.apps.len())),
-                    ("Uptime", sys::uptime()),
                 ];
                 for (i, (k, v)) in rows.iter().enumerate() {
                     let y = LIST_Y + 6 + i as i32 * 24;
@@ -322,6 +325,28 @@ impl Launcher {
                 }
                 if let Some((p, _, c)) = batt {
                     battery_icon(fb, 280, LIST_Y + 9, p, c);
+                }
+                widgets::hints(fb, &[("Lt/X", "back"), ("Home", "top")]);
+            }
+            Page::Storage => {
+                let _ = fb.fill_solid(&area, BG);
+                let rel = storage::release();
+                let dash = |v: &str| if v.is_empty() { "--".to_string() } else { v.to_string() };
+                let mut rows: Vec<(&str, String, bool)> = vec![
+                    ("Version", if rel.is_known() { dash(&rel.version) } else { "unknown (no /etc/zpod-release)".into() }, false),
+                    ("Git", dash(&rel.git), false),
+                    ("Built", dash(&rel.date), false),
+                    ("Image", dash(rel.image_name()), false),
+                    ("SD card", storage::sd_card_bytes().map(|b| format!("{}  ({} raw)", storage::human_card(b), storage::human(b))).unwrap_or_else(|| "n/a".into()), false),
+                ];
+                rows.extend(storage::partition_lines());
+                let login = storage::login_line();
+                let bad = login.starts_with("NOT SET UP");
+                rows.push(("Login", login, bad));
+                for (i, (k, v, warn)) in rows.iter().enumerate() {
+                    let y = LIST_Y + 3 + i as i32 * 22;
+                    text::draw(fb, Font::Small, k, 10, y + 3, DIM);
+                    text::draw_fit(fb, Font::Body, v, 84, y, 230, if *warn { WARN } else { FG });
                 }
                 widgets::hints(fb, &[("Lt/X", "back"), ("Home", "top")]);
             }

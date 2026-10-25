@@ -125,7 +125,19 @@ chk "M4: fake-hwclock absent"                 bash -c "! ls '$R'/etc/systemd/sys
 chk "M4: zpod-battery-guard enabled"          test -L "$R/etc/systemd/system/multi-user.target.wants/zpod-battery-guard.service"
 chk "M4: ui.conf [battery] shutdown_pct = 5"  grep -qx 'shutdown_pct = 5' "$R/etc/zpod/ui.conf"
 chk "M4: ui.conf [display] spi_mhz = 32"      grep -qx 'spi_mhz = 32' "$R/etc/zpod/ui.conf"
+# --- M4.1: login setup (no password/key baked) + build identity -------------
+chk "M4.1: first user has no password hash"    bash -c "awk -F: '\$3==1000{print \$1}' '$R/etc/passwd' | while read u; do f=\$(awk -F: -v u=\"\$u\" '\$1==u{print \$2}' '$R/etc/shadow'); case \"\$f\" in '!'*|'*'*|'') ;; *) exit 1;; esac; done"
+chk "M4.1: no authorized_keys in the image"   bash -c "! find '$R/home' '$R/root' -name authorized_keys 2>/dev/null | grep -q ."
+chk "M4.1: no key-only sudoers baked"         test ! -e "$R/etc/sudoers.d/010_zpod-nopasswd"
+chk "M4.1: boot FAT has no userconf/zpod-ssh.pub" bash -c "! printf '%s\n' \"\$1\" | grep -qE '(userconf(\.txt)?|zpod-ssh\.pub|zpod-user\.txt)\$'" _ "$bootls"
+chk "M4.1: zpod-firstuser enabled"            test -L "$R/etc/systemd/system/multi-user.target.wants/zpod-firstuser.service"
+chk "M4.1: zpod-firstuser.sh executable"      test -x "$R/usr/lib/zpod/zpod-firstuser.sh"
+chk "M4.1: firstuser runs before userconfig"  grep -q '^Before=userconfig.service' "$R/usr/lib/systemd/system/zpod-firstuser.service"
+chk "M4.1: userconfig drop-in (skip when set up)" grep -q 'ConditionPathExists=/etc/ssh/sshd_config.d/rename_user.conf' "$R/etc/systemd/system/userconfig.service.d/90-zpod.conf"
+chk "M4.1: userconfig still enabled (userconf.txt works)" test -L "$R/etc/systemd/system/multi-user.target.wants/userconfig.service"
+chk "M4.1: /etc/zpod-release has git + image" bash -c "grep -q '^ZPOD_GIT=[0-9a-f]\{7\}' '$R/etc/zpod-release' && grep -q '^ZPOD_IMAGE=.' '$R/etc/zpod-release' && grep -q '^ZPOD_VERSION=.' '$R/etc/zpod-release'"
 if [[ $M4 = 1 ]]; then
+  chk "M4.1: drop server waits for first-user rename" grep -q '^After=.*userconfig.service' "$R/etc/systemd/system/zpod-drop.service"
   for b in zpod-launcher zpod-bootsplash zpod-drop zpod-app; do
     chk "M4: $b is ARMv6"                     bash -c "readelf -A '$R/usr/lib/zpod/bin/$b' | grep -qE 'Tag_CPU_arch: v6'"
   done

@@ -255,12 +255,14 @@ class UI:
                 ("Volume", f"{st['vol']}%" if st.get("vol") is not None else "n/a"),
                 ("DAC", "ok" if st.get("dac") else "missing"),
                 ("Uptime", hw.uptime()),
+                ("SD card", hw.sd_summary()),
+                ("Build", hw.release_short()),
             ]
-            y = 36
+            y = 34
             for k, v in lines:
                 d.text((10, y), k, font=F_SMALL, fill=DIM)
-                d.text((100, y), v, font=F_ITEM, fill=FG)
-                y += 28
+                d.text((100, y), v, font=F_SMALL if len(v) > 18 else F_ITEM, fill=FG)
+                y += 22
         elif self.screen == "wifi":
             self.header(d, "Wi-Fi")
             w = self.wifi or {}

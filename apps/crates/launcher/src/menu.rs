@@ -30,6 +30,7 @@ pub enum Item {
     About,
     Apps,
     Status,
+    Storage,
     ButtonTest,
     Tone,
     Reboot,
@@ -45,6 +46,7 @@ pub enum Page {
     About,
     Apps,
     Status,
+    Storage,
     ButtonTest,
     /// true = reboot, false = shut down
     Confirm(bool),
@@ -81,7 +83,7 @@ pub fn items(m: MenuId, n_apps: usize) -> Vec<Item> {
             Item::Menu(MenuId::Diagnostics),
         ],
         MenuId::Display => vec![Item::BacklightTest, Item::SpiSpeed],
-        MenuId::Diagnostics => vec![Item::Status, Item::ButtonTest, Item::Tone],
+        MenuId::Diagnostics => vec![Item::Status, Item::Storage, Item::ButtonTest, Item::Tone],
         MenuId::Power => vec![Item::Reboot, Item::Shutdown],
     }
 }
@@ -95,14 +97,15 @@ pub fn label(it: Item) -> (&'static str, &'static str) {
         Item::Menu(MenuId::Settings) => ("Settings", "Display, time, battery, diagnostics"),
         Item::Menu(MenuId::Power) => ("Power", "Reboot, shut down"),
         Item::Menu(MenuId::Display) => ("Display", "Backlight, SPI speed"),
-        Item::Menu(MenuId::Diagnostics) => ("Diagnostics", "Status, button test, tone test"),
+        Item::Menu(MenuId::Diagnostics) => ("Diagnostics", "Status, storage & build, buttons, tone"),
         Item::Menu(MenuId::Top) => ("ZPOD", ""),
         Item::BacklightTest => ("Backlight test", "GPIO27 off for 3 s (inferred pin)"),
         Item::SpiSpeed => ("Panel SPI speed", "32 MHz safe; 48/64 MHz test"),
         Item::DateTime => ("Date & time", "Set clock, saves to RTC"),
-        Item::About => ("Battery & about", ""),
+        Item::About => ("Battery & about", "Battery, RTC, build, SD card"),
         Item::Apps => ("Installed apps", ""),
         Item::Status => ("System status", ""),
+        Item::Storage => ("Storage & build", "SD card per partition, image version"),
         Item::ButtonTest => ("Button test", ""),
         Item::Tone => ("Tone test (440 Hz)", ""),
         Item::Reboot => ("Reboot", ""),
@@ -123,6 +126,7 @@ pub fn title(p: Page) -> &'static str {
         Page::About => "Battery & about",
         Page::Apps => "Installed apps",
         Page::Status => "System status",
+        Page::Storage => "Storage",
         Page::ButtonTest => "Button test",
         Page::Confirm(_) => "Power",
     }
@@ -251,6 +255,7 @@ impl Menus {
             Item::About => open(self, Page::About),
             Item::Apps => open(self, Page::Apps),
             Item::Status => open(self, Page::Status),
+            Item::Storage => open(self, Page::Storage),
             Item::ButtonTest => open(self, Page::ButtonTest),
             Item::Reboot => open(self, Page::Confirm(true)),
             Item::Shutdown => open(self, Page::Confirm(false)),
@@ -351,6 +356,20 @@ mod tests {
         select(&mut m, 3, Item::Reboot);
         m.handle(Nav::Enter, 3, ROWS);
         assert_eq!(m.handle(Nav::Enter, 3, ROWS), Effect::Power(true));
+    }
+
+    #[test]
+    fn storage_and_build_in_diagnostics() {
+        let mut m = Menus::new();
+        select(&mut m, 0, Item::Menu(MenuId::Settings));
+        m.handle(Nav::Enter, 0, ROWS);
+        select(&mut m, 0, Item::Menu(MenuId::Diagnostics));
+        m.handle(Nav::Enter, 0, ROWS);
+        select(&mut m, 0, Item::Storage);
+        assert_eq!(m.handle(Nav::Enter, 0, ROWS), Effect::Opened(Page::Storage));
+        assert_eq!(title(m.page()), "Storage");
+        m.handle(Nav::Back, 0, ROWS);
+        assert_eq!(m.page(), Page::Menu(MenuId::Diagnostics));
     }
 
     #[test]

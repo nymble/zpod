@@ -132,3 +132,70 @@ def uptime():
 
 def clock_text():
     return time.strftime("%H:%M")
+
+
+# --- SD card use and build identity (M4.1) -----------------------------
+RELEASE_FILE = "/etc/zpod-release"
+
+
+def release(path=RELEASE_FILE):
+    """Build identity from /etc/zpod-release (KEY=VALUE), written at image build."""
+    r = {}
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                r[k.strip()] = v.strip().strip("'\"")
+    except OSError:
+        pass
+    return r
+
+
+def release_short(path=RELEASE_FILE):
+    r = release(path)
+    parts = [r.get(k, "") for k in ("ZPOD_VERSION", "ZPOD_GIT", "ZPOD_BUILD_DATE")]
+    parts = [p for p in parts if p]
+    return "  ".join(parts) if parts else "unknown"
+
+
+def human(b):
+    if b >= 1 << 30:
+        g = b / (1 << 30)
+        return f"{g:.0f} GB" if g >= 100 else f"{g:.1f} GB"
+    return f"{b / (1 << 20):.0f} MB"
+
+
+def fs_usage(path):
+    """(total, used, avail) bytes like df, or None."""
+    try:
+        st = os.statvfs(path)
+    except OSError:
+        return None
+    total = st.f_blocks * st.f_frsize
+    return total, total - st.f_bfree * st.f_frsize, st.f_bavail * st.f_frsize
+
+
+def sd_card_bytes():
+    try:
+        with open("/sys/block/mmcblk0/size") as f:
+            return int(f.read().strip()) * 512
+    except (OSError, ValueError):
+        return None
+
+
+def sd_summary():
+    """'14.8 GB card, root 17% used' (percent like df)."""
+    out = []
+    card = sd_card_bytes()
+    if card:
+        out.append(f"{human(card)} card")
+    u = fs_usage("/")
+    if u:
+        total, used, avail = u
+        pct = -(-used * 100 // (used + avail)) if used + avail else 0
+        out.append(f"root {pct}% used")
+    return ", ".join(out) or "n/a"
+
