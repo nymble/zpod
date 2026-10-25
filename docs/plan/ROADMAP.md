@@ -59,6 +59,10 @@ not yet on hardware), **next**, **future** (not committed).
 1. IR receiver validation: there may be one behind the front hole above Home; Howard's config has `dtoverlay=gpio-ir,gpio_pin=7` (unverified; GPIO7 = SPI0 CE1).
 2. Game emulation (RetroArch); Howard's U/I/J/K key map already matches ours.
 3. Clock alarm; AirPlay receiver; BitChat (M8).
+4. USB gadget toolkit ("gadget app"): load/run gadget scripts like music, with a
+   GUI payload browser, live status, confirm/dry-run and a basic non-malicious
+   script set. Research + design in [../research/BASH-BUNNY.md](../research/BASH-BUNNY.md).
+   Same class as IR and game emulation above (not committed). CDC-NCM already exists (M4.5).
 
 ## Pin facts used by these items
 
