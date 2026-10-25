@@ -2,7 +2,8 @@
 Description=ZPOD drop (HTTP music upload)
 Documentation=https://github.com/nymble/zpod/blob/main/docs/FILE-TRANSFER.md
 Requires=zpod-drop.socket
-After=zpod-drop.socket
+# Never run as uid 1000 while first boot renames that user (usermod -l refuses).
+After=zpod-drop.socket userconfig.service zpod-firstuser.service
 
 [Service]
 Type=simple

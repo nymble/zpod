@@ -1,0 +1,14 @@
+[Unit]
+Description=ZPOD: SSH public keys (and key-only first user) from zpod-ssh.pub on the boot partition
+Documentation=https://github.com/nymble/zpod/blob/main/docs/USB-GADGET.md
+RequiresMountsFor=/boot/firmware /home
+After=local-fs.target systemd-remount-fs.service
+Before=userconfig.service ssh.service zpod-drop.service
+ConditionPathExists=/boot/firmware/zpod-ssh.pub
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/zpod/zpod-firstuser.sh
+
+[Install]
+WantedBy=multi-user.target

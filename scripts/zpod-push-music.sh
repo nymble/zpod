@@ -3,18 +3,19 @@
 #
 #   scripts/zpod-push-music.sh [options] <folder-or-file>...
 #     -H host     ZPOD address (default: 10.12.194.1 over USB, else zpod.local)
-#     -u user     SSH user (default: pi)
+#     -u user     SSH user (default: $ZPOD_USER, else your login name; the image's
+#                 first user is renamed at first boot, see docs/FIRST-LOGIN.md)
 #     --http      upload with curl to the zpod-drop server instead of rsync/SSH
 #     --token T   zpod-drop token (Wi-Fi only; USB needs none)
 #     --delete    rsync --delete inside each pushed album folder (mirror)
 #     -n          dry run (rsync only)
 #
 # Each argument lands as <music>/<basename>: push "~/Music/Nova Echo" to get
-# /srv/zpod/media/music/Nova Echo/<albums>. SSH asks for the pi password
-# unless you have a key (ssh-copy-id pi@10.12.194.1). Passwords are never
+# /srv/zpod/media/music/Nova Echo/<albums>. SSH asks for the password
+# unless you have a key (ssh-copy-id <user>@10.12.194.1). Passwords are never
 # stored by this script.
 set -eu
-HOST=""; USER_=pi; MODE=rsync; TOKEN=""; DELETE=""; DRY=""
+HOST=""; USER_=${ZPOD_USER:-$(id -un)}; MODE=rsync; TOKEN=""; DELETE=""; DRY=""
 DEST=/srv/zpod/media/music
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -24,13 +25,13 @@ while [ $# -gt 0 ]; do
     --token) TOKEN=$2; shift 2 ;;
     --delete) DELETE=--delete; shift ;;
     -n) DRY=-n; shift ;;
-    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     --) shift; break ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) break ;;
   esac
 done
-[ $# -ge 1 ] || { sed -n '2,17p' "$0"; exit 2; }
+[ $# -ge 1 ] || { sed -n '2,18p' "$0"; exit 2; }
 if [ -z "$HOST" ]; then
   if ping -c1 -t1 10.12.194.1 >/dev/null 2>&1 || ping -c1 -W1 10.12.194.1 >/dev/null 2>&1; then
     HOST=10.12.194.1

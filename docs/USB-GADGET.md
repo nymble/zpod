@@ -118,7 +118,9 @@ echo "paul:$(openssl passwd -6)" > /Volumes/bootfs/userconf.txt
 ```
 
 (`userconf-pi` renames the default `pi` account to that name with that
-password on first boot.) Raspberry Pi Imager OS customisation also works.
+password on first boot.) M4.1+ images also take an SSH public key from
+`zpod-ssh.pub` on the same volume. Details, the macOS `openssl -6` pitfall and
+recovery for a card that was booted without a user: [FIRST-LOGIN.md](./FIRST-LOGIN.md).
 
 If you really want the HDMI + OTG-keyboard wizard, edit `config.txt` on the
 card and change the line to `dtoverlay=dwc2,dr_mode=otg` (or comment it out)

@@ -166,6 +166,9 @@ on_chroot <<- 'CHROOT'
 	# M3.1: first-boot Wi-Fi import from the boot partition (no credentials in the image)
 	systemctl enable zpod-wifi-import.service
 	systemctl is-enabled zpod-wifi-import.service
+	# M4.1: SSH public keys / key-only first user from zpod-ssh.pub (no password in the image)
+	systemctl enable zpod-firstuser.service
+	systemctl is-enabled zpod-firstuser.service
 	systemctl is-enabled zpod-buttons.service zpod-ui.service zpod-audio-init.service rpi-usb-gadget-ics.service
 	python3 -c "import spidev, lgpio, evdev, PIL, smbus2; import sys; sys.path.insert(0, '/usr/lib/zpod'); import zpod_hw, zpod_lcd; print('zpod python imports ok')"
 	python3 -m py_compile /usr/lib/zpod/zpod_ui.py /usr/lib/zpod/zpod_buttons.py /usr/lib/zpod/zpod_battery_guard.py
