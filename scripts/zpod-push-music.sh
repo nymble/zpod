@@ -1,5 +1,7 @@
 #!/bin/sh
 # Copy music from a Mac (or Linux) to the ZPOD and rescan the library.
+# For untagged files or albums without cover art, use zpod-tag-and-push.sh
+# instead (docs/MUSIC-TAGGING.md).
 #
 #   scripts/zpod-push-music.sh [options] <folder-or-file>...
 #     -H host     ZPOD address (default: 10.12.194.1 over USB, else zpod.local)
@@ -25,13 +27,13 @@ while [ $# -gt 0 ]; do
     --token) TOKEN=$2; shift 2 ;;
     --delete) DELETE=--delete; shift ;;
     -n) DRY=-n; shift ;;
-    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     --) shift; break ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) break ;;
   esac
 done
-[ $# -ge 1 ] || { sed -n '2,18p' "$0"; exit 2; }
+[ $# -ge 1 ] || { sed -n '2,20p' "$0"; exit 2; }
 if [ -z "$HOST" ]; then
   if ping -c1 -t1 10.12.194.1 >/dev/null 2>&1 || ping -c1 -W1 10.12.194.1 >/dev/null 2>&1; then
     HOST=10.12.194.1

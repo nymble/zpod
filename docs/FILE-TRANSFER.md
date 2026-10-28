@@ -29,6 +29,11 @@ then `mpc update`. You can resume interrupted copies by running it again. SSH
 prompts for the `pi` password (********) unless you install a key once:
 `ssh-copy-id pi@10.12.194.1`.
 
+**Untagged rips or albums without art (e.g. from the NAS):** use
+`scripts/zpod-tag-and-push.sh` instead. It stages copies, fills in missing
+tags and cover art (with a review step), pushes, verifies SHA-256 and
+rescans. See [MUSIC-TAGGING.md](MUSIC-TAGGING.md).
+
 Manual equivalents:
 
 ```sh

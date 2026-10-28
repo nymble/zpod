@@ -54,6 +54,11 @@ disc and track number. Names sort case-insensitively, ignoring a leading "The ".
 go in `/srv/zpod/media/playlists`. MPD has `auto_update` on, and the transfer
 tools also ask it to rescan. See FILE-TRANSFER.md.
 
+The app lists music by **tags**: files without artist/album tags do not appear
+under Artists or Albums. For untagged rips or albums without covers, use
+`scripts/zpod-tag-and-push.sh` (see [MUSIC-TAGGING.md](MUSIC-TAGGING.md)). It
+fills in tags from folder and file names and fetches covers for you to review.
+
 ## Simulator
 
 ```sh
