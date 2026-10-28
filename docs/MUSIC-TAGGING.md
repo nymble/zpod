@@ -57,7 +57,9 @@ never writes to the source.
    `rsync -rtp` to `/srv/zpod/media/music/<Artist>/<album folder>/`, skipping
    dot files and `*.proposed.*`. It runs `chmod` again on the device.
 7. **Verify.** SHA-256 of every pushed file, on the Mac and on the ZPOD
-   (`--verify size` is faster; `--verify none` skips it). A mismatch exits 4.
+   (`--verify size` is faster; `--verify none` skips it). Each rsync is retried
+   up to 3 times if the USB link drops. Files that fail the checksum are
+   re-sent once and checked again. A mismatch that remains exits 4.
 8. **Rescan.** `mpc -w update`, then `mpc stats`, and the album count per artist.
 
 A log of each run goes to `~/zpod-stage/library/.logs/`. Passwords are never

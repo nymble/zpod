@@ -538,7 +538,13 @@ def push(albums, args):
             cmd.insert(1, '-n')
         if args.verbose:
             cmd.insert(1, '-v')
-        subprocess.run(cmd, check=True)
+        for attempt in range(1, 4):  # USB links can blip; rsync resumes (--partial)
+            if subprocess.run(cmd).returncode == 0:
+                break
+            log(f'  ! rsync failed (attempt {attempt}/3), retrying in 5 s')
+            subprocess.run(['sleep', '5'])
+        else:
+            raise SystemExit(f'rsync failed 3 times for {rel}; re-run the same command to resume')
     remote = ' '.join(shlex.quote(f'{dest}/{r}') for r in rels)
     subprocess.run(ssh_cmd(args) + [f'find {remote} -type d -exec chmod 755 {{}} + && find {remote} -type f -exec chmod 644 {{}} +'], check=True)
     return rels
@@ -582,7 +588,18 @@ def verify(rels, args):
             want = h.hexdigest()
         if remote.get(n) != want:
             bad.append(n)
-    return len(names), bad
+    return len(names), bad, files
+
+
+def resend(bad, files, args):
+    """Re-copy files whose checksum differs (e.g. a partial file left by a
+    dropped link that rsync's size+mtime check would skip)."""
+    verbatim = rsync_protects_args()
+    for n in bad:
+        d = f"{args.dest.rstrip('/')}/{os.path.dirname(n)}/"
+        log(f'  resend {n}')
+        subprocess.run(['rsync', '-tp', '-I', '-e', 'ssh -o BatchMode=yes', files[n],
+                        f"{args.user}@{args.host}:" + (d if verbatim else shlex.quote(d))], check=False)
 
 
 def main():
@@ -708,10 +725,14 @@ def main():
     log(f'  staged size: {need_b / 1e9:.2f} GB (only changed files are sent)')
     rels = push(ready, args)
     if args.verify != 'none':
-        n, bad = verify(rels, args)
+        n, bad, files = verify(rels, args)
         log(f'  verify ({args.verify}): {n - len(bad)}/{n} files match' + (f'; MISMATCH: {bad[:10]}' if bad else ''))
         if bad:
-            return 4
+            resend(bad, files, args)
+            n, bad, files = verify(rels, args)
+            log(f'  re-verify ({args.verify}): {n - len(bad)}/{n} files match' + (f'; STILL MISMATCHED: {bad[:10]}' if bad else ''))
+            if bad:
+                return 4
     out = subprocess.run(ssh_cmd(args) + [f'mpc -q -w update; mpc stats; df -h {shlex.quote(args.dest)} | tail -1'],
                          capture_output=True, text=True).stdout
     log('  ' + out.strip().replace('\n', '\n  '))
