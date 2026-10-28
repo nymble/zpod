@@ -29,12 +29,31 @@ Repo layout: `build/` (pi-gen tweaks + M2 substep), `overlay/` (files installed 
 
 ## Wi-Fi after flashing (Mac)
 
-The image has no Wi-Fi credentials. After writing the card, re-insert it and run:
+The image has no user, password or Wi-Fi credentials. After writing the card, re-insert it (volume `bootfs`).
+
+Two steps. Paste **Step 1**, enter the ZPOD login password when OpenSSL asks (twice), then paste **Step 2**.
+
+Needs OpenSSL 3 (`openssl passwd -6`). macOS `/usr/bin/openssl` has no `-6`; use conda or Homebrew OpenSSL. Required unless you use a key-only setup (`zpod-ssh.pub` only).
+
+**Step 1** — login user + password:
 
 ```bash
-echo "paul:$(openssl passwd -6)" > /Volumes/bootfs/userconf.txt               # create your user (prompts)
-printf 'SSID=%s\nPSK=%s\n' 'YourSSID' 'YourPassword' > /Volumes/bootfs/zpod-wifi.txt   # optional Wi-Fi
+H=$(openssl passwd -6) && case "$H" in '$6$'*) printf 'paul:%s\n' "$H" > /Volumes/bootfs/userconf.txt ;; *) echo "use OpenSSL 3 (e.g. conda); macOS openssl has no -6"; exit 1 ;; esac; unset H
+head -c 9 /Volumes/bootfs/userconf.txt; echo
 ```
+
+**Step 2** — SSH key, Wi-Fi, eject (no password prompt):
+
+```bash
+cp ~/.ssh/id_ed25519.pub /Volumes/bootfs/zpod-ssh.pub
+printf 'SSID=%s\nPSK=%s\n' '<SSID>' '<PW>' > /Volumes/bootfs/zpod-wifi.txt
+ls /Volumes/bootfs/userconf.txt /Volumes/bootfs/zpod-ssh.pub /Volumes/bootfs/zpod-wifi.txt
+diskutil eject /Volumes/bootfs
+```
+
+Replace `<SSID>` and `<PW>` with your network name and password before running Step 2. Wi-Fi is optional (USB networking works without it; the file is imported at first boot then deleted). SSH key is optional (public key only).
+
+Then `ssh paul@zpod.local` (Wi-Fi) or `ssh paul@10.12.194.1` (USB cable on the data port). To add music, run `scripts/zpod-push-music.sh ~/Music/Artist`, or open `http://10.12.194.1:8080/` over USB.
 
 On first boot the ZPOD imports `zpod-wifi.txt` into NetworkManager and deletes
 it. Without it, use the USB cable: `ssh paul@10.12.194.1`. Details:

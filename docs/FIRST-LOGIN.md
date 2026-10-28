@@ -13,6 +13,34 @@ The ZPOD has no keyboard (the data port is a USB gadget), so the HDMI wizard
 cannot be used: put the setup on the boot partition (volume **bootfs** on the
 Mac) after writing the image, before (or between) boots.
 
+## Quick setup (cut/paste, on the Mac; volume `bootfs`)
+
+Two steps. Paste **Step 1**, enter the ZPOD login password when OpenSSL asks (twice), then paste **Step 2**.
+
+Needs OpenSSL 3 (`openssl passwd -6`). macOS `/usr/bin/openssl` has no `-6`; use conda or Homebrew OpenSSL. Required unless you use a key-only setup (`zpod-ssh.pub` only).
+
+**Step 1** — login user + password:
+
+```bash
+H=$(openssl passwd -6) && case "$H" in '$6$'*) printf 'paul:%s\n' "$H" > /Volumes/bootfs/userconf.txt ;; *) echo "use OpenSSL 3 (e.g. conda); macOS openssl has no -6"; exit 1 ;; esac; unset H
+head -c 9 /Volumes/bootfs/userconf.txt; echo
+```
+
+**Step 2** — SSH key, Wi-Fi, eject (no password prompt):
+
+```bash
+cp ~/.ssh/id_ed25519.pub /Volumes/bootfs/zpod-ssh.pub
+printf 'SSID=%s\nPSK=%s\n' '<SSID>' '<PW>' > /Volumes/bootfs/zpod-wifi.txt
+ls /Volumes/bootfs/userconf.txt /Volumes/bootfs/zpod-ssh.pub /Volumes/bootfs/zpod-wifi.txt
+diskutil eject /Volumes/bootfs
+```
+
+Replace `<SSID>` and `<PW>` with your network name and password before running Step 2. Wi-Fi is optional (USB networking works without it; the file is imported at first boot then deleted). SSH key is optional (public key only).
+
+Then `ssh paul@zpod.local` (Wi-Fi) or `ssh paul@10.12.194.1` (USB cable on the data port). To add music, run `scripts/zpod-push-music.sh ~/Music/Artist`, or open `http://10.12.194.1:8080/` over USB.
+
+Details of each file follow.
+
 ## Password login (all images): `userconf.txt`
 
 ```sh
