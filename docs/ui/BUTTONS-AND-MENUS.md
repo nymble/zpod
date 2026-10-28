@@ -89,7 +89,7 @@ Top level (Home always lands here):
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| **Music** | M4 | artists → albums → tracks, playlists, now playing with album art; Play/Pause global |
+| **Music** | M4 | Artists / Albums (both go artist → albums by year → tracks; counts in titles and rows, album year shown), playlists, queue, now playing with album art and year; Play/Pause global. See MUSIC-PLAYER.md |
 | **Clock** | M4 | 3 faces (digital, analog, words); OK/Circle = seconds on/off; Triangle = 12/24 h; Up/Down/Right = next face |
 | **Tetris** | M4 | SRS rotation, hold, ghost, high scores |
 | (installed apps) | M4 | anything installed with `zpod-app install` appears here |

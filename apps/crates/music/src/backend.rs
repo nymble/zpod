@@ -16,6 +16,7 @@ fn track(s: Song) -> Track {
         track: s.track,
         disc: s.disc,
         duration: s.duration,
+        year: s.date.as_deref().and_then(parse_year),
         uri: s.file,
     }
 }
@@ -42,21 +43,26 @@ impl Mpd {
 }
 
 impl MusicBackend for Mpd {
-    fn artists(&mut self) -> BResult<Vec<String>> {
+    fn artists(&mut self) -> BResult<Vec<ArtistRef>> {
         self.with(|c| {
-            let v = c.list("albumartist", None)?;
-            if v.is_empty() { c.list("artist", None) } else { Ok(v) }
+            let p = c.cmd("list album group albumartist")?;
+            let v = artists_from_albums(&parse_grouped_albums(p.iter().map(|(k, v)| (k.as_str(), v.as_str())), "albumartist"));
+            if !v.is_empty() {
+                return Ok(v);
+            }
+            // no Album tags at all: plain artist names, counts unknown
+            Ok(c.list("artist", None)?.into_iter().map(|a| ArtistRef::new(a, 0)).collect())
         })
     }
     fn albums(&mut self, artist: Option<&str>) -> BResult<Vec<AlbumRef>> {
         self.with(|c| match artist {
             Some(a) => {
-                let mut v: Vec<AlbumRef> = c
-                    .list("album", Some(&filter_eq("albumartist", a)))?
-                    .into_iter()
-                    .map(|al| AlbumRef { artist: a.to_string(), album: al })
-                    .collect();
-                sort_albums(&mut v);
+                let f = quote(&filter_eq("albumartist", a));
+                let dated = c.cmd(&format!("list album {f} group date"))?;
+                let mut v = parse_dated_albums(dated.iter().map(|(k, v)| (k.as_str(), v.as_str())), a);
+                let counts = c.cmd(&format!("count {f} group album"))?;
+                apply_album_counts(&mut v, counts.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+                sort_albums_by_year(&mut v);
                 Ok(v)
             }
             None => {
@@ -158,5 +164,10 @@ impl MusicBackend for Mpd {
     }
     fn update_library(&mut self) -> BResult<()> {
         self.with(|c| c.simple("update"))
+    }
+    fn stats(&mut self) -> BResult<LibraryStats> {
+        let p = self.with(|c| c.cmd("stats"))?;
+        let get = |key: &str| p.iter().find(|(k, _)| k == key).and_then(|(_, v)| v.trim().parse().ok()).unwrap_or(0);
+        Ok(LibraryStats { artists: get("artists"), albums: get("albums"), songs: get("songs") })
     }
 }

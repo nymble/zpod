@@ -21,11 +21,21 @@ use crate::model::*;
 
 pub const MENU: [&str; 7] = ["Now Playing", "Artists", "Albums", "Playlists", "Queue", "Shuffle all", "Update library"];
 
+/// Which menu entry an artist list was opened from. Both lead to
+/// Artist -> albums; "Albums" just labels the list by album count.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Browse {
+    Artists,
+    Albums,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Screen {
     Menu,
-    Artists(Vec<String>),
-    /// Albums of an artist (index 0 = "All tracks") or of the library.
+    Artists(Browse, Vec<ArtistRef>),
+    /// Albums of an artist (index 0 = "All tracks"), oldest first, or of
+    /// the whole library (kept for backends/tests; the menu no longer
+    /// opens a flat list).
     Albums(Option<String>, Vec<AlbumRef>),
     Tracks(String, Vec<Track>),
     Playlists(Vec<String>),
@@ -60,6 +70,8 @@ pub struct MusicApp {
     pub need_progress: bool,
     /// Rows that fit on a list screen (set by the view).
     pub visible_rows: usize,
+    /// Library totals shown in the menu (refreshed after a rescan).
+    pub stats: Option<LibraryStats>,
 }
 
 impl Default for MusicApp {
@@ -90,6 +102,7 @@ impl MusicApp {
             need_full: true,
             need_progress: false,
             visible_rows: 6,
+            stats: None,
         }
     }
 
@@ -137,15 +150,25 @@ impl MusicApp {
     /// Call once at start: refresh and open Now Playing if music is on.
     pub fn start(&mut self, be: &mut impl MusicBackend) {
         self.poll(be);
+        self.refresh_stats(be);
         if self.status.as_ref().is_some_and(|s| s.state == PlayState::Playing) {
             self.push(Screen::NowPlaying);
+        }
+    }
+
+    fn refresh_stats(&mut self, be: &mut impl MusicBackend) {
+        if let Ok(s) = be.stats() {
+            if self.stats != Some(s) {
+                self.stats = Some(s);
+                self.need_full = true;
+            }
         }
     }
 
     pub fn len_of(screen: &Screen) -> usize {
         match screen {
             Screen::Menu => MENU.len(),
-            Screen::Artists(v) => v.len(),
+            Screen::Artists(_, v) => v.len(),
             Screen::Albums(Some(_), v) => v.len() + 1,
             Screen::Albums(None, v) => v.len(),
             Screen::Tracks(_, v) => v.len(),
@@ -159,6 +182,9 @@ impl MusicApp {
     pub fn poll(&mut self, be: &mut impl MusicBackend) -> bool {
         let Some(st) = self.check(be.status()) else { return true };
         let old = self.status.take();
+        if old.as_ref().is_some_and(|o| o.updating && !st.updating) {
+            self.refresh_stats(be); // a rescan just finished
+        }
         let song_changed = old.as_ref().map(|o| (o.pos, o.queue_len)) != Some((st.pos, st.queue_len));
         if song_changed || self.current.is_none() && st.pos.is_some() {
             self.current = self.check(be.current()).flatten();
@@ -323,14 +349,11 @@ impl MusicApp {
         match screen {
             Screen::Menu if !add => match MENU[sel] {
                 "Now Playing" => self.push(Screen::NowPlaying),
-                "Artists" => {
+                m @ ("Artists" | "Albums") => {
                     if let Some(v) = self.check(be.artists()) {
-                        self.push(Screen::Artists(v));
-                    }
-                }
-                "Albums" => {
-                    if let Some(v) = self.check(be.albums(None)) {
-                        self.push(Screen::Albums(None, v));
+                        let how = if m == "Albums" { Browse::Albums } else { Browse::Artists };
+                        self.refresh_stats(be);
+                        self.push(Screen::Artists(how, v));
                     }
                 }
                 "Playlists" => {
@@ -356,8 +379,8 @@ impl MusicApp {
                 }
                 _ => {}
             },
-            Screen::Artists(v) => {
-                let Some(a) = v.get(sel) else { return };
+            Screen::Artists(_, v) => {
+                let Some(a) = v.get(sel).map(|a| &a.name) else { return };
                 if add {
                     if let Some(t) = self.check(be.artist_tracks(a)) {
                         self.enqueue(be, &t);
@@ -372,7 +395,7 @@ impl MusicApp {
                     _ => {
                         let i = if artist.is_some() { sel - 1 } else { sel };
                         let Some(al) = v.get(i) else { return };
-                        self.check(be.album_tracks(al)).map(|t| (al.album.clone(), t))
+                        self.check(be.album_tracks(al)).map(|t| (al.title_with_year(), t))
                     }
                 };
                 if let Some((title, t)) = tracks {

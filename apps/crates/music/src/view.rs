@@ -16,8 +16,8 @@ use zpod_ui::{
     Canvas, Font,
 };
 
-use crate::app::{MusicApp, Screen, MENU};
-use crate::model::{fmt_time, RepeatMode};
+use crate::app::{Browse, MusicApp, Screen, MENU};
+use crate::model::{fmt_time, plural, with_year, RepeatMode};
 
 const BODY_Y: i32 = theme::STATUS_H;
 const BODY_H: i32 = 240 - theme::STATUS_H - widgets::HINTS_H;
@@ -27,10 +27,14 @@ const PROG_Y: i32 = 162;
 pub fn title(app: &MusicApp) -> String {
     match &app.top().screen {
         Screen::Menu => "Music".into(),
-        Screen::Artists(_) => "Artists".into(),
-        Screen::Albums(Some(a), _) => a.clone(),
-        Screen::Albums(None, _) => "Albums".into(),
-        Screen::Tracks(t, _) => t.clone(),
+        Screen::Artists(Browse::Artists, v) => format!("Artists ({})", v.len()),
+        Screen::Artists(Browse::Albums, v) => {
+            let n: u32 = v.iter().map(|a| a.albums).sum();
+            format!("Albums ({n}) by artist")
+        }
+        Screen::Albums(Some(a), v) => format!("{a} ({})", v.len()),
+        Screen::Albums(None, v) => format!("Albums ({})", v.len()),
+        Screen::Tracks(t, v) => format!("{t} \u{b7} {}", v.len()),
         Screen::Playlists(_) => "Playlists".into(),
         Screen::Queue(q) => format!("Queue ({})", q.len()),
         Screen::NowPlaying => "Playing".into(),
@@ -38,7 +42,7 @@ pub fn title(app: &MusicApp) -> String {
 }
 
 fn two_line(screen: &Screen) -> bool {
-    matches!(screen, Screen::Albums(None, _) | Screen::Tracks(..) | Screen::Queue(_))
+    matches!(screen, Screen::Albums(..) | Screen::Tracks(..) | Screen::Queue(_))
 }
 
 /// Paint what the app marked as changed. `status_changed`: status bar data
@@ -94,23 +98,57 @@ fn body<D: Canvas>(app: &MusicApp, d: &mut D, row_h: i32) {
         Screen::NowPlaying => now_playing(app, d),
         Screen::Menu => {
             let qlen = app.status.as_ref().map(|s| format!("{}", s.queue_len));
+            let st = app.stats.filter(|s| s.songs > 0);
+            let artists = st.map(|s| format!("{}", s.artists));
+            let albums = st.map(|s| format!("{}", s.albums));
             draw_list(d, area, row_h, &lv.ls, len, |i| Row {
                 title: MENU[i],
                 sub: None,
-                right: if MENU[i] == "Queue" { qlen.as_deref() } else { None },
+                right: match MENU[i] {
+                    "Queue" => qlen.as_deref(),
+                    "Artists" => artists.as_deref(),
+                    "Albums" => albums.as_deref(),
+                    _ => None,
+                },
                 icon: None,
                 mark: if i == 0 && app.status.as_ref().is_some_and(|s| s.state == PlayState::Playing) { Some(theme::OK) } else { None },
             })
         }
-        Screen::Artists(v) | Screen::Playlists(v) => draw_list(d, area, row_h, &lv.ls, len, |i| Row::simple(&v[i])),
+        Screen::Playlists(v) => draw_list(d, area, row_h, &lv.ls, len, |i| Row::simple(&v[i])),
+        Screen::Artists(_, v) => {
+            let counts: Vec<String> = v.iter().map(|a| if a.albums > 0 { plural(a.albums, "album") } else { String::new() }).collect();
+            draw_list(d, area, row_h, &lv.ls, len, |i| Row {
+                title: &v[i].name,
+                sub: None,
+                right: Some(counts[i].as_str()).filter(|c| !c.is_empty()),
+                icon: None,
+                mark: None,
+            })
+        }
         Screen::Albums(artist, v) => {
             let off = artist.is_some() as usize;
+            let years: Vec<String> = v.iter().map(|a| a.year.map(|y| format!("{y}")).unwrap_or_default()).collect();
+            let subs: Vec<String> = v
+                .iter()
+                .map(|a| match (artist.is_none(), a.summary()) {
+                    (true, s) if s.is_empty() => a.artist.clone(),
+                    (true, s) => format!("{} \u{b7} {s}", a.artist),
+                    (false, s) => s,
+                })
+                .collect();
+            let all = format!("{} \u{b7} {}", plural(v.len() as u32, "album"), plural(v.iter().map(|a| a.tracks).sum(), "track"));
             draw_list(d, area, row_h, &lv.ls, len, |i| {
                 if off == 1 && i == 0 {
-                    return Row { title: "All tracks", sub: None, right: None, icon: None, mark: Some(theme::ACCENT) };
+                    return Row { title: "All tracks", sub: Some(all.as_str()), right: None, icon: None, mark: Some(theme::ACCENT) };
                 }
-                let a = &v[i - off];
-                Row { title: &a.album, sub: if artist.is_none() { Some(&a.artist) } else { None }, right: None, icon: None, mark: None }
+                let j = i - off;
+                Row {
+                    title: &v[j].album,
+                    sub: Some(subs[j].as_str()).filter(|s| !s.is_empty()),
+                    right: Some(years[j].as_str()).filter(|s| !s.is_empty()),
+                    icon: None,
+                    mark: None,
+                }
             })
         }
         Screen::Tracks(_, v) => {
@@ -209,7 +247,7 @@ fn now_playing<D: Canvas>(app: &MusicApp, d: &mut D) {
     y += 4;
     text::draw_fit(d, Font::BodyBold, &t.artist, tx, y, tw, theme::ACCENT);
     y += 18;
-    text::draw_fit(d, Font::Small, &t.album, tx, y, tw, theme::DIM);
+    text::draw_fit(d, Font::Small, &with_year(&t.album, t.year), tx, y, tw, theme::DIM);
     y += 16;
     if let Some(p) = st.pos {
         let s = format!("Track {} of {}", p + 1, st.queue_len);

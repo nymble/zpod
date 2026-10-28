@@ -24,6 +24,11 @@ fn tr(artist: &str, album: &str, n: u32, title: &str) -> Track {
         track: Some(n),
         disc: None,
         duration: 180.0 + n as f32,
+        year: match album {
+            "First" => Some(1999),
+            "Second" => Some(1995),
+            _ => None,
+        },
     }
 }
 
@@ -46,25 +51,29 @@ impl Fake {
 }
 
 impl MusicBackend for Fake {
-    fn artists(&mut self) -> BResult<Vec<String>> {
+    fn artists(&mut self) -> BResult<Vec<ArtistRef>> {
         if self.fail {
             return self.err();
         }
-        let mut v: Vec<String> = self.lib.iter().map(|t| t.album_artist.clone()).collect();
-        v.sort();
-        v.dedup();
-        Ok(v)
+        Ok(artists_from_albums(&self.albums(None)?))
     }
     fn albums(&mut self, artist: Option<&str>) -> BResult<Vec<AlbumRef>> {
-        let mut v: Vec<AlbumRef> = self
-            .lib
-            .iter()
-            .filter(|t| artist.is_none_or(|a| a == t.album_artist))
-            .map(|t| AlbumRef { artist: t.album_artist.clone(), album: t.album.clone() })
-            .collect();
-        sort_albums(&mut v);
-        v.dedup();
+        let mut v: Vec<AlbumRef> = Vec::new();
+        for t in self.lib.iter().filter(|t| artist.is_none_or(|a| a == t.album_artist)) {
+            match v.iter_mut().find(|a| a.artist == t.album_artist && a.album == t.album) {
+                Some(a) => {
+                    a.tracks += 1;
+                    a.secs += t.duration as u32;
+                }
+                None => v.push(AlbumRef { year: t.year, tracks: 1, secs: t.duration as u32, ..AlbumRef::new(t.album_artist.clone(), t.album.clone()) }),
+            }
+        }
+        if artist.is_some() { sort_albums_by_year(&mut v) } else { sort_albums(&mut v) }
         Ok(v)
+    }
+    fn stats(&mut self) -> BResult<LibraryStats> {
+        let al = self.albums(None)?;
+        Ok(LibraryStats { artists: artists_from_albums(&al).len() as u32, albums: al.len() as u32, songs: self.lib.len() as u32 })
     }
     fn album_tracks(&mut self, a: &AlbumRef) -> BResult<Vec<Track>> {
         let mut v: Vec<Track> = self.lib.iter().filter(|t| t.album == a.album && t.album_artist == a.artist).cloned().collect();
@@ -182,21 +191,26 @@ fn browse_artist_album_and_play() {
     assert_eq!(app.top().screen, Screen::Menu);
     app.handle(press(Key::Down), &mut be); // Artists
     app.handle(press(Key::Ok), &mut be);
-    assert_eq!(app.top().screen, Screen::Artists(vec!["Alpha".into(), "Beta".into()]));
+    assert_eq!(app.top().screen, Screen::Artists(Browse::Artists, vec![ArtistRef::new("Alpha", 2), ArtistRef::new("Beta", 1)]));
+    assert_eq!(crate::view::title(&app), "Artists (2)");
     app.handle(press(Key::Right), &mut be);
     match &app.top().screen {
         Screen::Albums(Some(a), v) => {
             assert_eq!(a, "Alpha");
-            assert_eq!(v.len(), 2);
+            // release order: Second (1995) before First (1999), with counts
+            assert_eq!(v.iter().map(|a| (a.album.as_str(), a.year, a.tracks)).collect::<Vec<_>>(), [("Second", Some(1995), 1), ("First", Some(1999), 2)]);
         }
         s => panic!("{s:?}"),
     }
+    assert_eq!(crate::view::title(&app), "Alpha (2)");
     assert_eq!(MusicApp::len_of(&app.top().screen), 3); // + "All tracks"
+    app.handle(press(Key::Down), &mut be);
     app.handle(press(Key::Down), &mut be); // "First"
     app.handle(press(Key::Circle), &mut be);
+    assert_eq!(crate::view::title(&app), "First (1999) \u{b7} 2");
     match &app.top().screen {
         Screen::Tracks(t, v) => {
-            assert_eq!(t, "First");
+            assert_eq!(t, "First (1999)");
             assert_eq!(v.iter().map(|t| t.title.as_str()).collect::<Vec<_>>(), ["One", "Two"]);
         }
         s => panic!("{s:?}"),
@@ -230,10 +244,15 @@ fn queue_add_play_and_remove() {
     let mut be = Fake::new();
     let mut app = MusicApp::new();
     app.start(&mut be);
-    // Albums (all) -> Square on "Gamma" (sorted: Alpha/First, Alpha/Second, Beta/Gamma)
+    // Albums -> artists (Alpha, Beta) -> Beta -> Square on "Gamma"
     app.handle(press(Key::Down), &mut be);
     app.handle(press(Key::Down), &mut be);
     app.handle(press(Key::Ok), &mut be);
+    assert!(matches!(app.top().screen, Screen::Artists(Browse::Albums, ref v) if v.len() == 2));
+    assert_eq!(crate::view::title(&app), "Albums (3) by artist");
+    app.handle(press(Key::Up), &mut be); // wraps to last = Beta
+    app.handle(press(Key::Ok), &mut be);
+    assert!(matches!(app.top().screen, Screen::Albums(Some(ref a), _) if a == "Beta"));
     app.handle(press(Key::Up), &mut be); // wraps to last = Gamma
     app.handle(press(Key::Square), &mut be);
     assert_eq!(be.queue.len(), 1);
@@ -272,6 +291,14 @@ fn shuffle_all_and_playlists() {
     assert_eq!(app.top().screen, Screen::Playlists(vec!["Road trip".into()]));
     app.handle(press(Key::Ok), &mut be);
     assert!(matches!(app.top().screen, Screen::Tracks(ref n, ref v) if n == "Road trip" && v.len() == 2));
+}
+
+#[test]
+fn menu_shows_library_counts() {
+    let mut be = Fake::new();
+    let mut app = MusicApp::new();
+    app.start(&mut be);
+    assert_eq!(app.stats, Some(LibraryStats { artists: 2, albums: 3, songs: 4 }));
 }
 
 #[test]

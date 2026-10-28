@@ -29,6 +29,24 @@ art, and control everything with the ZPOD buttons.
 ## Screens and buttons
 
 Menu: Now Playing, Artists, Albums, Playlists, Queue, Shuffle all, Update library.
+The Artists and Albums rows show the library totals (MPD `stats`: artists,
+albums). They refresh when a rescan finishes.
+
+Browsing is hierarchical: **Artist, then that artist's albums, then tracks**.
+There is no flat list of every album, because that gets unusable as the
+library grows.
+
+| Screen | Title bar | Rows |
+|---|---|---|
+| Artists | `Artists (6)` | artist name, with the album count on the right (`19 albums`) |
+| Albums | `Albums (31) by artist` | the same artist list; OK opens that artist's albums |
+| Artist's albums | `Miles Davis (19)` | first row **All tracks** (`19 albums, 124 tracks`); then each album with `6 tracks, 38:12` underneath and the **year** on the right, oldest first (albums without a Date tag go last) |
+| Album tracks | `Milestones (1958) · 6` | track title, `N. artist`, duration |
+| Now Playing | | title, artist, `Album (year)`, `Track n of m` |
+
+The year is the earliest 4-digit year in the tracks' `Date` tag. Reissues
+tagged with the reissue date show that year (for example Big Science 2007).
+Fix the tag (docs/MUSIC-TAGGING.md) to change it.
 
 | Button | Lists | Now Playing |
 |---|---|---|
@@ -44,8 +62,9 @@ Menu: Now Playing, Artists, Albums, Playlists, Queue, Shuffle all, Update librar
 These follow the vendor conventions: Up = repeat one, Down = shuffle, Home =
 menu, OK = queue, X = cancel.
 
-Albums are grouped by AlbumArtist, falling back to Artist. Tracks sort by
-disc and track number. Names sort case-insensitively, ignoring a leading "The ".
+Albums are grouped by AlbumArtist, falling back to Artist. An artist's albums
+sort by year, then name. Tracks sort by disc and track number. Names sort
+case-insensitively, ignoring a leading "The ".
 
 ## Music location
 
@@ -74,7 +93,11 @@ Screenshots: `screenshots/music-*.png`.
 
 * Not yet run on the Pi: MPD CPU load and the art decode time on ARMv6 are
   estimates. Covers are decoded once and then cached.
-* No search (no keyboard). Long lists scroll with autorepeat only, so an
-  A-Z jump would help big libraries.
-* The Albums view asks MPD for every album at once. This is untested beyond the
-  17-track fixture; expect a delay on the first open with thousands of albums.
+* No search (no keyboard). Lists scroll with autorepeat only. Browsing by
+  artist keeps lists short, but an A-Z jump in Artists would still help very
+  large libraries.
+* Opening Artists or Albums asks MPD for `list album group albumartist` once,
+  to count each artist's albums. That is fine at hundreds of albums, but
+  untested at thousands.
+* Opening one artist costs two small MPD queries (`list album ... group date`
+  and `count ... group album`).
