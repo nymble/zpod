@@ -1,7 +1,7 @@
 # Buildroot fast-boot image (proof of concept)
 
 **Status: experimental, built but not yet booted on hardware (2026-10-29).**
-Tracking issue: [#BR] (see the issue linked from the PR). Branch: `buildroot`.
+Tracking issue: [#22](https://github.com/nymble/zpod/issues/22). Branch: `buildroot`, draft PR [#23](https://github.com/nymble/zpod/pull/23), prerelease [`v0.7.0-br-poc1`](https://github.com/nymble/zpod/releases/tag/v0.7.0-br-poc1).
 
 This is the second OS track for the ZPOD: a Buildroot image with BusyBox
 init, a read-only squashfs root and a writable `/data` partition, running the
