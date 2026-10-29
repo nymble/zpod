@@ -1,0 +1,8 @@
+#!/bin/sh
+# Minimal systemctl shim for the BusyBox image: the shared python helpers
+# (zpod_battery_guard.py) and some UI hints call "systemctl poweroff|reboot".
+case "$1" in
+poweroff|halt) exec /sbin/poweroff ;;
+reboot) exec /sbin/reboot ;;
+*) echo "systemctl: not available on the Buildroot image ($*)" >&2; exit 1 ;;
+esac

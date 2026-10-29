@@ -1,0 +1,8 @@
+config BR2_PACKAGE_ZPOD_SCRIPTS
+	bool "zpod-scripts (buttons daemon, battery guard, USB gadget, audio init)"
+	help
+	  Installs the hardware helpers shared with the pi-gen image from
+	  overlay/ in this repo (single source): zpod_buttons.py (uinput),
+	  zpod_battery_guard.py, zpod_hw.py, zpod-usb-gadget.sh (CDC-NCM),
+	  zpod-audio-init.sh, /etc/asound.conf and /etc/zpod/*.conf.
+	  Python helpers need python3, python-evdev and python-smbus2.

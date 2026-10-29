@@ -1,0 +1,19 @@
+#!/bin/sh
+# mdev daemon + module coldplug. Replaces Buildroot's S10mdev: the coldplug
+# (modprobe of every modalias: sound, dwc2, brcmfmac, ...) runs in the
+# background so it never delays the launcher.
+DAEMON="mdev"
+PIDFILE="/var/run/$DAEMON.pid"
+case "$1" in
+start)
+	start-stop-daemon -S -b -m -p $PIDFILE -x /sbin/mdev -- -df
+	(
+		find /sys/ -name modalias -print0 | xargs -0 sort -u | tr '\n' '\0' | \
+			xargs -0 modprobe -abq
+		/usr/sbin/zpod-bootmark coldplug-done
+	) </dev/null >/dev/null 2>&1 &
+	;;
+stop) start-stop-daemon -K -p $PIDFILE ;;
+restart) "$0" stop; "$0" start ;;
+esac
+exit 0

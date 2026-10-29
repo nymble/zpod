@@ -168,6 +168,20 @@ pub fn wifi_info() -> WifiInfo {
             break;
         }
     }
+    if w.ssid.is_none() {
+        // No NetworkManager (Buildroot image): `iw dev wlan0 link` gives the
+        // SSID and the signal in dBm (mapped to a 0-100 % like nmcli's).
+        let link = run(&["iw", "dev", "wlan0", "link"]);
+        for l in link.lines().map(str::trim) {
+            if let Some(v) = l.strip_prefix("SSID: ") {
+                w.ssid = Some(v.to_string());
+            } else if let Some(v) = l.strip_prefix("signal: ") {
+                if let Some(dbm) = v.split_whitespace().next().and_then(|x| x.parse::<i32>().ok()) {
+                    w.signal = Some((2 * (dbm + 100)).clamp(0, 100).to_string());
+                }
+            }
+        }
+    }
     let ps = run(&["iw", "dev", "wlan0", "get", "power_save"]);
     if let Some(i) = ps.find("Power save:") {
         w.powersave = ps[i + 11..].split_whitespace().next().map(|s| s.to_string());

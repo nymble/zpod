@@ -1,0 +1,22 @@
+#!/bin/sh
+# USB OTG Ethernet gadget: CDC-NCM by default (zpod-usb-gadget.sh, shared with
+# the pi-gen image; mode from /boot/firmware/zpod-usb.txt), usb0 = 10.12.194.1/28,
+# BusyBox udhcpd hands 10.12.194.2-14 to the host (no route/DNS). Background.
+start() {
+	(
+		modprobe -q dwc2; modprobe -q libcomposite
+		/usr/lib/zpod/zpod-usb-gadget.sh start
+		i=0; while [ ! -e /sys/class/net/usb0 ] && [ $i -lt 50 ]; do sleep 0.2; i=$((i+1)); done
+		ip addr add 10.12.194.1/28 dev usb0 2>/dev/null
+		ip link set usb0 up
+		touch /run/udhcpd.usb0.leases
+		udhcpd -S /etc/udhcpd.usb0.conf
+		/usr/sbin/zpod-bootmark usb-gadget-up
+	) </dev/null >>/run/zpod/usb.log 2>&1 &
+}
+stop() {
+	killall -q udhcpd
+	/usr/lib/zpod/zpod-usb-gadget.sh stop 2>/dev/null
+}
+case "$1" in start) start ;; stop) stop ;; restart) stop; start ;; esac
+exit 0

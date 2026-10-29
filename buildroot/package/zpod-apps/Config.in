@@ -1,0 +1,15 @@
+config BR2_PACKAGE_ZPOD_APPS
+	bool "zpod-apps (Rust launcher, boot splash, drop server, bundled apps)"
+	help
+	  Installs the M4 Rust userland cross-built by apps/tools/build-arm.sh
+	  (target arm-unknown-linux-musleabihf, static, ARMv6):
+	  /usr/lib/zpod/bin/{zpod-launcher,zpod-bootsplash,zpod-drop,zpod-app}
+	  on the read-only rootfs, and the bundled .zpa packages (music,
+	  clock, tetris) under /usr/share/zpod/packages; post-image.sh
+	  pre-installs those into the data partition (/data/zpod/apps).
+	  Run buildroot/build.sh (or apps/tools/build-arm.sh) first.
+
+config BR2_PACKAGE_ZPOD_APPS_DIST
+	string "path to apps/dist"
+	default "$(BR2_EXTERNAL_ZPOD_PATH)/../apps/dist"
+	depends on BR2_PACKAGE_ZPOD_APPS

@@ -1,0 +1,35 @@
+# ZPOD BusyBox inittab (Buildroot fast-boot image).
+# sysinit entries run in order and must stay fast: everything slow (module
+# coldplug, Wi-Fi, USB gadget, MPD, python helpers) is backgrounded by the
+# rc scripts so the launcher (respawn, below) starts as early as possible.
+::sysinit:/bin/mount -t proc proc /proc
+::sysinit:/bin/mount -t sysfs sysfs /sys
+::sysinit:/bin/mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run
+::sysinit:/usr/sbin/zpod-bootmark init-start
+# Boot splash first (static Rust binary, spidev + GPIO cdev are built in)
+::sysinit:/usr/lib/zpod/zpod-bootsplash-start
+::sysinit:/bin/mkdir -p /dev/pts /dev/shm
+::sysinit:/bin/mount -a
+null::sysinit:/bin/ln -sf /proc/self/fd /dev/fd
+null::sysinit:/bin/ln -sf /proc/self/fd/0 /dev/stdin
+null::sysinit:/bin/ln -sf /proc/self/fd/1 /dev/stdout
+null::sysinit:/bin/ln -sf /proc/self/fd/2 /dev/stderr
+::sysinit:/bin/hostname -F /etc/hostname
+::sysinit:/etc/init.d/rcS
+::sysinit:/usr/sbin/zpod-bootmark rcS-done
+# Diagnostics on the console when the kernel cmdline has zpod.debug (QEMU smoke test)
+::sysinit:/usr/sbin/zpod-debug-dump
+
+# The ZPOD launcher (Rust, /usr/lib/zpod/bin) owns the LCD; it stops the splash.
+::respawn:/usr/sbin/zpod-launcher-run
+
+# Debug shell on the HDMI console (tty1); harmless when nothing is attached.
+tty1::respawn:/sbin/getty -L tty1 0 vt100
+
+# Shutdown: let the launcher draw its end screen, then stop services.
+::shutdown:/usr/sbin/zpod-launcher-stop
+::shutdown:/etc/init.d/rcK
+::shutdown:/sbin/swapoff -a
+::shutdown:/bin/umount -a -r
+::restart:/sbin/init
+::ctrlaltdel:/sbin/reboot

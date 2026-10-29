@@ -1,0 +1,58 @@
+# ZPOD kernel config fragment on top of bcmrpi_defconfig (RPi 6.12.y vendor tree)
+# --- root filesystem: squashfs built in, no initramfs ---
+CONFIG_SQUASHFS=y
+CONFIG_SQUASHFS_LZ4=y
+CONFIG_SQUASHFS_XZ=y
+CONFIG_SQUASHFS_ZSTD=y
+CONFIG_EXT4_FS=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_BLK_DEV_INITRD=n
+# --- display: userspace spidev (zpod-hal / mipidsi) + GPIO cdev for DC ---
+CONFIG_SPI_BCM2835=y
+CONFIG_SPI_SPIDEV=y
+CONFIG_GPIO_CDEV=y
+CONFIG_GPIO_CDEV_V1=y
+# Optional kernel DRM panel (not enabled in config.txt; the apps use spidev)
+CONFIG_DRM_PANEL_MIPI_DBI=m
+# fbtft is not used: the pi-gen image also drives the ILI9340 from userspace
+# --- buttons: zpod-buttons (python) reads /dev/gpiomem and publishes uinput ---
+CONFIG_INPUT_UINPUT=y
+# /dev/gpiomem for zpod-buttons (built in: no wait for module coldplug)
+CONFIG_RASPBERRYPI_GPIOMEM=y
+CONFIG_INPUT_EVDEV=y
+CONFIG_KEYBOARD_GPIO=m
+# --- audio: bcm2835 I2S + in-tree PCM512x codec; machine driver = zpod-dac (OOT) ---
+CONFIG_SND_BCM2835_SOC_I2S=m
+CONFIG_SND_SOC_PCM512x=m
+CONFIG_SND_SOC_PCM512x_I2C=m
+# --- I2C: chardev for the MAX17048 gauge; DS3231 built in so hctosys sets the clock ---
+CONFIG_I2C_BCM2835=y
+CONFIG_I2C_CHARDEV=y
+CONFIG_RTC_CLASS=y
+CONFIG_RTC_HCTOSYS=y
+CONFIG_RTC_HCTOSYS_DEVICE="rtc0"
+CONFIG_RTC_DRV_DS1307=y
+CONFIG_BATTERY_MAX17040=m
+# --- USB gadget: dwc2 + configfs CDC-NCM (ECM/RNDIS/ACM/mass storage available) ---
+CONFIG_USB_DWC2=m
+CONFIG_USB_GADGET=y
+CONFIG_USB_LIBCOMPOSITE=m
+CONFIG_USB_CONFIGFS=m
+CONFIG_USB_CONFIGFS_NCM=y
+CONFIG_USB_CONFIGFS_ECM=y
+CONFIG_USB_CONFIGFS_RNDIS=y
+CONFIG_USB_CONFIGFS_ACM=y
+CONFIG_USB_CONFIGFS_MASS_STORAGE=y
+CONFIG_USB_ETH=m
+# --- Wi-Fi: brcmfmac as a module (firmware lives on the rootfs) ---
+CONFIG_BRCMFMAC=m
+CONFIG_CFG80211=y
+CONFIG_RFKILL=y
+# --- filesystems for music cards / USB sticks ---
+CONFIG_VFAT_FS=y
+CONFIG_EXFAT_FS=m
+# --- boot-time trimming ---
+CONFIG_KALLSYMS=n
+CONFIG_LOGO=n
+CONFIG_PRINTK_TIME=y

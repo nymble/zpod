@@ -1,0 +1,8 @@
+#!/bin/sh
+# Boot-time instrumentation: append "<name> <seconds since kernel start>"
+# to /run/zpod/boot-times (the launcher writes launcher-first-frame there too).
+# /proc/uptime starts when the kernel starts, so the closed GPU firmware stage
+# before it (about 2-2.5 s on a Zero W) is not included; see docs/BUILDROOT.md.
+mkdir -p /run/zpod
+read -r up _ < /proc/uptime
+echo "${1:-mark} $up" >> /run/zpod/boot-times

@@ -208,3 +208,21 @@ mod tests {
         assert_eq!(shutdown_screen_mode(""), "message");
     }
 }
+
+/// Boot-time instrumentation: append `<name> <seconds since kernel start>` to
+/// /run/zpod/boot-times (CLOCK_BOOTTIME via /proc/uptime) and log it to
+/// stderr. Shell scripts use the same file through `zpod-bootmark <name>`.
+pub const BOOT_TIMES: &str = "/run/zpod/boot-times";
+
+pub fn boot_mark(name: &str) {
+    let up = std::fs::read_to_string("/proc/uptime")
+        .ok()
+        .and_then(|t| t.split_whitespace().next().map(str::to_string))
+        .unwrap_or_else(|| "?".into());
+    eprintln!("zpod-launcher: boot mark {name} at {up}s after kernel start");
+    let _ = std::fs::create_dir_all("/run/zpod");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(BOOT_TIMES) {
+        use std::io::Write;
+        let _ = writeln!(f, "{name} {up}");
+    }
+}

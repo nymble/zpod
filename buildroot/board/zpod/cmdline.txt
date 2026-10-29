@@ -1,0 +1,1 @@
+root=/dev/mmcblk0p2 rootfstype=squashfs ro rootwait quiet loglevel=3 console=tty1 logo.nologo vt.global_cursor_default=0 panic=5 fsck.mode=skip

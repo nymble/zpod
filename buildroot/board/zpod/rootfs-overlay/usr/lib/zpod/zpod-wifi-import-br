@@ -1,0 +1,70 @@
+#!/bin/sh
+# ZPOD first-boot Wi-Fi import for the Buildroot image (wpa_supplicant).
+# Images never contain Wi-Fi credentials. Same drop-in file as the pi-gen
+# image (docs/BOOT-WIFI.md): zpod-wifi.txt on the FAT boot partition, lines
+#   SSID=<name>  PSK=<password>  [COUNTRY=US] [HIDDEN=yes]   ('#' = comment)
+# The network is appended to /data/etc/wpa_supplicant.conf (0600) with the
+# SSID hex-encoded and the passphrase stored only as the derived WPA PSK, and
+# zpod-wifi.txt is overwritten and deleted. Never prints the SSID or password.
+BOOT=${ZPOD_BOOT_DIR:-/boot/firmware}
+CONF=${ZPOD_WPA_CONF:-/data/etc/wpa_supplicant.conf}
+TXT=$BOOT/zpod-wifi.txt
+log() { echo "zpod-wifi-import: $*"; }
+umask 077
+if [ ! -f "$CONF" ]; then
+	printf 'ctrl_interface=/run/wpa_supplicant\nupdate_config=1\ncountry=US\n' > "$CONF"
+fi
+[ -f "$TXT" ] || exit 0
+
+ssid= psk= country= hidden=0 have_psk=0
+while IFS= read -r line || [ -n "$line" ]; do
+	line=$(printf '%s' "$line" | tr -d '\r' | sed 's/^\xef\xbb\xbf//')
+	case "$line" in
+	''|'#'*) ;;
+	SSID=*) ssid=${line#SSID=} ;;
+	PSK=*|PASSWORD=*) psk=${line#*=}; have_psk=1 ;;
+	COUNTRY=*) country=${line#COUNTRY=} ;;
+	HIDDEN=y*|HIDDEN=Y*|HIDDEN=1|HIDDEN=true) hidden=1 ;;
+	HIDDEN=*) ;;
+	*) log "ignoring unknown line in zpod-wifi.txt" ;;
+	esac
+done < "$TXT"
+
+ok=1
+n=$(printf '%s' "$ssid" | wc -c)
+if [ -z "$ssid" ] || [ "$n" -gt 32 ]; then log "SSID missing or longer than 32 bytes; not imported"; ok=0; fi
+hexpsk=
+if [ "$ok" = 1 ] && [ "$have_psk" = 1 ] && [ -n "$psk" ]; then
+	n=$(printf '%s' "$psk" | wc -c)
+	if [ "$n" -eq 64 ] && printf '%s' "$psk" | grep -qE '^[0-9A-Fa-f]{64}$'; then
+		hexpsk=$psk
+	elif [ "$n" -ge 8 ] && [ "$n" -le 63 ]; then
+		# passphrase on stdin (not argv); keep only the derived 256-bit PSK
+		hexpsk=$(printf '%s\n' "$psk" | wpa_passphrase "$ssid" 2>/dev/null | sed -n 's/^[[:space:]]*psk=\([0-9a-f]\{64\}\)$/\1/p')
+		[ -n "$hexpsk" ] || { log "could not derive the PSK; not imported"; ok=0; }
+	else
+		log "PSK must be 8-63 characters (or 64 hex digits); not imported"; ok=0
+	fi
+fi
+if [ "$ok" = 1 ]; then
+	hexssid=$(printf '%s' "$ssid" | od -An -tx1 | tr -d ' \n')
+	tmp=$CONF.tmp
+	grep -v '^country=' "$CONF" > "$tmp"
+	if printf '%s' "$country" | grep -qE '^[A-Z]{2}$'; then echo "country=$country" >> "$tmp"
+	else grep '^country=' "$CONF" >> "$tmp" || echo "country=US" >> "$tmp"; fi
+	{
+		echo "network={"
+		echo "	ssid=$hexssid"
+		[ "$hidden" = 1 ] && echo "	scan_ssid=1"
+		if [ -n "$hexpsk" ]; then echo "	key_mgmt=WPA-PSK"; echo "	psk=$hexpsk"
+		else echo "	key_mgmt=NONE"; fi
+		echo "}"
+	} >> "$tmp"
+	chmod 600 "$tmp"; mv -f "$tmp" "$CONF"; sync
+	log "imported zpod-wifi.txt into $CONF"
+fi
+ssid= psk= hexpsk=
+# overwrite, then delete (best effort: SD cards remap blocks)
+shred -z -n 1 -u "$TXT" 2>/dev/null || { dd if=/dev/zero of="$TXT" bs=512 count=8 conv=notrunc 2>/dev/null; rm -f "$TXT"; }
+sync
+exit 0

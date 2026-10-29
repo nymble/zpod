@@ -1,0 +1,2 @@
+# Key-only SSH: no password logins at all (keys from zpod-ssh.pub).
+DROPBEAR_ARGS="-s"

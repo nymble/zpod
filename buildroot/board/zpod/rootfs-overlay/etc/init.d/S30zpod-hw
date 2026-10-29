@@ -1,0 +1,28 @@
+#!/bin/sh
+# Hardware helpers, all in the background: buttons (uinput "zpod-buttons",
+# the only volume writer), audio defaults, battery guard. Python start-up is
+# slow on a Zero W, so none of this blocks the launcher (which retries input).
+start() {
+	mkdir -p /run/zpod
+	[ -e /dev/gpiomem ] || modprobe -q rpi-gpiomem
+	start-stop-daemon -S -b -m -p /run/zpod/buttons.pid -a /bin/sh -- -c \
+		'exec /usr/bin/python3 /usr/lib/zpod/zpod_buttons.py >>/run/zpod/buttons.log 2>&1'
+	(
+		# wait for the DAC (module coldplug), then restore or set defaults
+		i=0; while ! grep -q '\[sndrpiaoidezpod' /proc/asound/cards 2>/dev/null && [ $i -lt 100 ]; do sleep 0.2; i=$((i+1)); done
+		/usr/sbin/zpod-bootmark audio-card
+		if [ -f /var/lib/zpod/audio-defaults-applied ] && [ -f /var/lib/alsa/asound.state ]; then
+			alsactl -f /var/lib/alsa/asound.state restore 2>/dev/null
+		else
+			/usr/lib/zpod/zpod-audio-init.sh && alsactl -f /var/lib/alsa/asound.state store
+		fi
+	) </dev/null >>/run/zpod/audio.log 2>&1 &
+	start-stop-daemon -S -b -m -p /run/zpod/battery.pid -a /bin/sh -- -c \
+		'exec /usr/bin/python3 /usr/lib/zpod/zpod_battery_guard.py >>/run/zpod/battery.log 2>&1'
+}
+stop() {
+	alsactl -f /var/lib/alsa/asound.state store 2>/dev/null
+	for p in buttons battery; do start-stop-daemon -K -q -p /run/zpod/$p.pid; done
+}
+case "$1" in start) start ;; stop) stop ;; restart) stop; start ;; esac
+exit 0

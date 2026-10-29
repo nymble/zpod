@@ -1,0 +1,7 @@
+config BR2_PACKAGE_ZPOD_OVERLAYS
+	bool "zpod-overlays (ZPOD device-tree overlays)"
+	depends on BR2_PACKAGE_RPI_FIRMWARE
+	help
+	  Compiles drivers/aoide-zpod-dac/aoide-zpod-dac-overlay.dts into
+	  rpi-firmware/overlays/aoide-zpod-dac.dtbo on the boot partition
+	  (config.txt: dtoverlay=aoide-zpod-dac, as in the pi-gen image).

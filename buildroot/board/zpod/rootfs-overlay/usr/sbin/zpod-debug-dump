@@ -1,0 +1,17 @@
+#!/bin/sh
+# With "zpod.debug" on the kernel cmdline: after rcS (and again 20 s later)
+# print boot marks, mounts, processes and the ZPOD logs to the console.
+grep -q zpod.debug /proc/cmdline || exit 0
+dump() {
+	echo "=== zpod-debug ($1) ==="
+	cat /run/zpod/boot-times 2>/dev/null
+	grep -E ' /data | /boot/firmware | / ' /proc/mounts
+	ls /data /data/zpod/apps /data/etc 2>&1
+	ps -o pid,args | grep -vE '\[|ps -o|grep' 
+	for f in /run/zpod/*.log; do echo "--- $f"; tail -n 5 "$f"; done
+	lsmod | head -20
+	echo "=== end ==="
+}
+dump rcS-done
+( sleep 20; dump late ) &
+exit 0

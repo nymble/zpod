@@ -1,0 +1,4 @@
+#!/bin/sh
+# Started and respawned by init (inittab). Apps run as the "zpod" user.
+export ZPOD_APP_USER=zpod HOME=/root PATH=/usr/sbin:/usr/bin:/sbin:/bin
+exec /usr/lib/zpod/bin/zpod-launcher >>/run/zpod/launcher.log 2>&1
