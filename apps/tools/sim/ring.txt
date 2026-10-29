@@ -1,0 +1,6 @@
+# Launcher ring screens (run tools/sim/ring.sh: it seeds alarm.conf).
+wait 2600
+shot launcher-ring-timer
+key up
+wait 200
+shot launcher-ring-timer-stopped

@@ -158,23 +158,33 @@ pub fn human(b: u64) -> String {
     }
 }
 
-/// The partitions shown on screen: (label, mount point).
-pub const PARTS: [(&str, &str); 3] = [("Root /", "/"), ("Music", "/srv/zpod/media"), ("Boot", "/boot/firmware")];
+/// The ext4 data partition (M5 large-card layout): music, playlists and app
+/// data live here; root stays small and fixed.
+pub const DATA: &str = "/data";
 
-/// One line per partition (label, text, nearly full >= 90 %); the music
-/// folder says "on root" when it shares the root file system (the pi-gen
-/// image) instead of having its own data partition.
+/// The partitions shown on screen: (label, mount point).
+pub const PARTS: [(&str, &str); 4] = [("Root /", "/"), ("Data", DATA), ("Music", "/srv/zpod/media"), ("Boot", "/boot/firmware")];
+
+/// One line per partition (label, text, nearly full >= 90 %). The music
+/// folder says "on data" (M5 layout, bind mount from /data/media) or
+/// "on root" (older single-partition images). /data is skipped when it is
+/// not a separate file system.
 pub fn partition_lines() -> Vec<(&'static str, String, bool)> {
     let root = fs_usage("/");
+    let data = fs_usage(DATA).filter(|d| root.map(|r| r.dev != d.dev).unwrap_or(true));
     PARTS
         .iter()
-        .map(|&(label, path)| {
-            let u = fs_usage(path);
-            match (u, root) {
-                (Some(u), Some(r)) if path != "/" && u.dev == r.dev => (label, format!("on root  ({} free)", human(u.avail)), false),
-                (Some(u), _) => (label, u.line(), u.pct() >= 90),
-                (None, _) => (label, "not mounted".into(), false),
+        .filter_map(|&(label, path)| {
+            if path == DATA && data.is_none() {
+                return None;
             }
+            let u = fs_usage(path);
+            Some(match u {
+                Some(u) if path != "/" && path != DATA && data.map(|d| d.dev == u.dev).unwrap_or(false) => (label, format!("on data  ({} free)", human(u.avail)), false),
+                Some(u) if path != "/" && root.map(|r| r.dev == u.dev).unwrap_or(false) => (label, format!("on root  ({} free)", human(u.avail)), false),
+                Some(u) => (label, u.line(), u.pct() >= 90),
+                None => (label, "not mounted".into(), false),
+            })
         })
         .collect()
 }

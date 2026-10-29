@@ -14,6 +14,7 @@ pub enum MenuId {
     Settings,
     Display,
     Diagnostics,
+    Tools,
     Power,
 }
 
@@ -23,6 +24,8 @@ pub enum Item {
     App(usize),
     Transfer,
     Wifi,
+    WifiScan,
+    BtScan,
     Menu(MenuId),
     BacklightTest,
     SpiSpeed,
@@ -42,6 +45,10 @@ pub enum Page {
     Menu(MenuId),
     Transfer,
     Wifi,
+    WifiScan,
+    BtScan,
+    /// Details of the selected scan row (Wi-Fi network or BT device).
+    ScanDetail,
     DateTime,
     About,
     Apps,
@@ -63,6 +70,8 @@ pub enum Effect {
     BacklightTest,
     CycleSpi,
     RefreshWifi,
+    /// File transfer: OK = rescan the music library now.
+    RescanMusic,
     /// Entered a page that loads data (Wi-Fi info, apps list, date editor).
     Opened(Page),
     Power(bool),
@@ -72,7 +81,7 @@ pub fn items(m: MenuId, n_apps: usize) -> Vec<Item> {
     match m {
         MenuId::Top => {
             let mut v: Vec<Item> = (0..n_apps).map(Item::App).collect();
-            v.extend([Item::Transfer, Item::Wifi, Item::Menu(MenuId::Settings), Item::Menu(MenuId::Power)]);
+            v.extend([Item::Transfer, Item::Menu(MenuId::Tools), Item::Menu(MenuId::Settings), Item::Menu(MenuId::Power)]);
             v
         }
         MenuId::Settings => vec![
@@ -84,6 +93,7 @@ pub fn items(m: MenuId, n_apps: usize) -> Vec<Item> {
         ],
         MenuId::Display => vec![Item::BacklightTest, Item::SpiSpeed],
         MenuId::Diagnostics => vec![Item::Status, Item::Storage, Item::ButtonTest, Item::Tone],
+        MenuId::Tools => vec![Item::WifiScan, Item::BtScan, Item::Wifi],
         MenuId::Power => vec![Item::Reboot, Item::Shutdown],
     }
 }
@@ -92,8 +102,11 @@ pub fn items(m: MenuId, n_apps: usize) -> Vec<Item> {
 pub fn label(it: Item) -> (&'static str, &'static str) {
     match it {
         Item::App(_) => ("", ""),
-        Item::Transfer => ("File transfer", "USB cable or Wi-Fi"),
-        Item::Wifi => ("Wi-Fi info", "SSID, IP, MAC, signal"),
+        Item::Transfer => ("File transfer", "How to connect, free space, rescan"),
+        Item::Wifi => ("Wi-Fi info", "This ZPOD: SSID, IP, MAC, signal"),
+        Item::WifiScan => ("Wi-Fi scanner", "Networks nearby: channel, signal, security"),
+        Item::BtScan => ("Bluetooth scanner", "Classic + BLE devices nearby, RSSI"),
+        Item::Menu(MenuId::Tools) => ("Tools", "Wi-Fi & Bluetooth scanners, Wi-Fi info"),
         Item::Menu(MenuId::Settings) => ("Settings", "Display, time, battery, diagnostics"),
         Item::Menu(MenuId::Power) => ("Power", "Reboot, shut down"),
         Item::Menu(MenuId::Display) => ("Display", "Backlight, SPI speed"),
@@ -120,6 +133,10 @@ pub fn title(p: Page) -> &'static str {
         Page::Menu(MenuId::Display) => "Display",
         Page::Menu(MenuId::Diagnostics) => "Diagnostics",
         Page::Menu(MenuId::Power) => "Power",
+        Page::Menu(MenuId::Tools) => "Tools",
+        Page::WifiScan => "Wi-Fi scanner",
+        Page::BtScan => "Bluetooth scanner",
+        Page::ScanDetail => "Details",
         Page::Transfer => "File transfer",
         Page::Wifi => "Wi-Fi",
         Page::DateTime => "Date & time",
@@ -235,6 +252,13 @@ impl Menus {
                     self.enter(it)
                 }
                 Page::Wifi => Effect::RefreshWifi,
+                Page::Transfer => Effect::RescanMusic,
+                Page::WifiScan | Page::BtScan if self.list().sel < rows.0 => {
+                    let sel = self.list().sel;
+                    self.push(Page::ScanDetail);
+                    self.list_mut().sel = sel; // the row the details are for
+                    Effect::Opened(Page::ScanDetail)
+                }
                 _ => Effect::None,
             },
             _ => Effect::None,
@@ -251,6 +275,8 @@ impl Menus {
             Item::Menu(m) => open(self, Page::Menu(m)),
             Item::Transfer => open(self, Page::Transfer),
             Item::Wifi => open(self, Page::Wifi),
+            Item::WifiScan => open(self, Page::WifiScan),
+            Item::BtScan => open(self, Page::BtScan),
             Item::DateTime => open(self, Page::DateTime),
             Item::About => open(self, Page::About),
             Item::Apps => open(self, Page::Apps),
@@ -280,7 +306,7 @@ mod tests {
 
     #[test]
     fn no_volume_item_and_tone_only_in_diagnostics() {
-        for id in [MenuId::Top, MenuId::Settings, MenuId::Display, MenuId::Diagnostics, MenuId::Power] {
+        for id in [MenuId::Top, MenuId::Settings, MenuId::Display, MenuId::Diagnostics, MenuId::Tools, MenuId::Power] {
             for it in items(id, 3) {
                 assert!(!label(it).0.to_lowercase().contains("volume"), "{it:?}");
             }
@@ -305,10 +331,14 @@ mod tests {
         assert_eq!(m.page(), Page::Menu(MenuId::Top));
         m.handle(Nav::Back, 2, ROWS); // no-op at the top
         assert_eq!(m.depth(), 1);
+        select(&mut m, 2, Item::Menu(MenuId::Tools));
+        m.handle(Nav::Enter, 2, ROWS);
         select(&mut m, 2, Item::Wifi);
         m.handle(Nav::Enter, 2, ROWS);
         assert_eq!(m.page(), Page::Wifi);
         assert_eq!(m.handle(Nav::Enter, 2, ROWS), Effect::RefreshWifi);
+        m.handle(Nav::Back, 2, ROWS);
+        assert_eq!(m.page(), Page::Menu(MenuId::Tools));
         m.handle(Nav::Back, 2, ROWS);
         assert_eq!(m.page(), Page::Menu(MenuId::Top));
     }
@@ -388,5 +418,37 @@ mod tests {
         assert_eq!(m.handle(Nav::Other(zpod_core::Key::Triangle), 0, ROWS), Effect::None);
         assert_eq!(m.handle(Nav::Other(zpod_core::Key::Square), 0, ROWS), Effect::None);
         assert_eq!(m.depth(), 1);
+    }
+
+    #[test]
+    fn tools_menu_has_scanners_and_details() {
+        assert_eq!(items(MenuId::Top, 1), vec![Item::App(0), Item::Transfer, Item::Menu(MenuId::Tools), Item::Menu(MenuId::Settings), Item::Menu(MenuId::Power)]);
+        assert!(!items(MenuId::Top, 1).contains(&Item::Wifi), "Wi-Fi info moved to Tools");
+        let mut m = Menus::new();
+        select(&mut m, 0, Item::Menu(MenuId::Tools));
+        assert_eq!(m.handle(Nav::Enter, 0, ROWS), Effect::Opened(Page::Menu(MenuId::Tools)));
+        assert_eq!(items(MenuId::Tools, 0), vec![Item::WifiScan, Item::BtScan, Item::Wifi]);
+        assert_eq!(m.handle(Nav::Enter, 0, ROWS), Effect::Opened(Page::WifiScan));
+        // no rows yet: OK does nothing
+        assert_eq!(m.handle(Nav::Enter, 0, (0, 5)), Effect::None);
+        m.handle(Nav::Down, 0, (3, 5));
+        assert_eq!(m.handle(Nav::Enter, 0, (3, 5)), Effect::Opened(Page::ScanDetail));
+        assert_eq!(m.list().sel, 1);
+        m.handle(Nav::Back, 0, ROWS);
+        assert_eq!(m.page(), Page::WifiScan);
+        assert_eq!(m.list().sel, 1);
+        m.handle(Nav::Back, 0, ROWS);
+        select(&mut m, 0, Item::BtScan);
+        assert_eq!(m.handle(Nav::Enter, 0, ROWS), Effect::Opened(Page::BtScan));
+        assert_eq!(m.handle(Nav::Home, 0, ROWS), Effect::Redraw);
+        assert_eq!(m.page(), Page::Menu(MenuId::Top));
+    }
+
+    #[test]
+    fn transfer_ok_rescans() {
+        let mut m = Menus::new();
+        select(&mut m, 0, Item::Transfer);
+        m.handle(Nav::Enter, 0, ROWS);
+        assert_eq!(m.handle(Nav::Enter, 0, ROWS), Effect::RescanMusic);
     }
 }

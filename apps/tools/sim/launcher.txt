@@ -1,22 +1,57 @@
-# Top menu: apps (clock, music, tetris), File transfer, Wi-Fi info, Settings >, Power >
+# Top menu: apps (clock, music, tetris), File transfer, Tools >, Settings >, Power >
 wait 300
 shot launcher-home
-# Wi-Fi info (with MAC): Up x3 from the first row wraps to Wi-Fi? use Down instead
+# File transfer (row 4): OK = rescan, Square = rsync share on/off
 key down
 key down
 key down
+key ok
+wait 200
+shot launcher-transfer
+key ok
+wait 100
+shot launcher-transfer-rescan
+key square
+wait 200
+shot launcher-transfer-rsync-on
+key square
+wait 2000
+key left
+# Tools > Wi-Fi scanner (sim data), Triangle = sort, OK = details
+key down
+key ok
+wait 100
+shot launcher-tools
+key ok
+wait 600
+shot launcher-wifiscan
+key triangle
+wait 100
+shot launcher-wifiscan-byname
+key down
+key ok
+wait 100
+shot launcher-wifiscan-detail
+key left
+key left
+# Tools > Bluetooth scanner
+key down
+key ok
+wait 600
+shot launcher-btscan
+key ok
+wait 100
+shot launcher-btscan-detail
+key left
+key left
+# Tools > Wi-Fi info (this ZPOD)
 key down
 key ok
 wait 100
 shot launcher-wifi
 key left
-key up
-key ok
-wait 100
-shot launcher-transfer
 key left
 # Settings >
-key down
 key down
 key right
 wait 100

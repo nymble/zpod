@@ -1,7 +1,8 @@
 //! ZPOD launcher: the one LCD owner between apps.
 //!
 //! * Top menu: installed apps (from /opt/zpod/apps/*/manifest.toml), File
-//!   transfer, Wi-Fi info, Settings >, Power >. Multi-level menu tree in
+//!   transfer, Tools > (Wi-Fi / Bluetooth scanners, Wi-Fi info), Settings >,
+//!   Power >. Multi-level menu tree in
 //!   [`menu`]; button conventions in docs/ui/BUTTONS-AND-MENUS.md:
 //!   Up/Down move, Right/OK/Circle enter, Left/X back one level, Home = top
 //!   menu, Play/Pause = music (never a test tone), Vol+/- = volume overlay.
@@ -10,12 +11,20 @@
 //!   3 s kills a hung app. Afterwards re-acquire the panel (warm, no flash).
 //! * SIGTERM: M3 end screen ("ZPOD off / Safe to power off", "Rebooting...",
 //!   or blank+backlight off) chosen by /etc/zpod/ui.conf [shutdown] screen=.
+//! * Alarm / timer (M5): set in the Clock app, rung here ([`ring`]), even
+//!   over a running app.
+//! * Root-only helpers live here on purpose (the launcher is the privileged
+//!   process): Wi-Fi/Bluetooth scans ([`tools`]), rsync share toggle and
+//!   library rescan ([`transfer`]), date/RTC, power.
 //! * `zpod-launcher --end-screen poweroff|reboot|off` draws just that frame
 //!   (for BusyBox shutdown scripts).
 
 mod icons;
 mod menu;
 mod proc;
+mod ring;
+mod tools;
+mod transfer;
 
 use std::path::PathBuf;
 use std::process::Child;
@@ -26,7 +35,7 @@ use menu::{Effect, Item, MenuId, Menus, Page};
 use proc::StopKind;
 use zpod_apps::AppInfo;
 use zpod_core::{classify, DateTime, Event, Key, KeyState, Nav, PlayState, StatusInfo};
-use zpod_hal::{conf, lcd, storage, sys, Platform};
+use zpod_hal::{alarm, conf, lcd, storage, sys, Platform};
 use zpod_ui::{
     fill, rect,
     status::{battery_icon, draw_status_bar},
@@ -43,7 +52,6 @@ const SUB_ROW: i32 = 30;
 const APPS_ROW: i32 = 34;
 const KILL_HOLD: Duration = Duration::from_secs(3);
 const DROP_PORT: u16 = 8080;
-const MUSIC_DIR: &str = "/srv/zpod/media/music";
 const SPI_KEEP_WINDOW: Duration = Duration::from_secs(10);
 
 /// Date & time editor (Settings > Date & time). App-local bindings:
@@ -130,6 +138,11 @@ struct Launcher {
     buttons: ButtonTest,
     /// SPI clock trial: (previous MHz, revert deadline).
     spi_trial: Option<(u32, Instant)>,
+    tools: tools::Tools,
+    xfer: transfer::Info,
+    xfer_at: Instant,
+    ringer: Option<ring::Ringer>,
+    alarm_checked: Instant,
 }
 
 fn dir_stamp(p: &std::path::Path) -> Option<std::time::SystemTime> {
@@ -178,6 +191,11 @@ impl Launcher {
             time_edit: TimeEdit::new(sys::now_local()),
             buttons: ButtonTest::default(),
             spi_trial: None,
+            tools: tools::Tools::default(),
+            xfer: transfer::Info::default(),
+            xfer_at: Instant::now(),
+            ringer: None,
+            alarm_checked: Instant::now() - Duration::from_secs(5),
         };
         l.rescan(true);
         l
@@ -213,6 +231,8 @@ impl Launcher {
             Page::Menu(MenuId::Top) => (0, (LIST_H / HOME_ROW) as usize),
             Page::Menu(_) => (0, (LIST_H / SUB_ROW) as usize),
             Page::Apps => (self.apps.len() + self.broken.len(), (LIST_H / APPS_ROW) as usize),
+            Page::WifiScan => (self.tools.wifi.items.len(), (LIST_H / APPS_ROW) as usize),
+            Page::BtScan => (self.tools.bt.items.len(), (LIST_H / APPS_ROW) as usize),
             _ => (0, 1),
         }
     }
@@ -221,9 +241,19 @@ impl Launcher {
     fn draw(&mut self) {
         let st = self.status.clone();
         let page = self.menus.page();
-        let title = menu::title(page);
+        if let Some(r) = &self.ringer {
+            draw_ring(&mut self.p.fb, r.ring, &st);
+            self.redraw = false;
+            return;
+        }
+        let title = match page {
+            Page::WifiScan if !self.tools.wifi.items.is_empty() => format!("Wi-Fi ({})", self.tools.wifi.items.len()),
+            Page::BtScan if !self.tools.bt.items.is_empty() => format!("Bluetooth ({})", self.tools.bt.items.len()),
+            Page::ScanDetail => self.tools.detail_title.clone(),
+            _ => menu::title(page).to_string(),
+        };
         let fb = &mut self.p.fb;
-        draw_status_bar(fb, title, &st);
+        draw_status_bar(fb, &title, &st);
         let area = rect(0, LIST_Y, 320, LIST_H as u32);
         let n_apps = self.apps.len();
         match page {
@@ -343,8 +373,9 @@ impl Launcher {
                 let login = storage::login_line();
                 let bad = login.starts_with("NOT SET UP");
                 rows.push(("Login", login, bad));
+                let dy = if rows.len() > 9 { 20 } else { 22 };
                 for (i, (k, v, warn)) in rows.iter().enumerate() {
-                    let y = LIST_Y + 3 + i as i32 * 22;
+                    let y = LIST_Y + 3 + i as i32 * dy;
                     text::draw(fb, Font::Small, k, 10, y + 3, DIM);
                     text::draw_fit(fb, Font::Body, v, 84, y, 230, if *warn { WARN } else { FG });
                 }
@@ -368,41 +399,80 @@ impl Launcher {
                 }
                 widgets::hints(fb, &[("OK", "refresh"), ("Lt/X", "back"), ("Home", "top")]);
             }
-            Page::Transfer => {
+            Page::Transfer => draw_transfer(fb, &self.xfer),
+            Page::WifiScan => {
+                let t = &self.tools;
+                let ls = *self.menus.list();
+                let items = &t.wifi.items;
+                let rows: Vec<(String, String, String)> = items
+                    .iter()
+                    .map(|n| {
+                        let name = if n.ssid.is_empty() { "(hidden)".to_string() } else { n.ssid.clone() };
+                        (name, format!("ch {}  {}  {}", n.channel, n.security, n.bssid), format!("{:.0} dBm", n.signal_dbm))
+                    })
+                    .collect();
+                if rows.is_empty() {
+                    let _ = fb.fill_solid(&area, BG);
+                    let msg = match (&t.wifi.busy, &t.wifi.err) {
+                        (Some(_), _) => "Scanning for networks...".to_string(),
+                        (None, Some(e)) => format!("Scan failed: {e}"),
+                        _ => "No networks found. Square = scan".to_string(),
+                    };
+                    text::draw_fit(fb, Font::Body, &msg, 12, LIST_Y + 80, 296, if t.wifi.err.is_some() { WARN } else { DIM });
+                } else {
+                    widgets::draw_list(fb, area, APPS_ROW, &ls, rows.len(), |i| Row {
+                        title: &rows[i].0,
+                        sub: Some(&rows[i].1),
+                        right: Some(&rows[i].2),
+                        icon: None,
+                        mark: Some(signal_colour(items[i].signal_dbm, items[i].associated)),
+                    });
+                }
+                let sort = format!("sort: {}", t.wifi_sort.label());
+                let age = t.wifi.age_text();
+                widgets::hints(fb, &[("OK", "details"), ("Sq", if t.wifi.busy.is_some() { "scanning" } else { "rescan" }), ("Tri", &sort), ("", &age)]);
+            }
+            Page::BtScan => {
+                let t = &self.tools;
+                let ls = *self.menus.list();
+                let items = &t.bt.items;
+                let rows: Vec<(String, String, String)> = items
+                    .iter()
+                    .map(|d| {
+                        let name = if d.name.is_empty() { "(no name)".to_string() } else { d.name.clone() };
+                        let kind = if d.kind.is_empty() { "?".to_string() } else { d.kind.clone() };
+                        (name, format!("{}  {kind}", d.addr), d.rssi.map(|r| format!("{r} dBm")).unwrap_or_else(|| "--".into()))
+                    })
+                    .collect();
+                if rows.is_empty() {
+                    let _ = fb.fill_solid(&area, BG);
+                    let msg = match (&t.bt.busy, &t.bt.err) {
+                        (Some(_), _) => "Discovering devices (about 10 s)...".to_string(),
+                        (None, Some(e)) => format!("Scan failed: {e}"),
+                        _ => "No devices found. Square = scan".to_string(),
+                    };
+                    text::draw_fit(fb, Font::Body, &msg, 12, LIST_Y + 80, 296, if t.bt.err.is_some() { WARN } else { DIM });
+                    text::draw_fit(fb, Font::Small, "Classic + BLE. Devices must be discoverable/advertising.", 12, LIST_Y + 104, 296, FAINT);
+                } else {
+                    widgets::draw_list(fb, area, APPS_ROW, &ls, rows.len(), |i| Row {
+                        title: &rows[i].0,
+                        sub: Some(&rows[i].1),
+                        right: Some(&rows[i].2),
+                        icon: None,
+                        mark: Some(signal_colour(items[i].rssi.unwrap_or(-127) as f32, false)),
+                    });
+                }
+                let sort = format!("sort: {}", if t.bt_by_name { "name" } else { "signal" });
+                let age = t.bt.age_text();
+                widgets::hints(fb, &[("OK", "details"), ("Sq", if t.bt.busy.is_some() { "scanning" } else { "rescan" }), ("Tri", &sort), ("", &age)]);
+            }
+            Page::ScanDetail => {
                 let _ = fb.fill_solid(&area, BG);
-                let usb = sys::ipv4("usb0");
-                let wlan = sys::ipv4("wlan0");
-                let drop_on = drop_running();
-                let mut y = LIST_Y + 6;
-                let line = |fb: &mut zpod_ui::Framebuffer, y: &mut i32, f: Font, s: &str, c: Rgb565, dy: i32| {
-                    text::draw_fit(fb, f, s, 12, *y, 300, c);
-                    *y += dy;
-                };
-                line(fb, &mut y, Font::BodyBold, "USB cable (fastest)", ACCENT, 18);
-                match &usb {
-                    Some(ip) => {
-                        line(fb, &mut y, Font::Body, &format!("rsync / scp:  <user>@{ip}"), FG, 17);
-                        if drop_on {
-                            line(fb, &mut y, Font::Body, &format!("browser:  http://{ip}:{DROP_PORT}/"), FG, 17);
-                        }
-                    }
-                    None => line(fb, &mut y, Font::Body, "not connected", DIM, 17),
+                for (i, (k, v)) in self.tools.detail.iter().enumerate() {
+                    let y = LIST_Y + 8 + i as i32 * 26;
+                    text::draw(fb, Font::Small, k, 12, y + 3, DIM);
+                    text::draw_fit(fb, Font::Body, v, 84, y, 228, FG);
                 }
-                y += 4;
-                line(fb, &mut y, Font::BodyBold, "Wi-Fi", ACCENT, 18);
-                match &wlan {
-                    Some(ip) => {
-                        line(fb, &mut y, Font::Body, &format!("rsync / scp:  <user>@{ip}  (zpod.local)"), FG, 17);
-                        if drop_on {
-                            line(fb, &mut y, Font::Body, &format!("browser:  http://{ip}:{DROP_PORT}/  (token)"), FG, 17);
-                        }
-                    }
-                    None => line(fb, &mut y, Font::Body, "not connected", DIM, 17),
-                }
-                y += 4;
-                line(fb, &mut y, Font::Small, &format!("Music goes to {MUSIC_DIR}"), DIM, 14);
-                line(fb, &mut y, Font::Small, "Mac: scripts/zpod-push-music.sh ~/Music/Album", DIM, 14);
-                line(fb, &mut y, Font::Small, if drop_on { "Drop server: running" } else { "Drop server: off (sudo systemctl start zpod-drop.socket)" }, if drop_on { OK } else { DIM }, 14);
                 widgets::hints(fb, &[("Lt/X", "back"), ("Home", "top")]);
             }
             Page::Apps => {
@@ -490,6 +560,56 @@ impl Launcher {
         self.redraw = false;
     }
 
+    /// Alarm/timer: ring when due (checked about once a second).
+    fn check_alarm(&mut self) {
+        if self.ringer.is_some() || self.alarm_checked.elapsed() < Duration::from_millis(900) {
+            return;
+        }
+        self.alarm_checked = Instant::now();
+        let a = alarm::load();
+        if let Some(r) = a.due(&sys::now_local(), sys::unix_now()) {
+            eprintln!("launcher: ringing {r:?}");
+            if let Some(mut t) = self.tone.take() {
+                proc::stop_child(&mut t, Duration::from_millis(300));
+            }
+            self.ringer = Some(ring::Ringer::start(r));
+            self.p.status.set_play(PlayState::Paused);
+            self.p.fb.mark_all_dirty();
+            self.redraw = true;
+        }
+    }
+
+    fn alarm_due_soon(&self) -> bool {
+        alarm::load().due(&sys::now_local(), sys::unix_now()).is_some()
+    }
+
+    /// End the ring: snooze (true) or stop.
+    fn end_ring(&mut self, snooze: bool) {
+        let Some(mut r) = self.ringer.take() else { return };
+        r.stop();
+        let mut a = alarm::load();
+        let now = sys::unix_now();
+        if snooze && matches!(r.ring, alarm::Ring::Alarm(_)) {
+            a.snooze(r.ring, now);
+            self.toast(format!("Snoozed {} min", a.snooze_min), 1800);
+        } else {
+            a.dismiss(r.ring);
+            self.toast(if r.ring == alarm::Ring::Timer { "Timer stopped" } else { "Alarm off" }, 1500);
+        }
+        if let Err(e) = alarm::save(&a) {
+            eprintln!("launcher: cannot save {}: {e}", alarm::path().display());
+        }
+        self.status = StatusInfo::default();
+        self.p.fb.mark_all_dirty();
+        self.redraw = true;
+    }
+
+    fn refresh_transfer(&mut self) {
+        self.xfer = transfer::gather(drop_running());
+        self.xfer_at = Instant::now();
+        self.redraw = true;
+    }
+
     fn busy(&mut self, msg: &str) {
         let fb = &mut self.p.fb;
         let area = rect(0, LIST_Y, 320, LIST_H as u32);
@@ -501,6 +621,16 @@ impl Launcher {
 
     // -------------------------------------------------------------- input
     fn key(&mut self, ev: Event) -> Option<Action> {
+        if let Some(r) = &self.ringer {
+            if ev.state == KeyState::Press {
+                match ring::classify(r.ring, ev.key) {
+                    ring::RingKey::Stop => self.end_ring(false),
+                    ring::RingKey::Snooze => self.end_ring(true),
+                    ring::RingKey::Ignore => {}
+                }
+            }
+            return None;
+        }
         let page = self.menus.page();
         // Diagnostics > Button test captures every key; Home (press) exits.
         if page == Page::ButtonTest {
@@ -556,8 +686,53 @@ impl Launcher {
             }
             return None;
         }
-        if matches!(page, Page::Menu(_)) || nav != Nav::Volume {
-            // fallthrough to conventional handling
+        // page-local keys: Square = rescan / share toggle, Triangle = sort
+        match (page, &nav) {
+            (Page::WifiScan, Nav::Other(Key::Square)) => {
+                self.tools.wifi.start(tools::wifi_job);
+                self.redraw = true;
+                return None;
+            }
+            (Page::BtScan, Nav::Other(Key::Square)) => {
+                self.tools.bt.start(tools::bt_job);
+                self.redraw = true;
+                return None;
+            }
+            (Page::WifiScan, Nav::Other(Key::Triangle)) => {
+                self.tools.cycle_wifi_sort();
+                self.menus.list_mut().sel = 0;
+                self.menus.list_mut().top = 0;
+                self.toast(format!("Sorted by {}", self.tools.wifi_sort.label()), 900);
+                return None;
+            }
+            (Page::BtScan, Nav::Other(Key::Triangle)) => {
+                self.tools.cycle_bt_sort();
+                self.menus.list_mut().sel = 0;
+                self.menus.list_mut().top = 0;
+                self.toast(if self.tools.bt_by_name { "Sorted by name" } else { "Sorted by signal" }, 900);
+                return None;
+            }
+            (Page::Transfer, Nav::Other(Key::Square)) => {
+                match self.xfer.rsync {
+                    None => self.toast("rsync share not installed", 1800),
+                    Some(on) => match transfer::set_rsync(!on) {
+                        Ok(()) => {
+                            self.toast(if on { "rsync share off" } else { "rsync share on (USB only)" }, 1800);
+                            if sys::sim() {
+                                if on {
+                                    std::env::remove_var("ZPOD_SIM_RSYNC")
+                                } else {
+                                    std::env::set_var("ZPOD_SIM_RSYNC", "1")
+                                }
+                            }
+                        }
+                        Err(e) => self.toast(e, 2500),
+                    },
+                }
+                self.refresh_transfer();
+                return None;
+            }
+            _ => {}
         }
         let rows = self.rows_for(page);
         let eff = self.menus.handle(nav, self.apps.len(), rows);
@@ -573,12 +748,37 @@ impl Launcher {
                 self.wifi = sys::wifi_info();
                 None
             }
+            Effect::RescanMusic => {
+                match transfer::rescan() {
+                    Ok(()) => self.toast("Rescanning music library", 1500),
+                    Err(e) => self.toast(e, 2500),
+                }
+                self.refresh_transfer();
+                if sys::sim() {
+                    self.xfer.updating = true;
+                }
+                None
+            }
             Effect::Opened(p) => {
                 match p {
                     Page::Wifi => self.wifi = sys::wifi_info(),
                     Page::Apps => self.rescan(true),
                     Page::DateTime => self.time_edit = TimeEdit::new(sys::now_local()),
                     Page::ButtonTest => self.buttons = ButtonTest::default(),
+                    Page::Transfer => self.refresh_transfer(),
+                    Page::WifiScan => self.tools.wifi.start_if_stale(tools::wifi_job),
+                    Page::BtScan => self.tools.bt.start_if_stale(tools::bt_job),
+                    Page::ScanDetail => {
+                        let sel = self.menus.list().sel;
+                        let parent = self.menus.stack.len().checked_sub(2).map(|i| self.menus.stack[i].0);
+                        let ok = match parent {
+                            Some(Page::BtScan) => self.tools.bt_detail(sel),
+                            _ => self.tools.wifi_detail(sel),
+                        };
+                        if !ok {
+                            self.menus.back();
+                        }
+                    }
                     _ => {}
                 }
                 None
@@ -717,6 +917,7 @@ impl Launcher {
             Err(e) => outcome = Some(format!("{}: {}", m.name, e.kind())),
             Ok(mut child) => {
                 let mut home_down: Option<Instant> = None;
+                let mut alarm_at = Instant::now();
                 loop {
                     match child.try_wait() {
                         Ok(Some(st)) => {
@@ -753,6 +954,14 @@ impl Launcher {
                             }
                         }
                     }
+                    if alarm_at.elapsed() >= Duration::from_secs(1) {
+                        alarm_at = Instant::now();
+                        if self.alarm_due_soon() {
+                            eprintln!("launcher: alarm due, closing {}", m.id);
+                            proc::stop_child(&mut child, Duration::from_millis(1500));
+                            break;
+                        }
+                    }
                     if home_down.is_some_and(|t| t.elapsed() >= KILL_HOLD) {
                         eprintln!("launcher: Home held 3 s, stopping {}", m.id);
                         proc::stop_child(&mut child, Duration::from_millis(1500));
@@ -783,6 +992,98 @@ impl Launcher {
 
 fn it_is_spi(items: &[Item], sel: usize) -> bool {
     items.get(sel) == Some(&Item::SpiSpeed)
+}
+
+fn signal_colour(dbm: f32, connected: bool) -> Rgb565 {
+    if connected {
+        return CYAN;
+    }
+    match tools::bars(dbm) {
+        4 | 3 => OK,
+        2 => ACCENT,
+        1 => WARN,
+        _ => FAINT,
+    }
+}
+
+/// Full-screen alarm / timer ring.
+fn draw_ring(fb: &mut zpod_ui::Framebuffer, r: alarm::Ring, st: &StatusInfo) {
+    let timer = r == alarm::Ring::Timer;
+    draw_status_bar(fb, if timer { "Timer" } else { "Alarm" }, st);
+    let area = rect(0, LIST_Y, 320, LIST_H as u32);
+    let _ = fb.fill_solid(&area, BG);
+    let t = sys::now_local();
+    let blink = t.second % 2 == 0;
+    text::draw_aligned(fb, Font::Title, if timer { "Time's up" } else { "Alarm" }, 160, LIST_Y + 16, Align::Center, if blink { ACCENT } else { WARN });
+    let now = format!("{:02}:{:02}", t.hour, t.minute);
+    text::draw_aligned(fb, Font::Digits58, &now, 160, LIST_Y + 56, Align::Center, FG);
+    if timer {
+        text::draw_aligned(fb, Font::Body, "Any button stops the timer", 160, LIST_Y + 140, Align::Center, DIM);
+        widgets::hints(fb, &[("any key", "stop")]);
+    } else {
+        let a = alarm::load();
+        let l = format!("OK = stop     other buttons = snooze {} min", a.snooze_min);
+        text::draw_aligned(fb, Font::Small, &l, 160, LIST_Y + 140, Align::Center, DIM);
+        widgets::hints(fb, &[("OK", "stop"), ("other", "snooze"), ("Vol", "volume")]);
+    }
+}
+
+fn draw_transfer(fb: &mut zpod_ui::Framebuffer, x: &transfer::Info) {
+    let area = rect(0, LIST_Y, 320, LIST_H as u32);
+    let _ = fb.fill_solid(&area, BG);
+    let mut y = LIST_Y + 4;
+    let kv = |fb: &mut zpod_ui::Framebuffer, y: &mut i32, k: &str, v: &str, c: Rgb565| {
+        text::draw(fb, Font::Small, k, 10, *y + 3, DIM);
+        text::draw_fit(fb, Font::Body, v, 66, *y, 246, c);
+        *y += 18;
+    };
+    let usb = match &x.usb {
+        Some(ip) => format!("{ip}   (ssh, scp, rsync)"),
+        None => "not connected".into(),
+    };
+    kv(fb, &mut y, "USB", &usb, if x.usb.is_some() { FG } else { DIM });
+    let wifi = match &x.wlan {
+        Some(ip) => format!("{ip}   {}.local", x.host),
+        None => "not connected".into(),
+    };
+    kv(fb, &mut y, "Wi-Fi", &wifi, if x.wlan.is_some() { FG } else { DIM });
+    let web = if x.drop_on {
+        format!("http://{}:{DROP_PORT}/  (token on Wi-Fi)", x.usb.clone().or(x.wlan.clone()).unwrap_or_else(|| "<ip>".into()))
+    } else {
+        "drop server off".into()
+    };
+    kv(fb, &mut y, "Browser", &web, if x.drop_on { FG } else { DIM });
+    let rs = match x.rsync {
+        Some(true) => format!("ON  rsync://{}/music/  (USB only)", x.usb.clone().unwrap_or_else(|| "10.12.194.1".into())),
+        Some(false) => "off   (Square = on; USB only)".into(),
+        None => "not installed".into(),
+    };
+    kv(fb, &mut y, "rsync", &rs, if x.rsync == Some(true) { WARN } else { DIM });
+    let free = x
+        .free
+        .map(|u| format!("{} free of {}{}", storage::human(u.avail), storage::human(u.total), if x.on_data { "  (/data)" } else { "" }))
+        .unwrap_or_else(|| "n/a".into());
+    kv(fb, &mut y, "Space", &free, if x.free.map(|u| u.pct() >= 90).unwrap_or(false) { WARN } else { FG });
+    let lib = if !x.mpd_ok {
+        ("MPD not running".to_string(), WARN)
+    } else if x.updating {
+        ("rescanning...".to_string(), ACCENT)
+    } else {
+        let when = x.db_update.map(|t| transfer::when(t, &sys::now_local())).unwrap_or_else(|| "?".into());
+        (format!("{} songs, scanned {when}", x.songs.map(|n| n.to_string()).unwrap_or_else(|| "?".into())), FG)
+    };
+    kv(fb, &mut y, "Library", &lib.0, lib.1);
+    y += 2;
+    text::draw(fb, Font::Small, "Newest files", 10, y, ACCENT);
+    y += 14;
+    if x.recent.is_empty() {
+        text::draw(fb, Font::Small, "(none yet; copy music into music/)", 14, y, FAINT);
+    }
+    for f in x.recent.iter().take(4) {
+        text::draw_fit(fb, Font::Small, f, 14, y, 296, FG);
+        y += 13;
+    }
+    widgets::hints(fb, &[("OK", "rescan"), ("Sq", "rsync share"), ("Lt/X", "back")]);
 }
 
 enum Action {
@@ -875,6 +1176,7 @@ fn main() {
         return;
     }
 
+    set_data_dir();
     proc::stop_splash();
     let _ = std::fs::remove_file(proc::STOP_KIND);
     let p = loop {
@@ -917,7 +1219,32 @@ fn main() {
             }
         }
         l.spi_trial_tick();
+        if l.tools.poll() {
+            l.redraw = true;
+            let page = l.menus.page();
+            let n = l.rows_for(page);
+            if matches!(page, Page::WifiScan | Page::BtScan) && l.menus.list().sel >= n.0.max(1) {
+                l.menus.list_mut().sel = 0;
+                l.menus.list_mut().top = 0;
+            }
+        }
+        l.check_alarm();
+        if let Some(r) = &l.ringer {
+            if r.expired() {
+                l.end_ring(false);
+            } else if Instant::now() >= status_redraw_at {
+                l.redraw = true;
+                status_redraw_at = Instant::now() + Duration::from_secs(1);
+            }
+        }
         let page = l.menus.page();
+        if page == Page::Transfer && l.xfer_at.elapsed() >= Duration::from_secs(if l.xfer.updating { 1 } else { 3 }) {
+            l.refresh_transfer();
+        }
+        if matches!(page, Page::WifiScan | Page::BtScan) && l.tools.busy() && Instant::now() >= status_redraw_at {
+            l.redraw = true; // "N s ago" / "scanning" hint
+            status_redraw_at = Instant::now() + Duration::from_secs(1);
+        }
         let live = matches!(page, Page::Status | Page::About | Page::DateTime);
         if live && page != Page::DateTime && Instant::now() >= status_redraw_at {
             l.redraw = true;
@@ -938,6 +1265,9 @@ fn main() {
         };
         if let Some((_, until)) = l.spi_trial {
             timeout = timeout.min(until.saturating_duration_since(Instant::now()).max(Duration::from_millis(20)));
+        }
+        if l.tools.busy() {
+            timeout = timeout.min(Duration::from_millis(250));
         }
         let Some(ev) = l.p.next_event(Some(timeout)) else {
             if l.p.is_sim() && sim_done() {
@@ -971,9 +1301,26 @@ fn main() {
     if let Some(mut t) = l.tone.take() {
         proc::stop_child(&mut t, Duration::from_millis(200));
     }
+    if let Some(mut r) = l.ringer.take() {
+        r.stop();
+    }
     let kind = proc::stop_kind();
     eprintln!("zpod-launcher: stopping ({kind:?})");
     end_screen(&mut l.p, kind);
+}
+
+/// Apps and the alarm share one data dir. The unit sets ZPOD_DATA_DIR
+/// (/data/zpod/appdata on M5 images); otherwise use the app user's default
+/// so root (the launcher) and the apps agree. Children inherit it.
+fn set_data_dir() {
+    if sys::sim() {
+        return;
+    }
+    if std::env::var_os("ZPOD_DATA_DIR").is_some_and(|d| std::path::Path::new(&d).is_dir()) {
+        return;
+    }
+    let d = if std::path::Path::new("/data/zpod/appdata").is_dir() { "/data/zpod/appdata" } else { "/var/lib/zpod/home/.local/share/zpod" };
+    std::env::set_var("ZPOD_DATA_DIR", d);
 }
 
 /// The headless simulator exits the process itself when its script ends;
