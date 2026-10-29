@@ -12,10 +12,12 @@
 //!
 //! Nothing here depends on systemd.
 
+pub mod alarm;
 pub mod conf;
 pub mod input;
 pub mod lcd;
 pub mod platform;
+pub mod scan;
 pub mod sim;
 pub mod storage;
 pub mod sys;
