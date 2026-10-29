@@ -1,10 +1,10 @@
 [app]
 id = "clock"
 name = "Clock"
-version = "1.0.0"
+version = "1.1.0"
 exec = "bin/clock"
 icon = "icon.png"
-description = "Digital, analog and word clock faces"
+description = "Clock faces, alarm and countdown timer"
 min_core = "0.5.0"
 order = 20
 arch = "arm-unknown-linux-musleabihf"

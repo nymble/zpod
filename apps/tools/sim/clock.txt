@@ -1,15 +1,59 @@
+# Clock face: Up/Down = face, Square = seconds, Triangle = 12/24 h,
+# Right/OK/Circle = Clock menu, Left/X = back to the launcher.
 wait 300
 shot clock-digital
-key right
+key down
 wait 300
 shot clock-analog
-key right
+key down
 wait 300
 shot clock-words
-key right
-key right
-key ok
+key down
+key square
 wait 300
-shot clock-analog-noseconds
+shot clock-digital-noseconds
+key square
+# Clock menu > Alarm
 key ok
+wait 100
+shot clock-menu
+key ok
+wait 100
+key ok
+wait 100
+shot clock-alarm-on
+# Time editor: 06:45
+key down
+key ok
+key down
+key right
+key down
+key down
+key down
+wait 100
+shot clock-alarm-time
+key ok
+key down
+key ok
+key down
+key ok
+wait 1600
+shot clock-alarm-settings
 key left
+# Timer: 3:00, start
+key down
+key ok
+key up
+key up
+wait 100
+shot clock-timer-set
+key ok
+wait 2200
+shot clock-timer-running
+key ok
+wait 1600
+key left
+key left
+wait 300
+shot clock-face-alarm-title
+key x
