@@ -92,6 +92,16 @@ refused.
 The rename only waits for the files: `userconfig.service` stays enabled until a
 user is set up, so this works on any boot.
 
+## Storage layout (M5 images)
+
+M5 images have three partitions: boot (512 MiB FAT, the volume **bootfs**
+where the files above go), a fixed-size root, and **`/data`**, which grows to
+fill the card at first boot (up to 2 TiB). Music, playlists and app settings
+live on `/data`; the paths you use (`/srv/zpod/media/music`) are unchanged.
+The first-boot files (`userconf.txt`, `zpod-ssh.pub`, `zpod-user.txt`,
+`zpod-wifi.txt`, `zpod-usb.txt`) work exactly as above. See
+[STORAGE.md](STORAGE.md).
+
 ## Status on the device
 
 Settings > Battery & about shows `login paul`, or `NOT SET UP` while the first

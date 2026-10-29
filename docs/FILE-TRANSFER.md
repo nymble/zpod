@@ -1,8 +1,29 @@
-# Getting files onto the ZPOD (M4)
+# Getting files onto the ZPOD (M4, M5)
 
-Music lives in **`/srv/zpod/media/music`** (owned by `pi`), and playlists in
-`/srv/zpod/media/playlists`. MPD watches the folder (`auto_update yes`), and
-every tool below also asks it to rescan.
+Music lives in **`/srv/zpod/media/music`** (owned by the first user, uid
+1000), and playlists in `/srv/zpod/media/playlists`. On M5 images that folder
+is a bind mount of **`/data/media`** on the large data partition (see
+[STORAGE.md](STORAGE.md)); the path you copy to is unchanged. MPD watches the
+folder (`auto_update yes`), and every tool below also asks it to rescan.
+
+## The File transfer screen (M5)
+
+Top menu > **File transfer** shows, live (refresh every 3 s):
+
+| Row | Shows |
+|---|---|
+| USB | `10.12.194.1` and `ssh/scp/rsync <user>@10.12.194.1` (or "not connected") |
+| Wi-Fi | the Wi-Fi IP and `zpod.local` (mDNS via avahi) |
+| Browser | the drop server URL when it is listening (`http://10.12.194.1:8080/`; on Wi-Fi it needs the token) |
+| rsync | the optional rsync share: off / ON `rsync://10.12.194.1/music/` / not installed |
+| Space | free / total of the music folder, `(/data)` with the M5 layout |
+| Library | song count and the last MPD scan time, or **rescanning...** while MPD updates |
+| Newest files | the 4 most recently modified files MPD knows (`find … sort -Last-Modified`) |
+
+Buttons: **OK = rescan the library now** (`mpc update`), **Square = rsync
+share on/off**, Left/X = back. Copies by any method are picked up
+automatically too (MPD `auto_update`, the drop server and `zpod-push-music.sh`
+also trigger a rescan); OK is for when something did not show up.
 
 There are two links, both already working since M2/M3:
 
@@ -80,8 +101,33 @@ Safety:
   `http://zpod.local:8080/?token=<token>` or `--token`. The token is plain HTTP
   on your LAN; it is a door latch, not TLS.
 
-The launcher's **System, File transfer** screen shows the current addresses
-and whether the drop server is listening.
+The launcher's **File transfer** screen shows the current addresses and
+whether the drop server is listening.
+
+## 2b. Optional rsync share (M5, off by default)
+
+For copying from a computer without SSH keys or passwords: a plain rsync
+daemon with one module, `music`.
+
+* **Off by default.** Turn it on/off on the File transfer screen (Square), or
+  `sudo systemctl enable --now zpod-rsyncd.socket` / `disable --now`.
+* Listens **only on the USB link** (`10.12.194.1:873`, `hosts allow =
+  10.12.194.0/28`), never on Wi-Fi. Socket-activated: no process runs until a
+  connection arrives.
+* **No password**: anyone who plugs a cable into the ZPOD while it is on can
+  read and write the music folder. That is the same trust level as the drop
+  server over USB. Leave it off when you do not need it; SSH (section 1) is
+  the secure way.
+* Writes as uid 1000 inside a chroot of the music folder; `mpc update` runs
+  after each transfer.
+
+```sh
+rsync -rtv --progress ~/Music/"Artist" rsync://10.12.194.1/music/
+rsync rsync://10.12.194.1/music/                 # list
+```
+
+Samba was not added: it costs ~40 MB and a resident daemon for no gain over
+rsync/drop on a single-user device.
 
 ## 3. Apps
 

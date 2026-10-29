@@ -1,4 +1,4 @@
-# ZPOD buttons and menus (M4 launcher)
+# ZPOD buttons and menus (M4/M5 launcher)
 
 This is the reference for how the ZPOD buttons behave in the M4 Rust launcher
 and its apps. The GPIO-to-key map is in [../BUTTONS.md](../BUTTONS.md).
@@ -7,8 +7,9 @@ Code: `apps/crates/zpod-core/src/nav.rs` (shared navigation),
 `apps/crates/zpod-core/src/volume.rs` (volume overlay),
 `overlay/usr/lib/zpod/zpod_buttons.py` (GPIO → keys, volume).
 
-Status labels: **M4** = in the M4 candidate; **next** = planned for the
-release after M4; **future** = wanted but not committed.
+Status labels: **M4** = in the M4 candidate; **M5** = in v0.6.0-m5;
+**next** = planned for the release after M5; **future** = wanted but not
+committed.
 Hardware labels: **confirmed** = measured on Paul's ZPOD; **inferred** = from
 vendor files or wiring, not yet proven.
 
@@ -22,11 +23,12 @@ vendor files or wiring, not yet proven.
 | Up / Down | `KEY_UP/DOWN` | move the selection; repeat while held | default |
 | Right, D-pad centre, Circle | `KEY_RIGHT`, `KEY_ENTER`, `KEY_K` | **enter / OK** | default |
 | Left, X | `KEY_LEFT`, `KEY_J` | **back one level** (Left at the top = nothing) | default |
-| Triangle, Square | `KEY_I`, `KEY_U` | app-local (no launcher meaning) | app |
+| Triangle, Square | `KEY_I`, `KEY_U` | page-local (scanners: Square = rescan, Triangle = sort; File transfer: Square = rsync share) | app/page |
 
 "Global" bindings are handled before an app or menu sees the key and cannot
 be overridden, with two documented exceptions: Tetris uses Play to pause
-the game, and the Button test screen captures every key (Home exits it).
+the game, the Button test screen captures every key (Home exits it), and the
+alarm/timer ring screen (section 4) uses Home and Play to stop the alarm.
 "Default" bindings may be overridden by an app (section 5).
 
 Removed in M4 (Paul's test, 2026-10-22): Triangle no longer opens the clock
@@ -89,13 +91,12 @@ Top level (Home always lands here):
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| **Music** | M4 | Artists / Albums (both go artist → albums by year → tracks; counts in titles and rows, album year shown), playlists, queue, now playing with album art and year; Play/Pause global. See MUSIC-PLAYER.md |
-| **Clock** | M4 | 3 faces (digital, analog, words); OK/Circle = seconds on/off; Triangle = 12/24 h; Up/Down/Right = next face |
+| **Music** | M4, M5 | M5: playlists (add the playing track or album, play, shuffle play, delete), hold Up/Down = jump A-Z (Artists, Playlists) or page (long lists), always-visible Repeat/Shuffle controls on Now Playing. M4: Artists / Albums (both go artist → albums by year → tracks; counts in titles and rows, album year shown), playlists, queue, now playing with album art and year; Play/Pause global. See MUSIC-PLAYER.md |
+| **Clock** | M4, M5 menu | 3 faces (digital, analog, words). M5: Up/Down = face, Right/OK/Circle = **Clock menu** (Alarm >, Timer >, Face, Seconds, 12/24 hour), Square = seconds, Triangle = 12/24 h. See section 4a |
 | **Tetris** | M4 | SRS rotation, hold, ghost, high scores |
 | (installed apps) | M4 | anything installed with `zpod-app install` appears here |
-| **File transfer** | M4 | how to copy music/apps over USB and Wi-Fi (scp/rsync, drop server) |
-| **Wi-Fi info** | M4 | SSID, signal, IP, **MAC**, power save, usb0 address; OK = refresh |
-| Wi-Fi scanner | next (after M4) | list nearby networks; may need an external USB adapter for monitor mode |
+| **File transfer** | M4, M5 | M5: USB IP, Wi-Fi IP + `zpod.local`, browser (drop server), rsync share state, free space, library song count + last scan (or "rescanning..."), newest 4 files. **OK = rescan library now**, **Square = rsync share on/off** (USB only, off by default). Refreshes every 3 s (1 s while scanning) |
+| **Tools >** | M5 | Wi-Fi scanner, Bluetooth scanner, Wi-Fi info (moved here from the top menu) |
 | **Settings >** | M4 | |
 | **Power >** | M4 | |
 
@@ -110,9 +111,27 @@ Settings:
 | Battery & about | M4 (M4.1: build, SD card, login) | battery %/V, low-battery shutdown threshold, RTC time, **build** (version, git commit, build date from `/etc/zpod-release`), **SD card** (card size, root use), host + login user (or "NOT SET UP"), kernel, core version |
 | Installed apps | M4 | name, id, version |
 | Diagnostics > System status | M4 (M4.1: SD, build) | time, IPs, battery, volume, DAC, music service, uptime, **SD card** summary, **build** + core version |
-| Diagnostics > Storage & build | M4.1 | image version, git commit, build date, image name; SD card size; use per partition: **Root /**, **Music** (`/srv/zpod/media`; "on root" when it shares the root file system), **Boot** (`/boot/firmware`), each as used / total, %, free (red at 90 %+); login user, or "NOT SET UP" if the card was booted without `userconf.txt` / `zpod-ssh.pub` |
+| Diagnostics > Storage & build | M4.1, M5 | image version, git commit, build date, image name; SD card size; use per partition: **Root /**, **Data** (`/data`, M5 large-card layout; hidden on older images), **Music** (`/srv/zpod/media`; "on data" with the M5 layout, "on root" on older images), **Boot** (`/boot/firmware`), each as used / total, %, free (red at 90 %+); login user, or "NOT SET UP" if the card was booted without `userconf.txt` / `zpod-ssh.pub` |
 | Diagnostics > Button test | M4 | shows each key as it is pressed, repeats, last event; Home exits |
 | Diagnostics > Tone test (440 Hz) | M4 | start/stop the sine tone (Play also stops it) |
+
+Tools (M5):
+
+| Item | Status | Notes |
+| --- | --- | --- |
+| Wi-Fi scanner | M5 | nearby networks: SSID ("(hidden)" if none), BSSID, channel, signal dBm (colour bar: green ≥ −65, amber ≥ −75, red ≥ −85), security (Open / WEP / WPA / WPA2 / WPA3 / WPA2/WPA3 / WPA2-EAP); this ZPOD's network is marked cyan. Scans on entry if the last scan is older than 60 s. **Square = rescan**, **Triangle = sort** (signal → name → channel), **OK = details** (SSID, BSSID, channel + MHz + band, dBm + bars, security, connected?). Uses `iw dev wlan0 scan` as root (the launcher); falls back to NetworkManager's rescan + `iw … scan dump` |
+| Bluetooth scanner | M5 | classic (BR/EDR) and BLE devices: name ("(no name)"), address, type (BR/EDR, LE public, LE random), RSSI. About 10 s per scan (`btmgmt find` as root; `bluetoothctl` fallback). Clears the rfkill soft block first and powers the controller off again if it was off. **Square = rescan**, **Triangle = sort** (signal ↔ name), **OK = details**. Lists only what devices advertise; never pairs or connects |
+| Wi-Fi info | M4 (moved in M5) | this ZPOD's SSID, signal, IP, **MAC**, power save, usb0 address; OK = refresh |
+
+Why the scanners live in the launcher: triggering a Wi-Fi scan and Bluetooth
+discovery needs CAP_NET_ADMIN. The launcher already runs as root (it owns the
+LCD, power and the clock), so it is the privileged helper; apps run as the
+unprivileged `zpod` user and cannot scan. No setuid binary or file
+capability is added.
+
+Moved in M5: **Wi-Fi info** from the top menu to Tools. Diagnostics (System
+status, Storage & build, Button test, Tone test) stays under Settings: they
+check this ZPOD's own hardware, Tools look at the world around it.
 
 Power: **Reboot**, **Shut down** (both ask: OK/Circle = yes, Left/X = no).
 
@@ -122,11 +141,12 @@ Other planned items (not in the menu yet):
 | --- | --- | --- |
 | Boot splash | M4 | `zpod-bootsplash` from early boot until the launcher starts |
 | App transfer over USB + Wi-Fi | M4 | `scripts/zpod-app-push.sh`; menu page explains it |
-| Music: album art browser, playlists editing | next | art is shown in Now Playing in M4 |
-| Clock: alarm | future | |
+| Music: album art browser, reorder/rename playlists | next | art is shown in Now Playing; M5 adds create/add/play/delete |
+| Clock: alarm + timer | M5 | in the Clock menu; rung by the launcher (section 4a) |
 | IR receiver validation | future | there may be an IR receiver behind the front hole above Home. Howard's `config.txt` has `dtoverlay=gpio-ir,gpio_pin=7` (**unverified**; GPIO7 is SPI0 CE1, unused by our LCD on CE0) |
 | Game emulation (RetroArch) | future | Howard's RetroArch map (a=K Circle, b=J X, x=I Triangle, y=U Square, hotkey=Home) matches our key codes |
-| Buildroot image | next milestone after M4 | smaller, faster-booting image with the same apps |
+| Buildroot image (fast boot) | next (started in parallel with M5, branch `buildroot`) | smaller, faster-booting image with the same apps |
+| Bash Bunny-style USB gadget app | future | docs/research/BASH-BUNNY.md |
 
 ## 4. Per-screen actions
 
@@ -134,15 +154,49 @@ Other planned items (not in the menu yet):
 | --- | --- | --- | --- | --- |
 | Menu (any level) | move (wraps), repeat | enter item / open app | back one level (nothing at top) | — |
 | Wi-Fi info | — | OK = refresh | back | — |
-| File transfer, Installed apps, Battery & about, System status, Storage & build | — | — | back | — |
+| File transfer (M5) | — | OK = rescan music library | back | Square = rsync share on/off |
+| Wi-Fi / Bluetooth scanner (M5) | move, repeat | OK/Right/Circle = details | back | Square = rescan, Triangle = sort |
+| Scan details (M5) | — | — | back | — |
+| Alarm / timer ringing (M5, over any screen or app) | alarm: snooze | alarm: OK/Circle/Right = **stop** | alarm: snooze | alarm: Home/Play = stop, Triangle/Square = snooze; **timer: any key stops**; Vol keys = volume (never stop/snooze) |
+| Installed apps, Battery & about, System status, Storage & build | — | — | back | — |
 | Date & time editor | change field value (repeat) | Right = next field; OK/Circle = **save** | Left = previous field (on the first field = back, no save); X = cancel | — |
 | Confirm (Reboot/Shut down) | — | OK/Circle = yes | no | — |
 | SPI speed trial | — | OK = keep new speed | back (reverts in 10 s anyway) | — |
 | Button test | captured | captured | captured | Home exits |
-| Music lists | move | open / play | back; at the Music top = exit | Square = add to queue, Triangle = now playing |
-| Music now playing | Up = repeat mode, Down = shuffle | OK/Circle = queue; **Right = next** (hold = seek +10 s) | **Left = previous**; X = back | — |
-| Clock | Up/Down = face | Right = next face, OK/Circle = seconds | exit | Triangle = 12/24 h |
+| Music lists | move; **hold = fast**: after 6 repeats jump to the next/previous letter (Artists, Playlists; a big letter shows) or a page (other lists) | open / play | back; at the Music top = exit | Square = add to queue, Triangle = now playing |
+| Music playlists (M5) | move, hold = A-Z | open playlist menu: Play, Shuffle play, Tracks, Delete playlist | back | Square = add the playlist to the queue |
+| Music "Add to playlist" (M5) | move | add to the selected playlist (first row "New playlist" makes "Playlist N") | cancel | — |
+| Music delete playlist (M5) | — | OK/Circle/Right = delete (music files stay) | cancel | — |
+| Music now playing | Up = repeat mode (off/all/one), Down = shuffle; both shown as pills at the bottom | OK/Circle = queue; **Right = next** (hold = seek +10 s) | **Left = previous**; X = back | M5: **Square = add track to a playlist**, **Triangle = add album to a playlist** |
+| Clock face (M5) | Up/Down = face | Right/OK/Circle = Clock menu | exit | Square = seconds, Triangle = 12/24 h |
+| Clock menu (M5) | move | Alarm > / Timer > / toggle Face, Seconds, 12/24 hour | back to face | — |
+| Clock alarm (M5) | move | Alarm on/off, Time > (editor), Repeat (Daily → Weekdays → Weekends → Once), Snooze (5/9/10/15 min), Test: ring in 5 s | back | — |
+| Clock alarm time / timer editor (M5) | change hours/minutes (timer: minutes / seconds in 5 s steps) | Right = next field; OK/Circle = save (alarm, switches it on) / start (timer) | Left = previous field, on the first field = back; X = cancel | — |
+| Clock timer running (M5) | — | OK/Circle = stop timer | back (keeps running) | — |
 | Tetris | Up = hard drop, Down = soft drop | Right = move, Circle/OK = rotate | Left = move, X/Triangle = rotate ccw | Square = hold, **Play = pause** |
+
+## 4a. Alarm and timer (M5)
+
+- Set in **Clock > Alarm** and **Clock > Timer**; saved in
+  `$ZPOD_DATA_DIR/clock/alarm.conf` (`/data/zpod/appdata/clock/alarm.conf`),
+  so they survive a reboot. The status bar title shows `Alarm 07:00` or
+  `Timer 04:59` on the clock face.
+- The **launcher** rings them, so they work with the Clock app closed and
+  over any other app (it closes the app first, like Home). Time comes from
+  the system clock, which `zpod-rtc` sets from the DS3231 at boot.
+- Ringing: MPD is paused and its output released (the DAC is exclusive), a
+  beep loops through `aplay` at **at least 60 %** volume (your volume is
+  restored afterwards), and stops by itself after 5 minutes. Music stays
+  paused afterwards.
+- Alarm: **OK/Circle/Right/Home/Play = stop**; Up/Down/Left/X/Triangle/Square
+  = **snooze** (5/9/10/15 min, set in the Alarm screen). "Once" alarms switch
+  off after they ring. A missed alarm (ZPOD off at that time) rings if the
+  ZPOD is on within 2 minutes of the alarm time, otherwise it is skipped.
+- Timer: any button stops it.
+- **No wake from power-off.** The power switch cuts power to the Pi and the
+  DS3231 alarm pin is not known to be wired to anything that can switch it
+  back on (a halted Pi only wakes on GPIO3 low). The alarm only rings while
+  the ZPOD is running; leave it on (screen dims are not implemented yet).
 
 ## 5. App conventions
 

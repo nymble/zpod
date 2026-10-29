@@ -352,3 +352,12 @@ today.
 5. **Serial console**: do you want the CDC-ACM `getty@ttyGS0` follow-up (from
    FILE-TRANSFER.md) promoted as the first concrete gadget step, since it's the
    lowest-risk and most useful on its own?
+
+## Status after M5 (2026-10-29)
+
+Not started; still future. Two M5 pieces make it easier later: the launcher's
+**Tools** menu (Wi-Fi and Bluetooth scanners) is the natural home for a
+"USB gadget" entry, and the scanners established the pattern for anything
+that needs root: the work runs inside the root launcher on a background
+thread, apps stay unprivileged. Payloads and loot would live on `/data`
+(docs/STORAGE.md), not on the root file system.

@@ -34,6 +34,27 @@ not yet on hardware), **next**, **future** (not committed).
 | A10 | Paul: hardware pass of the M4 candidate ([../TEST-M4.md](../TEST-M4.md) section 9) | **next** | |
 | A11 | Bluetooth join test (M3 scope) | **next** | #5 |
 
+## M5 (`v0.6.0-m5-rc1`): scope and status
+
+Asked by Paul 2026-10-29 ("update Music; new Wi-Fi and BT Scanners under Tools
+menu; alarm and timer; file transfer screen and capabilities; start the fast
+boot also …"). Test plan: [../TEST-M5.md](../TEST-M5.md).
+
+| # | Item | Status | Where |
+| --- | --- | --- | --- |
+| M5.1 | Music: b79793f UI, hold Up/Down = A-Z jump / page, Repeat + Shuffle pills on Now Playing, playlists (add track/album, play, shuffle play, delete) | **built** (unit tests + simulator) | `crates/music` |
+| M5.2 | Tools menu: Wi-Fi scanner (iw/nl80211: SSID, BSSID, channel, dBm, security; sort, rescan, details), Bluetooth scanner (BlueZ btmgmt/bluetoothctl: classic + BLE, name, address, RSSI), Wi-Fi info moved here | **built** (parsers tested on real `iw` output; BT untested on hardware) | `launcher/src/tools.rs`, `zpod-hal/src/scan.rs` |
+| M5.3 | Clock alarm (repeat, snooze, test ring) + countdown timer; rung by the launcher through the DAC; settings persist | **built** (tests + simulator) | `clock/src/ui.rs`, `zpod-hal/src/alarm.rs`, `launcher/src/ring.rs` |
+| M5.4 | File transfer screen (IPs, mDNS, free space, newest files, rescan state; OK = rescan) + optional rsync share (USB only, off) | **built** | `launcher/src/transfer.rs`, `zpod-rsyncd.socket` |
+| M5.5 | Large-card layout: fixed root + `/data` grown at first boot (≤ 2 TiB), music/playlists/app data on `/data` | **built** (verifier) | `export-image-offset.sh`, `zpod-data-*`, [../STORAGE.md](../STORAGE.md) |
+| M5.6 | Image size trims (docs, man, translations, apt lists) | **built** | `stage2-07-zpod-m5` |
+| M5.7 | Version 0.6.0 in `/etc/zpod-release`, core-version, Storage & build screen (Data row) | **built** | |
+| M5.8 | Fast boot / Buildroot image | **started separately** (branch `buildroot`, not part of this release) | `buildroot/` |
+| M5.9 | Paul: hardware pass ([../TEST-M5.md](../TEST-M5.md)) | **next** | |
+
+Deferred from M5: wake from power-off for the alarm (no hardware path), Samba,
+playlist rename/reorder on the device, Bluetooth pairing/audio.
+
 ## Milestones
 
 ### M4: launcher, apps, fixes (in progress)
@@ -48,9 +69,9 @@ not yet on hardware), **next**, **future** (not committed).
 
 ### Next (after M4)
 
-1. Wi-Fi scanner app (list networks; may need an external USB adapter for monitor mode).
+1. ~~Wi-Fi scanner~~ (M5, managed-mode scan; monitor mode would need an external adapter).
 2. Brightness (PWM on GPIO27) once the backlight test proves GPIO27.
-3. Music: playlist editing, album-art browser.
+3. Music: playlist rename/reorder, album-art browser (create/add/delete done in M5).
 4. Buildroot image (smaller, faster boot) with the same apps.
 5. Bluetooth audio / pairing (M3 leftovers).
 
@@ -58,7 +79,7 @@ not yet on hardware), **next**, **future** (not committed).
 
 1. IR receiver validation: there may be one behind the front hole above Home; Howard's config has `dtoverlay=gpio-ir,gpio_pin=7` (unverified; GPIO7 = SPI0 CE1).
 2. Game emulation (RetroArch); Howard's U/I/J/K key map already matches ours.
-3. Clock alarm; AirPlay receiver; BitChat (M8).
+3. ~~Clock alarm~~ (M5); AirPlay receiver; BitChat (M8).
 4. USB gadget toolkit ("gadget app"): load/run gadget scripts like music, with a
    GUI payload browser, live status, confirm/dry-run and a basic non-malicious
    script set. Research + design in [../research/BASH-BUNNY.md](../research/BASH-BUNNY.md).

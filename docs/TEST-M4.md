@@ -197,3 +197,8 @@ Write the card, then on bootfs: `userconf.txt` (password) and/or
 | 10.5 | Diagnostics > System status | SD card + Build rows present |
 | 10.6 | Music push | `scripts/zpod-push-music.sh -u paul ~/Music/...` then `mpc stats` counts the albums |
 
+
+## M5
+
+The next round is [TEST-M5.md](TEST-M5.md) (`v0.6.0-m5-rc1`: Tools,
+alarm/timer, playlists, file transfer screen, `/data` partition).
