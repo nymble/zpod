@@ -41,7 +41,7 @@ Both mounts are `nofail`: if `/data` cannot be mounted the ZPOD still boots
 
 ## Card sizes
 
-* **Minimum 8 GB** (the image is about 3.8 GB uncompressed).
+* **Minimum 8 GB** (the image is 4.0 GB / 3.76 GiB uncompressed, 425 MiB as .xz).
 * Paul's 128 GB card: `/data` becomes ~115 GiB.
 * Cards **under 2 TB** use all their space. Larger cards: `/data` stops at
   2 TiB (MBR partition table limit; the rest is unused).

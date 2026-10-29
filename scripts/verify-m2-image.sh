@@ -257,8 +257,8 @@ rm -rf $B $C; echo import ok' 2>&1) && ok "M3.1 chroot: zpod-wifi-import (txt + 
 set -e
 t() { d=/tmp/zg; rm -rf $d; mkdir -p $d/mmcblk0p3; echo $1 > $d/size; echo 7471104 > $d/mmcblk0p3/start; echo $2 > $d/mmcblk0p3/size
       ZPOD_SYS_BLOCK=$d ZPOD_DRY_RUN=1 /usr/lib/zpod/bin/zpod-data-grow; }
-t 250069680 524288 | grep -q "-> 250069679"
-t 7814037168 524288 | grep -q "-> 4294967295"
+t 250069680 524288 | grep -q -e "-> 250069679"
+t 7814037168 524288 | grep -q -e "-> 4294967295"
 test -z "$(t 8000000 528000)"
 rm -rf /tmp/zg; echo grow ok' 2>&1) && ok "M5 chroot: zpod-data-grow targets (128 GB card, 4 TB -> 2 TiB cap, no-op when grown)" || bad "M5 chroot: zpod-data-grow: $out"
   fi

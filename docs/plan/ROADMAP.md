@@ -47,7 +47,7 @@ boot also …"). Test plan: [../TEST-M5.md](../TEST-M5.md).
 | M5.3 | Clock alarm (repeat, snooze, test ring) + countdown timer; rung by the launcher through the DAC; settings persist | **built** (tests + simulator) | `clock/src/ui.rs`, `zpod-hal/src/alarm.rs`, `launcher/src/ring.rs` |
 | M5.4 | File transfer screen (IPs, mDNS, free space, newest files, rescan state; OK = rescan) + optional rsync share (USB only, off) | **built** | `launcher/src/transfer.rs`, `zpod-rsyncd.socket` |
 | M5.5 | Large-card layout: fixed root + `/data` grown at first boot (≤ 2 TiB), music/playlists/app data on `/data` | **built** (verifier) | `export-image-offset.sh`, `zpod-data-*`, [../STORAGE.md](../STORAGE.md) |
-| M5.6 | Image size trims (docs, man, translations, apt lists) | **built** | `stage2-07-zpod-m5` |
+| M5.6 | Image size trims (docs, man, translations, apt lists) | **built**: 425 MiB .xz (M4.1: 505 MiB) | `stage2-07-zpod-m5` |
 | M5.7 | Version 0.6.0 in `/etc/zpod-release`, core-version, Storage & build screen (Data row) | **built** | |
 | M5.8 | Fast boot / Buildroot image | **started separately** (branch `buildroot`, not part of this release) | `buildroot/` |
 | M5.9 | Paul: hardware pass ([../TEST-M5.md](../TEST-M5.md)) | **next** | |

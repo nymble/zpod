@@ -1,4 +1,44 @@
-# BUILD-RECORD: ZPOD M3.1 pi0w — `v0.4.1-m3` (M3 without embedded Wi-Fi credentials)
+# BUILD-RECORD: ZPOD M5 pi0w — `v0.6.0-m5-rc1` (pre-release)
+
+**Status:** Built and verified offline 2026-10-29; **not yet run on hardware** — see [TEST-M5.md](./TEST-M5.md).
+**Date:** 2026-10-29 (pi-gen stages 08:27–08:45 PT; export + xz finished ~08:52 PT)
+
+### Build host
+
+Stellas-Mac (Apple Silicon), colima profile `zpod` (6 CPU / 10 GiB), privileged `debian:trixie`
+container `zpod-m5-pigen`, binfmt `qemu-arm` (F flag, tonistiigi/binfmt), the `setarch linux32` shim,
+pi-gen `59b67461533c2eef3564bc48eb3ce5c16e5c62ee`, `ZPOD_VERSION=0.6.0-m5-rc1`, `./build.sh --confirm --board pi0w`
+(config checked for `WPA_` keys), `SKIP_IMAGES`, `--build`, then
+`IMG_DATE=2026-10-29 scripts/export-image-offset.sh … zpod-pi0w-v0.6.0-m5-rc1` (3-partition layout).
+Rust binaries: `rust:1-trixie` container (rustc 1.99.1), `cargo zigbuild` for `arm-unknown-linux-musleabihf`,
+all seven binaries `Tag_CPU_arch v6`; `cargo test --workspace` and `tools/check-nostd.sh` pass.
+
+## Artifacts
+
+| File | Bytes | SHA-256 |
+| --- | --- | --- |
+| 2026-10-29-zpod-pi0w-v0.6.0-m5-rc1.img.xz | 445445172 (425 MiB) | 55e56dab3117d906f5edbc0f2b4ec8121c28691e7d8b50d8c741554bb96c9eb7 |
+| 2026-10-29-zpod-pi0w-v0.6.0-m5-rc1.img | 4034920448 (3.76 GiB) | b85c84f578c3b685388fed8e31873bfc17522761c404e6aa3fcea9fb671dbc27 |
+
+Partitions: p1 boot FAT 512 MiB, p2 root ext4 3 GiB (fixed, 1.46 GiB used), p3 `zpoddata` ext4 256 MiB (grown at first boot).
+Size: 425 MiB .xz vs 505 MiB for M4.1 (`v0.5.0-m4-rc1`), −16 %.
+
+## Offline verification
+
+`scripts/verify-m2-image.sh` → **145 passed, 0 failed** (43 new M5 checks, including a qemu-chroot dry run of
+`zpod-data-grow` for a 128 GB and a 4 TB card). No-credential scan (counts only): 0 Wi-Fi profiles
+(only the two usb0 profiles), 0 `psk=` lines, 0 password hashes in `/etc/shadow`, 0 `authorized_keys`,
+0 builder SSH-key matches in the raw image, no `zpod-wifi.txt`/`userconf.txt` on the boot FAT.
+
+## Published
+
+| Item | URL |
+| --- | --- |
+| Release | https://github.com/nymble/zpod/releases/tag/v0.6.0-m5-rc1 |
+
+---
+
+## Previous: ZPOD M3.1 pi0w — `v0.4.1-m3` (M3 without embedded Wi-Fi credentials)
 
 **Status:** Built, exported, verified **offline** (69/69 checks), published. It replaces `v0.4.0-m3`, whose image was withdrawn on 2026-10-18 because it contained embedded Wi-Fi credentials.
 **Date:** 2026-10-18 (stages 0–2 15:22:30–15:44:02 PT; export + xz finished ~15:55 PT)
