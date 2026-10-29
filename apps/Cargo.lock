@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "tetris-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "embedded-graphics",
  "zpod-core",
@@ -524,7 +524,7 @@ checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
 
 [[package]]
 name = "zpod-apps"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "flate2",
  "libc",
@@ -536,7 +536,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-bootsplash"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "embedded-graphics",
  "libc",
@@ -546,7 +546,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-clock"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "embedded-graphics",
  "zpod-core",
@@ -556,11 +556,11 @@ dependencies = [
 
 [[package]]
 name = "zpod-core"
-version = "0.5.0"
+version = "0.6.0"
 
 [[package]]
 name = "zpod-drivers"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "embedded-hal",
  "zpod-core",
@@ -568,7 +568,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-drop"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "libc",
  "zpod-mpd",
@@ -576,7 +576,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-hal"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "embedded-graphics",
  "embedded-hal",
@@ -593,7 +593,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-launcher"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "embedded-graphics",
  "libc",
@@ -607,11 +607,11 @@ dependencies = [
 
 [[package]]
 name = "zpod-mpd"
-version = "0.5.0"
+version = "0.6.0"
 
 [[package]]
 name = "zpod-music"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "embedded-graphics",
  "jpeg-decoder",
@@ -624,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-panel"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "embedded-graphics",
  "embedded-hal",
@@ -643,7 +643,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-ui"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "embedded-graphics",
  "u8g2-fonts",
