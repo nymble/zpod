@@ -49,7 +49,7 @@ boot also …"). Test plan: [../TEST-M5.md](../TEST-M5.md).
 | M5.5 | Large-card layout: fixed root + `/data` grown at first boot (≤ 2 TiB), music/playlists/app data on `/data` | **built** (verifier) | `export-image-offset.sh`, `zpod-data-*`, [../STORAGE.md](../STORAGE.md) |
 | M5.6 | Image size trims (docs, man, translations, apt lists) | **built**: 425 MiB .xz (M4.1: 505 MiB) | `stage2-07-zpod-m5` |
 | M5.7 | Version 0.6.0 in `/etc/zpod-release`, core-version, Storage & build screen (Data row) | **built** | |
-| M5.8 | Fast boot / Buildroot image | **started separately** (branch `buildroot`, not part of this release) | `buildroot/` |
+| M5.8 | Fast boot / Buildroot image | **built** (PoC `v0.7.0-br-poc1` prerelease, QEMU smoke test passed; hardware boot pending; branch `buildroot`) | `buildroot/`, [../BUILDROOT.md](../BUILDROOT.md) |
 | M5.9 | Paul: hardware pass ([../TEST-M5.md](../TEST-M5.md)) | **next** | |
 
 Deferred from M5: wake from power-off for the alarm (no hardware path), Samba,
@@ -72,7 +72,7 @@ playlist rename/reorder on the device, Bluetooth pairing/audio.
 1. ~~Wi-Fi scanner~~ (M5, managed-mode scan; monitor mode would need an external adapter).
 2. Brightness (PWM on GPIO27) once the backlight test proves GPIO27.
 3. Music: playlist rename/reorder, album-art browser (create/add/delete done in M5).
-4. Buildroot image (smaller, faster boot) with the same apps.
+4. Buildroot image (smaller, faster boot) with the same apps: PoC built, see [../BUILDROOT.md](../BUILDROOT.md) (next: hardware boot, kernel trim, Rust buttons daemon, RAUC A/B).
 5. Bluetooth audio / pairing (M3 leftovers).
 
 ### Future (not committed)

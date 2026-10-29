@@ -1,4 +1,7 @@
 #!/bin/sh
-# Started and respawned by init (inittab). Apps run as the "zpod" user.
+# Started (and respawned) by init. If the early instance (zpod-launcher-early)
+# is still running, wait for it to exit first so only one launcher owns the LCD.
+# Apps run as the "zpod" user.
+while pidof zpod-launcher >/dev/null; do sleep 1; done
 export ZPOD_APP_USER=zpod HOME=/root PATH=/usr/sbin:/usr/bin:/sbin:/bin
 exec /usr/lib/zpod/bin/zpod-launcher >>/run/zpod/launcher.log 2>&1
