@@ -31,3 +31,16 @@
   profiles, enables services, and checks Python imports in the chroot.
 
 Only hardware-confirmed pin maps are used (docs/stock-introspection.md).
+
+## M5 substep `stage2-07-zpod-m5/` → `stage2/07-zpod-m5`
+- Installs and enables `zpod-data-grow.service` (grows partition 3 to the end
+  of the card, max 2 TiB) and `zpod-data-setup.service` (owners of
+  `/data/media/{music,playlists}` and `/data/zpod/appdata`); the partition
+  itself is created by `scripts/export-image-offset.sh` (see docs/STORAGE.md).
+- Installs the optional rsync share (`zpod-rsyncd.socket`, USB link only, no
+  password) **disabled**; the File transfer screen turns it on/off.
+- Enables `bluetooth.service` (Tools > Bluetooth scanner; the launcher clears
+  the rfkill soft block when scanning).
+- Size trims: no docs (copyright kept), man pages, info, non-English
+  translations (`/etc/dpkg/dpkg.cfg.d/90-zpod-trim` keeps them out of later
+  installs too), empty apt lists (`sudo apt update` before installing).

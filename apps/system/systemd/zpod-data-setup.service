@@ -1,0 +1,16 @@
+[Unit]
+Description=ZPOD: /data layout and owners (music, playlists, app data)
+Documentation=https://github.com/nymble/zpod/blob/main/docs/STORAGE.md
+DefaultDependencies=no
+After=data.mount systemd-sysusers.service
+Before=srv-zpod-media.mount local-fs.target shutdown.target
+Conflicts=shutdown.target
+ConditionPathIsMountPoint=/data
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/zpod/bin/zpod-data-setup
+RemainAfterExit=yes
+
+[Install]
+WantedBy=local-fs.target

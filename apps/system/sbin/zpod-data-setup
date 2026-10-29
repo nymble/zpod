@@ -1,0 +1,20 @@
+#!/bin/sh
+# ZPOD M5: make sure the /data layout exists with the right owners. Cheap;
+# runs every boot after /data is mounted and before the music bind mount.
+#   /data/media/music      music library (uid 1000 = the first user)
+#   /data/media/playlists  MPD playlists (1000:mpd, group-writable)
+#   /data/zpod/appdata     app settings/saves (ZPOD_DATA_DIR, user zpod)
+set -eu
+mountpoint -q /data || exit 0
+install -d -o 1000 -g 1000 -m 0775 /data/media /data/media/music
+if getent group mpd >/dev/null; then
+  install -d -o 1000 -g mpd -m 0775 /data/media/playlists
+else
+  install -d -o 1000 -g 1000 -m 0775 /data/media/playlists
+fi
+install -d -o root -g root -m 0755 /data/zpod
+if getent passwd zpod >/dev/null; then
+  install -d -o zpod -g zpod -m 0755 /data/zpod/appdata
+else
+  install -d -m 0755 /data/zpod/appdata
+fi

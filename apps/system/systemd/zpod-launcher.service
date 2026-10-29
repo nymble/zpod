@@ -2,6 +2,8 @@
 Description=ZPOD launcher (menu + apps on the SPI LCD; replaces zpod-ui)
 Documentation=https://github.com/nymble/zpod/blob/main/docs/APPS.md
 After=zpod-buttons.service sound.target zpod-audio-init.service zpod-bootsplash.service
+# M5: app data (ZPOD_DATA_DIR) and music live on /data
+After=zpod-data-setup.service srv-zpod-media.mount
 Wants=zpod-buttons.service
 # Single LCD owner: starting the launcher stops the splash (it keeps its last
 # frame; we warm-init with no flash) and the old Python UI.
@@ -11,6 +13,10 @@ Conflicts=zpod-ui.service zpod-bootsplash.service
 Type=simple
 ExecStart=/usr/lib/zpod/bin/zpod-launcher
 Environment=ZPOD_APP_USER=zpod
+# Shared by the apps (their settings) and the launcher (alarm/timer). If the
+# directory is missing (no /data), the launcher falls back to the zpod
+# user's ~/.local/share/zpod.
+Environment=ZPOD_DATA_DIR=/data/zpod/appdata
 # SIGTERM goes to the launcher only: it stops the running app itself and then
 # draws the M3 end screen (/etc/zpod/ui.conf [shutdown] screen=message|off).
 KillMode=mixed

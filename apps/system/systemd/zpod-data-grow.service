@@ -1,0 +1,17 @@
+[Unit]
+Description=ZPOD: grow the /data partition to the end of the SD card
+Documentation=https://github.com/nymble/zpod/blob/main/docs/STORAGE.md
+DefaultDependencies=no
+After=systemd-remount-fs.service
+Before=local-fs-pre.target shutdown.target
+Wants=local-fs-pre.target
+Conflicts=shutdown.target
+ConditionPathExists=/dev/mmcblk0p3
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/zpod/bin/zpod-data-grow
+RemainAfterExit=yes
+
+[Install]
+WantedBy=local-fs-pre.target

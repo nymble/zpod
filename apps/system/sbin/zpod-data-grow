@@ -1,0 +1,24 @@
+#!/bin/sh
+# ZPOD M5: grow partition 3 (/data) to the end of the SD card, before it is
+# mounted. Runs every boot but only acts when there is free space after p3
+# (first boot, or the card was cloned to a bigger one). The file system is
+# grown online afterwards by systemd-growfs (fstab x-systemd.growfs).
+# MBR limit: a partition must end before 2 TiB (sector 2^32-1).
+set -eu
+DISK=${ZPOD_DISK:-/dev/mmcblk0}
+SYS=${ZPOD_SYS_BLOCK:-/sys/block/mmcblk0}   # overridable for tests
+[ -e "$SYS/mmcblk0p3/start" ] || exit 0
+total=$(cat "$SYS/size")
+start=$(cat "$SYS/mmcblk0p3/start")
+size=$(cat "$SYS/mmcblk0p3/size")
+end=$((start + size - 1))
+max=$((total - 1))
+lim=4294967295
+[ "$max" -gt "$lim" ] && max=$lim
+# nothing to do when p3 already ends within 8 MiB of the limit
+[ $((max - end)) -le 16384 ] && exit 0
+echo "zpod-data-grow: growing ${DISK}p3: end sector $end -> $max"
+[ -n "${ZPOD_DRY_RUN:-}" ] && exit 0
+parted -m -s "$DISK" unit s resizepart 3 "$max"
+udevadm settle 2>/dev/null || true
+echo "zpod-data-grow: ${DISK}p3 is now $(( ($(cat "$SYS/mmcblk0p3/size") * 512) >> 20 )) MiB"

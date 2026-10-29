@@ -1,0 +1,13 @@
+[Unit]
+Description=ZPOD rsync share connection
+Documentation=https://github.com/nymble/zpod/blob/main/docs/FILE-TRANSFER.md
+After=srv-zpod-media.mount
+
+[Service]
+ExecStart=-/usr/bin/rsync --daemon --config=/etc/zpod/rsyncd.conf
+StandardInput=socket
+StandardError=journal
+Nice=10
+ProtectHome=yes
+PrivateTmp=yes
+ProtectSystem=full

@@ -67,4 +67,13 @@ else
   echo "NOTE: apps/dist missing: M4 launcher NOT included (run apps/tools/build-arm.sh)"
 fi
 
-echo "applied ZPOD M1.1 + M2 tweaks to $PI_GEN"
+# M5: stage2/07-zpod-m5 = /data partition units, rsync share (off), Bluetooth,
+# size trims. Runs last in stage2 so the trims see every package.
+M5="$PI_GEN/stage2/07-zpod-m5"
+rm -rf "$M5"
+install -d "$M5/files"
+install -m 755 "$SCRIPT_DIR/stage2-07-zpod-m5/01-run.sh" "$M5/01-run.sh"
+cp -a "$REPO_ROOT/apps/system" "$M5/files/system"
+echo "M5 substep stage2/07-zpod-m5 applied (/data units, rsync share off, trims)"
+
+echo "applied ZPOD M1.1 + M2 + M4 + M5 tweaks to $PI_GEN"

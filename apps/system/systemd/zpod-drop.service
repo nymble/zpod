@@ -4,6 +4,7 @@ Documentation=https://github.com/nymble/zpod/blob/main/docs/FILE-TRANSFER.md
 Requires=zpod-drop.socket
 # Never run as uid 1000 while first boot renames that user (usermod -l refuses).
 After=zpod-drop.socket userconfig.service zpod-firstuser.service
+After=srv-zpod-media.mount zpod-data-setup.service
 
 [Service]
 Type=simple

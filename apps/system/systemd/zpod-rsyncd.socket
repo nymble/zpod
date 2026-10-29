@@ -1,0 +1,13 @@
+[Unit]
+Description=ZPOD rsync share (USB link only, no password; off by default)
+Documentation=https://github.com/nymble/zpod/blob/main/docs/FILE-TRANSFER.md
+
+[Socket]
+# The USB gadget address only: never reachable over Wi-Fi.
+ListenStream=10.12.194.1:873
+FreeBind=yes
+Accept=yes
+MaxConnections=2
+
+[Install]
+WantedBy=sockets.target

@@ -21,6 +21,16 @@
 # - 05-finalise subset: ld.so.preload, machine-id=uninitialized, clear logs,
 #   remove *- backups, mtab symlink. Skips update-initramfs, apt dist-upgrade,
 #   fstrim, info/sbom generation.
+#
+# M5 large-card layout (docs/STORAGE.md):
+#   p1 boot  FAT32 512 MiB
+#   p2 root  ext4, FIXED size (rootfs + 30 % + 512 MiB, at least 3 GiB); no
+#            first-boot root resize (` resize` is removed from cmdline.txt)
+#   p3 data  ext4 "zpoddata", 256 MiB in the image, grown to the end of the
+#            card at first boot (zpod-data-grow + x-systemd.growfs), max 2 TiB
+#            (MBR). Holds /data/media (bind-mounted on /srv/zpod/media) and
+#            /data/zpod/appdata. ZPOD_LAYOUT=single keeps the M4 2-partition
+#            layout.
 set -euo pipefail
 
 LOCK_FILE="${EXPORT_LOCK_FILE:-/workspace/zpod-build-logs/export.lock}"
@@ -82,12 +92,24 @@ if [[ -z "$ROOT_SIZE" || "$ROOT_SIZE" -lt $((100 * 1024 * 1024)) ]]; then
   exit 1
 fi
 ALIGN="$((8 * 1024 * 1024))"
-ROOT_MARGIN="$(echo "($ROOT_SIZE * 0.2 + 200 * 1024 * 1024) / 1" | bc)"
+LAYOUT="${ZPOD_LAYOUT:-data}"
+if [[ "$LAYOUT" == data ]]; then
+  ROOT_MARGIN="$(echo "($ROOT_SIZE * 0.3 + 512 * 1024 * 1024) / 1" | bc)"
+  ROOT_MIN=$((3 * 1024 * 1024 * 1024))
+  DATA_PART_SIZE=$((256 * 1024 * 1024))
+else
+  ROOT_MARGIN="$(echo "($ROOT_SIZE * 0.2 + 200 * 1024 * 1024) / 1" | bc)"
+  ROOT_MIN=0
+  DATA_PART_SIZE=0
+fi
 BOOT_PART_START=$ALIGN
 BOOT_PART_SIZE=$(((BOOT_SIZE + ALIGN - 1) / ALIGN * ALIGN))
 ROOT_PART_START=$((BOOT_PART_START + BOOT_PART_SIZE))
 ROOT_PART_SIZE=$(((ROOT_SIZE + ROOT_MARGIN + ALIGN - 1) / ALIGN * ALIGN))
-IMG_SIZE=$((BOOT_PART_START + BOOT_PART_SIZE + ROOT_PART_SIZE))
+[[ "$ROOT_PART_SIZE" -lt "$ROOT_MIN" ]] && ROOT_PART_SIZE=$ROOT_MIN
+DATA_PART_START=$((ROOT_PART_START + ROOT_PART_SIZE))
+IMG_SIZE=$((DATA_PART_START + DATA_PART_SIZE))
+echo "layout=$LAYOUT boot=${BOOT_PART_SIZE} root=${ROOT_PART_SIZE} data=${DATA_PART_SIZE}"
 
 echo "rootfs_bytes=$ROOT_SIZE margin=$ROOT_MARGIN img_bytes=$IMG_SIZE -> $IMG_FILE"
 rm -f "$IMG_FILE" "${IMG_FILE}.xz" "${IMG_FILE}.sha256" "${OUT_DIR}/SHA256SUMS"
@@ -95,10 +117,15 @@ truncate -s "$IMG_SIZE" "$IMG_FILE"
 sudo parted --script "$IMG_FILE" mklabel msdos
 sudo parted --script "$IMG_FILE" unit B mkpart primary fat32 "${BOOT_PART_START}" "$((BOOT_PART_START + BOOT_PART_SIZE - 1))"
 sudo parted --script "$IMG_FILE" unit B mkpart primary ext4 "${ROOT_PART_START}" "$((ROOT_PART_START + ROOT_PART_SIZE - 1))"
+if [[ "$DATA_PART_SIZE" -gt 0 ]]; then
+  sudo parted --script "$IMG_FILE" unit B mkpart primary ext4 "${DATA_PART_START}" "$((DATA_PART_START + DATA_PART_SIZE - 1))"
+fi
 
 BOOT_LOOP=""
 ROOT_LOOP=""
+DATA_LOOP=""
 MNT=""
+DMNT=""
 BINDS_MOUNTED=0
 QEMU_ADDED=0
 cleanup() {
@@ -110,6 +137,13 @@ cleanup() {
   fi
   if [[ "${QEMU_ADDED:-0}" -eq 1 && -n "${MNT:-}" ]]; then
     sudo rm -f "$MNT/usr/bin/qemu-arm-static"
+  fi
+  if [[ -n "${DMNT:-}" ]]; then
+    sudo umount -l "$DMNT" 2>/dev/null || true
+    sudo rm -rf "$DMNT" 2>/dev/null || true
+  fi
+  if [[ -n "${DATA_LOOP:-}" ]]; then
+    sudo losetup -d "$DATA_LOOP" 2>/dev/null || true
   fi
   if [[ -n "${MNT:-}" ]]; then
     sudo umount -l "$MNT" 2>/dev/null || true
@@ -135,6 +169,13 @@ fi
 echo "Formatting boot ($BOOT_LOOP) and root ($ROOT_LOOP)..."
 sudo mkdosfs -n bootfs -F 32 "$BOOT_LOOP" >/dev/null
 sudo mke2fs -q -t ext4 -L rootfs -O "$ROOT_FEATURES" "$ROOT_LOOP"
+if [[ "$DATA_PART_SIZE" -gt 0 ]]; then
+  DATA_LOOP=$(sudo losetup -f --show --offset "$DATA_PART_START" --sizelimit "$DATA_PART_SIZE" "$IMG_FILE")
+  # 4 KiB blocks, no root reserve, one inode per 64 KiB (music files are
+  # large), and resize_inode room for online growth up to 2 TiB.
+  sudo mke2fs -q -t ext4 -L zpoddata -O "$ROOT_FEATURES" -b 4096 -m 0 -i 65536 \
+    -E resize=$((2 * 1024 * 1024 * 1024 * 1024 / 4096 - 1)) "$DATA_LOOP"
+fi
 
 # Detach boot loop before mtools — use image@@offset (loop ioctl geometry fails)
 sudo losetup -d "$BOOT_LOOP"
@@ -160,6 +201,35 @@ fi
 IMGID="$(dd if="$IMG_FILE" skip=440 bs=1 count=4 2>/dev/null | xxd -e | cut -f2 -d' ')"
 echo "IMGID=$IMGID -> PARTUUID=${IMGID}-01 (boot) / ${IMGID}-02 (root)"
 sudo sed -i "s/BOOTDEV/PARTUUID=${IMGID}-01/; s/ROOTDEV/PARTUUID=${IMGID}-02/" "$MNT/etc/fstab"
+
+# M5: partition 3 = /data. Move the media tree there; root keeps empty
+# mount points. fstab: /data (grown online at first boot) + bind mount.
+if [[ "$DATA_PART_SIZE" -gt 0 ]]; then
+  echo "PARTUUID=${IMGID}-03 -> /data"
+  DMNT=$(mktemp -d /tmp/zpod-data.XXXXXX)
+  sudo mount -t ext4 "$DATA_LOOP" "$DMNT"
+  sudo rmdir "$DMNT/lost+found" 2>/dev/null || true
+  sudo install -d -m 0755 "$DMNT/media" "$DMNT/zpod"
+  if [[ -d "$MNT/srv/zpod/media" ]]; then
+    sudo rsync -aHAX --numeric-ids "$MNT/srv/zpod/media/" "$DMNT/media/"
+    sudo find "$MNT/srv/zpod/media" -mindepth 1 -delete
+  fi
+  sudo install -d -m 0755 "$MNT/srv/zpod/media" "$MNT/data"
+  sudo chown --reference="$DMNT/media/music" "$DMNT/media" 2>/dev/null || true
+  ZUID=$(awk -F: '$1=="zpod"{print $3}' "$MNT/etc/passwd")
+  ZGID=$(awk -F: '$1=="zpod"{print $4}' "$MNT/etc/passwd")
+  sudo install -d -m 0755 -o "${ZUID:-0}" -g "${ZGID:-0}" "$DMNT/zpod/appdata"
+  sudo install -d -m 0700 "$DMNT/lost+found" 2>/dev/null || true
+  echo "data partition:"; sudo find "$DMNT" -maxdepth 3 -printf '  %M %U:%G %p\n' | sed "s|$DMNT|/data|"
+  sudo umount "$DMNT"; sudo rm -rf "$DMNT"; DMNT=""
+  sudo losetup -d "$DATA_LOOP"; DATA_LOOP=""
+  sudo sed -i '/[[:space:]]\/data[[:space:]]/d; /[[:space:]]\/srv\/zpod\/media[[:space:]]/d' "$MNT/etc/fstab"
+  {
+    echo "PARTUUID=${IMGID}-03  /data           ext4    defaults,noatime,nofail,x-systemd.growfs,x-systemd.device-timeout=20s  0       2"
+    echo "/data/media           /srv/zpod/media none    bind,nofail,x-systemd.requires-mounts-for=/data  0       0"
+  } | sudo tee -a "$MNT/etc/fstab" >/dev/null
+  echo "fstab:"; sed 's/^/  /' "$MNT/etc/fstab"
+fi
 
 # 01-user-rename: enable first-boot userconfig wizard
 echo "Running rename-user -f -s in chroot (enables userconfig.service)..."
@@ -252,6 +322,11 @@ fi
 # Overwrite cmdline.txt with PARTUUID-patched version (do NOT leave ROOTDEV)
 CMDLINE_TMP=$(mktemp)
 sed "s/ROOTDEV/PARTUUID=${IMGID}-02/" "$ROOTFS/boot/firmware/cmdline.txt" > "$CMDLINE_TMP"
+if [[ "$DATA_PART_SIZE" -gt 0 ]]; then
+  # M5: root has a fixed size; the initramfs must not grow p2 (p3 follows it)
+  sed -i 's/ resize\b//; s/^resize //' "$CMDLINE_TMP"
+  if grep -qw resize "$CMDLINE_TMP"; then echo "error: cmdline.txt still has resize" >&2; exit 1; fi
+fi
 sudo env MTOOLS_SKIP_CHECK=1 mcopy -o -i "$BOOT_MTOOL" "$CMDLINE_TMP" ::cmdline.txt
 rm -f "$CMDLINE_TMP"
 echo "boot FAT cmdline.txt patched with PARTUUID=${IMGID}-02"
