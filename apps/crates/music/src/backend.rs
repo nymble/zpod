@@ -165,6 +165,21 @@ impl MusicBackend for Mpd {
     fn update_library(&mut self) -> BResult<()> {
         self.with(|c| c.simple("update"))
     }
+    fn playlist_add(&mut self, name: &str, uris: &[String]) -> BResult<()> {
+        let mut batch = String::from("command_list_begin\n");
+        for u in uris {
+            batch.push_str(&format!("playlistadd {} {}\n", quote(name), quote(u)));
+        }
+        batch.push_str("command_list_end");
+        self.with(|c| c.simple(&batch))
+    }
+    fn playlist_delete(&mut self, name: &str) -> BResult<()> {
+        self.with(|c| c.simple(&format!("rm {}", quote(name))))
+    }
+    fn play_playlist(&mut self, name: &str, shuffle: bool) -> BResult<()> {
+        let sh = if shuffle { "shuffle\n" } else { "" };
+        self.with(|c| c.simple(&format!("command_list_begin\nclear\nload {}\n{sh}play 0\ncommand_list_end", quote(name))))
+    }
     fn stats(&mut self) -> BResult<LibraryStats> {
         let p = self.with(|c| c.cmd("stats"))?;
         let get = |key: &str| p.iter().find(|(k, _)| k == key).and_then(|(_, v)| v.trim().parse().ok()).unwrap_or(0);

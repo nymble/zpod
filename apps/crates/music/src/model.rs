@@ -168,6 +168,27 @@ pub trait MusicBackend {
     /// Queue the whole library shuffled and play.
     fn shuffle_all(&mut self) -> BResult<()>;
     fn update_library(&mut self) -> BResult<()>;
+    /// Append tracks to a stored playlist (created if missing).
+    fn playlist_add(&mut self, _name: &str, _uris: &[String]) -> BResult<()> {
+        Err("playlists are not supported by this backend".to_string())
+    }
+    /// Delete a stored playlist.
+    fn playlist_delete(&mut self, _name: &str) -> BResult<()> {
+        Err("playlists are not supported by this backend".to_string())
+    }
+    /// Replace the queue with a playlist and play it (shuffled order if asked).
+    fn play_playlist(&mut self, name: &str, shuffle: bool) -> BResult<()> {
+        let t = self.playlist_tracks(name)?;
+        let u: Vec<String> = t.iter().map(|t| t.uri.clone()).collect();
+        if u.is_empty() {
+            return Err("playlist is empty".to_string());
+        }
+        self.play_tracks(&u, 0)?;
+        if shuffle {
+            self.set_random(true)?;
+        }
+        Ok(())
+    }
     /// Library totals for the menu; backends without them return zeros.
     fn stats(&mut self) -> BResult<LibraryStats> {
         Ok(LibraryStats::default())
@@ -181,6 +202,53 @@ pub fn sort_key(s: &str) -> String {
         Some(x) => x.to_string(),
         None => l,
     }
+}
+
+/// Fast-scroll index letter: the first letter of [`sort_key`] in upper case
+/// ("The Who" -> 'W'), or '#' for digits and symbols.
+pub fn index_letter(s: &str) -> char {
+    match sort_key(s).chars().next() {
+        Some(c) if c.is_alphabetic() => c.to_uppercase().next().unwrap_or(c),
+        _ => '#',
+    }
+}
+
+/// Jump-by-letter: from `sel`, move to the first row of the next letter
+/// group (`dir` > 0) or to the start of the current/previous group
+/// (`dir` < 0). Wraps at the ends. `keys` holds one index letter per row.
+pub fn letter_jump(keys: &[char], sel: usize, dir: i32) -> usize {
+    let n = keys.len();
+    if n == 0 {
+        return 0;
+    }
+    let sel = sel.min(n - 1);
+    let start_of = |i: usize| {
+        let mut j = i;
+        while j > 0 && keys[j - 1] == keys[i] {
+            j -= 1;
+        }
+        j
+    };
+    if dir > 0 {
+        (sel + 1..n).find(|&i| keys[i] != keys[sel]).unwrap_or(0)
+    } else {
+        let s = start_of(sel);
+        if s < sel {
+            s
+        } else if s == 0 {
+            start_of(n - 1)
+        } else {
+            start_of(s - 1)
+        }
+    }
+}
+
+/// First free name of the form "Playlist N" (N from 1).
+pub fn new_playlist_name(existing: &[String]) -> String {
+    (1..)
+        .map(|n| alloc::format!("Playlist {n}"))
+        .find(|c| !existing.iter().any(|e| e.eq_ignore_ascii_case(c)))
+        .unwrap_or_default()
 }
 
 /// Sort an album's tracks: disc, track number, then uri.
@@ -352,6 +420,28 @@ mod tests {
         let all = vec![AlbumRef::new("The Police", "Synchronicity"), AlbumRef::new("ABBA", "Arrival"), AlbumRef::new("ABBA", "Voulez-Vous")];
         assert_eq!(artists_from_albums(&all), [ArtistRef::new("ABBA", 2), ArtistRef::new("The Police", 1)]);
         assert_eq!(plural(1, "album"), "1 album");
+    }
+
+    #[test]
+    fn letters_and_jumps() {
+        assert_eq!(index_letter("The Who"), 'W');
+        assert_eq!(index_letter("abba"), 'A');
+        assert_eq!(index_letter("\u{e9}dith Piaf"), '\u{c9}');
+        assert_eq!(index_letter("10cc"), '#');
+        assert_eq!(index_letter(""), '#');
+        let k: Vec<char> = "##AABBBD".chars().collect();
+        assert_eq!(letter_jump(&k, 0, 1), 2);
+        assert_eq!(letter_jump(&k, 2, 1), 4);
+        assert_eq!(letter_jump(&k, 5, 1), 7);
+        assert_eq!(letter_jump(&k, 7, 1), 0); // wraps
+        assert_eq!(letter_jump(&k, 6, -1), 4); // start of own group first
+        assert_eq!(letter_jump(&k, 4, -1), 2); // then the previous group
+        assert_eq!(letter_jump(&k, 1, -1), 0);
+        assert_eq!(letter_jump(&k, 0, -1), 7); // wraps to the last group
+        assert_eq!(letter_jump(&[], 3, 1), 0);
+        let names = vec!["Playlist 1".to_string(), "playlist 2".to_string(), "Road trip".to_string()];
+        assert_eq!(new_playlist_name(&names), "Playlist 3");
+        assert_eq!(new_playlist_name(&[]), "Playlist 1");
     }
 
     #[test]

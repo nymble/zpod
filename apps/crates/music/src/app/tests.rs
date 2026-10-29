@@ -12,6 +12,7 @@ struct Fake {
     repeat: RepeatMode,
     random: bool,
     fail: bool,
+    pls: Vec<(String, Vec<String>)>,
 }
 
 fn tr(artist: &str, album: &str, n: u32, title: &str) -> Track {
@@ -42,6 +43,7 @@ impl Fake {
                 tr("Beta", "Gamma", 1, "G1"),
             ],
             state: PlayState::Stopped,
+            pls: vec![("Road trip".into(), vec!["Alpha/First/02 Two.flac".into(), "Alpha/First/01 One.flac".into()])],
             ..Default::default()
         }
     }
@@ -86,10 +88,22 @@ impl MusicBackend for Fake {
         Ok(v)
     }
     fn playlists(&mut self) -> BResult<Vec<String>> {
-        Ok(vec!["Road trip".into()])
+        Ok(self.pls.iter().map(|(n, _)| n.clone()).collect())
     }
-    fn playlist_tracks(&mut self, _n: &str) -> BResult<Vec<Track>> {
-        Ok(self.lib[..2].to_vec())
+    fn playlist_tracks(&mut self, n: &str) -> BResult<Vec<Track>> {
+        let Some((_, u)) = self.pls.iter().find(|(x, _)| x == n) else { return Err("No such playlist".into()) };
+        Ok(u.iter().map(|u| self.lib.iter().find(|t| &t.uri == u).unwrap().clone()).collect())
+    }
+    fn playlist_add(&mut self, name: &str, uris: &[String]) -> BResult<()> {
+        match self.pls.iter_mut().find(|(x, _)| x == name) {
+            Some((_, v)) => v.extend(uris.iter().cloned()),
+            None => self.pls.push((name.into(), uris.to_vec())),
+        }
+        Ok(())
+    }
+    fn playlist_delete(&mut self, name: &str) -> BResult<()> {
+        self.pls.retain(|(x, _)| x != name);
+        Ok(())
     }
     fn queue(&mut self) -> BResult<Vec<Track>> {
         Ok(self.queue.clone())
@@ -290,7 +304,167 @@ fn shuffle_all_and_playlists() {
     app.handle(press(Key::Ok), &mut be); // Playlists
     assert_eq!(app.top().screen, Screen::Playlists(vec!["Road trip".into()]));
     app.handle(press(Key::Ok), &mut be);
+    assert_eq!(app.top().screen, Screen::PlaylistMenu("Road trip".into()));
+    app.handle(press(Key::Down), &mut be);
+    app.handle(press(Key::Down), &mut be);
+    app.handle(press(Key::Ok), &mut be); // Tracks
     assert!(matches!(app.top().screen, Screen::Tracks(ref n, ref v) if n == "Road trip" && v.len() == 2));
+}
+
+fn rep_ev(k: Key) -> Event {
+    Event { key: k, state: KeyState::Repeat }
+}
+
+fn big_library() -> Fake {
+    let mut be = Fake::new();
+    be.lib.clear();
+    for (i, a) in ["Abba", "Air", "The Beatles", "Bjork", "Blur", "Can", "Cream", "Devo", "Eno", "Faust", "Feist", "Gong"].iter().enumerate() {
+        be.lib.push(tr(a, "LP", 1, &format!("t{i}")));
+    }
+    be
+}
+
+#[test]
+fn hold_up_down_jumps_by_letter_in_artists() {
+    let mut be = big_library();
+    let mut app = MusicApp::new();
+    app.start(&mut be);
+    app.handle(press(Key::Down), &mut be);
+    app.handle(press(Key::Ok), &mut be); // Artists
+    let name = |app: &MusicApp| match &app.top().screen {
+        Screen::Artists(_, v) => v[app.top().ls.sel].name.clone(),
+        _ => panic!("not artists"),
+    };
+    assert_eq!(name(&app), "Abba");
+    // a held key: first press, then repeats; single steps until FAST_AFTER
+    app.handle(press(Key::Down), &mut be);
+    for _ in 0..FAST_AFTER {
+        app.handle(rep_ev(Key::Down), &mut be);
+    }
+    assert_eq!(app.top().ls.sel, 1 + FAST_AFTER as usize);
+    assert!(app.jump.is_none());
+    let before = index_letter(&name(&app));
+    app.handle(rep_ev(Key::Down), &mut be); // now a letter per step
+    let after = index_letter(&name(&app));
+    assert_ne!(before, after);
+    assert_eq!(app.jump.map(|j| j.0), Some(after));
+    // the first artist of that letter
+    assert!(matches!(after, 'D' | 'E' | 'F' | 'G' | 'A'));
+    // release + new press = single step again; the letter disappears after a while
+    app.handle(press(Key::Up), &mut be);
+    app.tick(JUMP_SHOW_MS + 1);
+    assert!(app.jump.is_none());
+    // held Up jumps back a letter group at a time ("The Beatles" sorts under B)
+    let mut app = MusicApp::new();
+    app.start(&mut be);
+    app.handle(press(Key::Down), &mut be);
+    app.handle(press(Key::Ok), &mut be);
+    app.handle(press(Key::Up), &mut be); // wraps to Gong
+    for _ in 0..=FAST_AFTER {
+        app.handle(rep_ev(Key::Up), &mut be);
+    }
+    assert!(app.jump.is_some());
+}
+
+#[test]
+fn hold_scrolls_by_page_in_track_lists() {
+    let mut be = Fake::new();
+    for n in 3..40 {
+        be.lib.push(tr("Alpha", "First", n, &format!("n{n}")));
+    }
+    let mut app = MusicApp::new();
+    app.start(&mut be);
+    app.handle(press(Key::Down), &mut be);
+    app.handle(press(Key::Ok), &mut be); // Artists
+    app.handle(press(Key::Ok), &mut be); // Alpha
+    app.handle(press(Key::Down), &mut be); // Second (1995)
+    app.handle(press(Key::Down), &mut be); // First (1999)
+    app.handle(press(Key::Ok), &mut be);
+    assert!(matches!(app.top().screen, Screen::Tracks(_, ref v) if v.len() == 39));
+    app.visible_rows = 5;
+    app.handle(press(Key::Down), &mut be);
+    for _ in 0..FAST_AFTER {
+        app.handle(rep_ev(Key::Down), &mut be);
+    }
+    let s = app.top().ls.sel;
+    app.handle(rep_ev(Key::Down), &mut be);
+    assert_eq!(app.top().ls.sel, s + 5);
+    assert!(app.jump.is_none());
+}
+
+#[test]
+fn playlists_add_track_and_album_play_and_delete() {
+    let mut be = Fake::new();
+    let u: Vec<String> = be.lib.iter().map(|t| t.uri.clone()).collect();
+    be.play_tracks(&u, 2).unwrap(); // Alpha / Second / Uno
+    let mut app = MusicApp::new();
+    app.start(&mut be);
+    assert_eq!(app.top().screen, Screen::NowPlaying);
+    // Square: add the track -> picker (New playlist, Road trip)
+    app.handle(press(Key::Square), &mut be);
+    assert!(matches!(app.top().screen, Screen::AddTo(ref w, ref u, ref n) if w == "Track" && u.len() == 1 && n.len() == 1));
+    assert_eq!(crate::view::title(&app), "Add track to playlist");
+    app.handle(press(Key::Ok), &mut be); // New playlist -> "Playlist 1"
+    assert_eq!(app.top().screen, Screen::NowPlaying);
+    assert_eq!(be.pls[1], ("Playlist 1".to_string(), vec!["Alpha/Second/01 Uno.flac".to_string()]));
+    assert!(app.toast.as_ref().unwrap().0.contains("Playlist 1"));
+    // Triangle: add the whole album to the existing "Road trip"
+    be.play_tracks(&u, 0).unwrap(); // Alpha / First / Two
+    app.poll(&mut be);
+    app.handle(press(Key::Triangle), &mut be);
+    assert!(matches!(app.top().screen, Screen::AddTo(ref w, ref u, _) if w.starts_with("Album") && u.len() == 2));
+    app.handle(press(Key::Down), &mut be); // Road trip (names in MPD order)
+    app.handle(press(Key::Ok), &mut be);
+    assert_eq!(be.pls[0].1.len(), 4);
+    // X cancels the picker without adding
+    app.handle(press(Key::Square), &mut be);
+    app.handle(press(Key::Cross), &mut be);
+    assert_eq!(app.top().screen, Screen::NowPlaying);
+    assert_eq!(be.pls.len(), 2);
+    // Playlists > Playlist 1 > Play
+    app.handle(press(Key::Cross), &mut be);
+    while app.top().screen != Screen::Menu {
+        app.handle(press(Key::Cross), &mut be);
+    }
+    app.top_mut_for_tests().ls.sel = 3;
+    app.handle(press(Key::Ok), &mut be);
+    assert_eq!(app.top().screen, Screen::Playlists(vec!["Road trip".into(), "Playlist 1".into()]));
+    app.handle(press(Key::Down), &mut be);
+    app.handle(press(Key::Ok), &mut be);
+    assert_eq!(app.top().screen, Screen::PlaylistMenu("Playlist 1".into()));
+    app.handle(press(Key::Ok), &mut be); // Play
+    assert_eq!(app.top().screen, Screen::NowPlaying);
+    assert_eq!(be.queue.len(), 1);
+    assert_eq!(be.state, PlayState::Playing);
+    // back to the playlist menu, Delete playlist, X cancels, then OK deletes
+    app.handle(press(Key::Cross), &mut be);
+    app.top_mut_for_tests().ls.sel = 3;
+    app.handle(press(Key::Ok), &mut be);
+    assert_eq!(app.top().screen, Screen::ConfirmDelete("Playlist 1".into()));
+    app.handle(press(Key::Left), &mut be);
+    assert_eq!(app.top().screen, Screen::PlaylistMenu("Playlist 1".into()));
+    assert_eq!(be.pls.len(), 2);
+    app.handle(press(Key::Ok), &mut be);
+    app.handle(press(Key::Ok), &mut be);
+    assert_eq!(be.pls.len(), 1);
+    assert_eq!(app.top().screen, Screen::Playlists(vec!["Road trip".into()]));
+    // Shuffle play turns shuffle on
+    app.handle(press(Key::Ok), &mut be);
+    app.handle(press(Key::Down), &mut be);
+    app.handle(press(Key::Ok), &mut be);
+    assert!(be.random && be.queue.len() == 4);
+}
+
+#[test]
+fn add_with_nothing_playing_says_so() {
+    let mut be = Fake::new();
+    let mut app = MusicApp::new();
+    app.start(&mut be);
+    app.handle(press(Key::Triangle), &mut be);
+    assert_eq!(app.top().screen, Screen::NowPlaying);
+    app.handle(press(Key::Square), &mut be);
+    assert_eq!(app.top().screen, Screen::NowPlaying);
+    assert_eq!(app.toast.as_ref().unwrap().0, "Nothing playing");
 }
 
 #[test]

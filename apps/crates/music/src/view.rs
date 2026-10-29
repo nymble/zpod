@@ -16,8 +16,8 @@ use zpod_ui::{
     Canvas, Font,
 };
 
-use crate::app::{Browse, MusicApp, Screen, MENU};
-use crate::model::{fmt_time, plural, with_year, RepeatMode};
+use crate::app::{Browse, MusicApp, Screen, MENU, PLAYLIST_ACTIONS};
+use crate::model::{fmt_time, new_playlist_name, plural, with_year, RepeatMode};
 
 const BODY_Y: i32 = theme::STATUS_H;
 const BODY_H: i32 = 240 - theme::STATUS_H - widgets::HINTS_H;
@@ -38,6 +38,9 @@ pub fn title(app: &MusicApp) -> String {
         Screen::Playlists(_) => "Playlists".into(),
         Screen::Queue(q) => format!("Queue ({})", q.len()),
         Screen::NowPlaying => "Playing".into(),
+        Screen::PlaylistMenu(n) => n.clone(),
+        Screen::AddTo(what, _, _) => format!("Add {} to playlist", what.to_lowercase()),
+        Screen::ConfirmDelete(_) => "Delete playlist".into(),
     }
 }
 
@@ -54,6 +57,9 @@ pub fn render<D: Canvas>(app: &mut MusicApp, d: &mut D, si: &StatusInfo, status_
         draw_status_bar(d, &title(app), si);
         body(app, d, row_h);
         hints(app, d);
+        if let Some((c, _)) = app.jump {
+            jump_letter(d, c);
+        }
         if let Some((msg, _)) = &app.toast {
             widgets::toast(d, msg);
         }
@@ -70,9 +76,26 @@ pub fn render<D: Canvas>(app: &mut MusicApp, d: &mut D, si: &StatusInfo, status_
     }
 }
 
+/// Big index letter while fast-scrolling by letter.
+fn jump_letter<D: Canvas>(d: &mut D, c: char) {
+    let r = rect(250, 92, 56, 56);
+    let _ = RoundedRectangle::with_equal_corners(r, Size::new(8, 8))
+        .into_styled(PrimitiveStyle::with_fill(theme::PANEL))
+        .draw(d);
+    let _ = RoundedRectangle::with_equal_corners(r, Size::new(8, 8))
+        .into_styled(PrimitiveStyle::with_stroke(theme::ACCENT, 2))
+        .draw(d);
+    let mut b = [0u8; 4];
+    text::draw_aligned(d, Font::Huge, c.encode_utf8(&mut b), 278, 106, Align::Center, theme::ACCENT);
+}
+
 fn hints<D: Canvas>(app: &MusicApp, d: &mut D) {
     match &app.top().screen {
-        Screen::NowPlaying => widgets::hints(d, &[("< >", "prev/next"), ("Up", "repeat"), ("Down", "shuffle"), ("OK", "queue"), ("X", "back")]),
+        Screen::NowPlaying => widgets::hints(d, &[("< >", "prev/next"), ("OK", "queue"), ("Sq", "+playlist"), ("Tri", "album+pl"), ("X", "back")]),
+        Screen::Artists(..) | Screen::Playlists(_) => widgets::hints(d, &[("OK", "open"), ("Sq", "+queue"), ("Hold Up/Dn", "A-Z"), ("X", "back")]),
+        Screen::PlaylistMenu(_) => widgets::hints(d, &[("OK", "choose"), ("Sq", "+queue"), ("X", "back"), ("Tri", "now playing")]),
+        Screen::AddTo(..) => widgets::hints(d, &[("OK", "add here"), ("X", "cancel")]),
+        Screen::ConfirmDelete(_) => widgets::hints(d, &[("OK", "delete"), ("X", "cancel")]),
         Screen::Menu => widgets::hints(d, &[("OK", "open"), ("Tri", "now playing"), ("Play", "pause"), ("Home", "menu")]),
         Screen::Queue(_) => widgets::hints(d, &[("OK", "play"), ("Sq", "remove"), ("X", "back"), ("Tri", "now playing")]),
         Screen::Tracks(..) => widgets::hints(d, &[("OK", "play"), ("Sq", "+queue"), ("X", "back"), ("Tri", "now playing")]),
@@ -114,7 +137,35 @@ fn body<D: Canvas>(app: &MusicApp, d: &mut D, row_h: i32) {
                 mark: if i == 0 && app.status.as_ref().is_some_and(|s| s.state == PlayState::Playing) { Some(theme::OK) } else { None },
             })
         }
-        Screen::Playlists(v) => draw_list(d, area, row_h, &lv.ls, len, |i| Row::simple(&v[i])),
+        Screen::Playlists(v) => {
+            draw_list(d, area, row_h, &lv.ls, len, |i| Row::simple(&v[i]));
+            if v.is_empty() {
+                text::draw_aligned(d, Font::Small, "In Now Playing: Square adds the track,", 160, 140, Align::Center, theme::DIM);
+                text::draw_aligned(d, Font::Small, "Triangle the album, to a playlist", 160, 154, Align::Center, theme::DIM);
+            }
+        }
+        Screen::PlaylistMenu(_) => draw_list(d, area, row_h, &lv.ls, len, |i| Row {
+            title: PLAYLIST_ACTIONS[i],
+            sub: None,
+            right: None,
+            icon: None,
+            mark: if PLAYLIST_ACTIONS[i].starts_with("Delete") { Some(theme::WARN) } else { None },
+        }),
+        Screen::AddTo(_, _, names) => {
+            let fresh = new_playlist_name(names);
+            draw_list(d, area, row_h, &lv.ls, len, |i| {
+                if i == 0 {
+                    Row { title: "New playlist", sub: None, right: Some(fresh.as_str()), icon: None, mark: Some(theme::ACCENT) }
+                } else {
+                    Row::simple(&names[i - 1])
+                }
+            })
+        }
+        Screen::ConfirmDelete(name) => {
+            let _ = d.fill_solid(&area, theme::BG);
+            let n = text::fit(Font::Body, name, 260);
+            widgets::dialog(d, "Delete?", &[n.as_str(), "The music files stay.", "OK = delete    X = cancel"], theme::WARN);
+        }
         Screen::Artists(_, v) => {
             let counts: Vec<String> = v.iter().map(|a| if a.albums > 0 { plural(a.albums, "album") } else { String::new() }).collect();
             draw_list(d, area, row_h, &lv.ls, len, |i| Row {
@@ -269,15 +320,33 @@ fn now_playing<D: Canvas>(app: &MusicApp, d: &mut D) {
         PlayState::Stopped => badge(d, "STOPPED", theme::DIM),
         _ => {}
     }
-    match st.repeat {
-        RepeatMode::All => badge(d, "REPEAT", theme::CYAN),
-        RepeatMode::One => badge(d, "REPEAT 1", theme::CYAN),
-        RepeatMode::Off => {}
-    }
-    if st.random {
-        badge(d, "SHUFFLE", theme::OK);
-    }
     progress(app, d);
+    controls(d, &st);
+}
+
+/// Shuffle and repeat controls under the progress bar (Up = repeat,
+/// Down = shuffle). Always visible; lit when on.
+fn controls<D: Canvas>(d: &mut D, st: &crate::model::PlayerStatus) {
+    let y = 200;
+    fill(d, 0, y - 2, 320, 22, theme::BG);
+    let rep = match st.repeat {
+        RepeatMode::Off => "Repeat off",
+        RepeatMode::All => "Repeat all",
+        RepeatMode::One => "Repeat one",
+    };
+    let shuf = if st.random { "Shuffle on" } else { "Shuffle off" };
+    let pills = [(10, "Up", rep, st.repeat != RepeatMode::Off, theme::CYAN), (165, "Dn", shuf, st.random, theme::OK)];
+    for (x, key, label, on, c) in pills {
+        let _ = RoundedRectangle::with_equal_corners(rect(x, y, 145, 18), Size::new(5, 5))
+            .into_styled(PrimitiveStyle::with_fill(if on { c } else { theme::PANEL }))
+            .draw(d);
+        let kw = text::width(Font::Tiny, key) + 6;
+        let _ = RoundedRectangle::with_equal_corners(rect(x + 4, y + 3, kw as u32, 12), Size::new(3, 3))
+            .into_styled(PrimitiveStyle::with_fill(if on { theme::BLACK } else { theme::FAINT }))
+            .draw(d);
+        text::draw(d, Font::Tiny, key, x + 7, y + 5, theme::WHITE);
+        text::draw(d, Font::BodyBold, label, x + kw + 10, y + 3, if on { theme::BLACK } else { theme::DIM });
+    }
 }
 
 fn progress<D: Canvas>(app: &MusicApp, d: &mut D) {

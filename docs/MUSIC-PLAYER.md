@@ -1,4 +1,4 @@
-# ZPOD music player (M4)
+# ZPOD music player (M4, M5)
 
 `/opt/zpod/apps/music/bin/music`: a Rust UI on the 320x240 LCD that drives
 **MPD** (Music Player Daemon). Browse by artist, album or playlist, see album
@@ -53,14 +53,36 @@ Fix the tag (docs/MUSIC-TAGGING.md) to change it.
 | Up / Down | move (autorepeat) | **Up = repeat** (cycles the modes), **Down = shuffle** on/off |
 | Right / OK / Circle | open, or play from this track | Right = next track (hold = seek +10 s); **OK = open the queue** |
 | Left / X | back | Left = previous track; X = back |
-| Square | add to queue | |
-| Triangle | jump to Now Playing | |
+| Square | add to queue | **add this track to a playlist** (M5) |
+| Triangle | jump to Now Playing | **add this album to a playlist** (M5) |
+| Hold Up / Down | after 6 repeats: **jump to the next/previous first letter** in Artists and Playlists (a big letter is shown), or **a page at a time** in other lists (M5) | |
 | Play | play / pause (starts the queue if stopped) | play / pause |
 | Home | exit to the launcher (music keeps playing) | same |
 | Vol+ / Vol- | zpod-buttons sets ALSA 'Digital'; the app only shows a toast | same |
 
 These follow the vendor conventions: Up = repeat one, Down = shuffle, Home =
 menu, OK = queue, X = cancel.
+
+**Now Playing controls (M5):** two pills under the progress bar always show
+the state: `[Up] Repeat off / all / one` (cyan when on) and `[Dn] Shuffle
+on / off` (green when on), plus PAUSED / STOPPED.
+
+## Playlists (M5)
+
+Playlists are MPD stored playlists (`.m3u` in `/srv/zpod/media/playlists`, on
+`/data` with the M5 card layout), so they also work with `mpc` and survive
+reboots.
+
+* **Add:** in Now Playing press **Square** (track) or **Triangle** (whole
+  album). Pick a playlist, or the first row **New playlist** (named
+  "Playlist 1", "Playlist 2", ...). A toast confirms "… added to NAME". With
+  nothing playing it says so.
+* **Play:** Music > Playlists > a playlist: **Play**, **Shuffle play**,
+  **Tracks** (browse and play from a track), **Delete playlist**. Square on a
+  playlist adds it to the queue.
+* **Delete:** asks first; the music files are not touched.
+* Rename / reorder are not on the device yet (use `mpc` or edit the .m3u).
+
 
 Albums are grouped by AlbumArtist, falling back to Artist. An artist's albums
 sort by year, then name. Tracks sort by disc and track number. Names sort
@@ -93,9 +115,8 @@ Screenshots: `screenshots/music-*.png`.
 
 * Not yet run on the Pi: MPD CPU load and the art decode time on ARMv6 are
   estimates. Covers are decoded once and then cached.
-* No search (no keyboard). Lists scroll with autorepeat only. Browsing by
-  artist keeps lists short, but an A-Z jump in Artists would still help very
-  large libraries.
+* No search (no keyboard). M5 adds hold-to-jump A-Z in Artists/Playlists
+  and page-scrolling in other long lists.
 * Opening Artists or Albums asks MPD for `list album group albumartist` once,
   to count each artist's albums. That is fine at hundreds of albums, but
   untested at thousands.

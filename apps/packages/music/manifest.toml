@@ -1,7 +1,7 @@
 [app]
 id = "music"
 name = "Music"
-version = "1.0.0"
+version = "1.1.0"
 exec = "bin/music"
 icon = "icon.png"
 description = "Artists, albums, playlists, album art"

@@ -8,7 +8,13 @@
 //! * Everywhere: Play/Pause toggles playback, Home returns to the ZPOD menu,
 //!   Vol+/- = shared overlay (platform layer). Left at the music menu = exit.
 //! * Now Playing overrides Left/Right (previous/next, documented in
-//!   docs/ui/BUTTONS-AND-MENUS.md); X = back.
+//!   docs/ui/BUTTONS-AND-MENUS.md); X = back. Square adds the playing track
+//!   to a playlist, Triangle adds its whole album.
+//! * Fast scroll (M5): holding Up/Down for about a second jumps a letter at a
+//!   time in alphabetical lists (Artists, Playlists, the "add to" picker) and a
+//!   page at a time in the others (albums by year, tracks, queue).
+//! * Playlists (M5): OK on a playlist opens Play / Shuffle play / Tracks /
+//!   Delete playlist; Delete asks first (OK = delete, X/Left = cancel).
 
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -20,6 +26,16 @@ use zpod_ui::{image::Image565, widgets::ListState};
 use crate::model::*;
 
 pub const MENU: [&str; 7] = ["Now Playing", "Artists", "Albums", "Playlists", "Queue", "Shuffle all", "Update library"];
+
+/// Actions for one stored playlist (Playlists > name).
+pub const PLAYLIST_ACTIONS: [&str; 4] = ["Play", "Shuffle play", "Tracks", "Delete playlist"];
+
+/// Repeat events (about 120 ms apart after a 400 ms hold) before Up/Down
+/// switch from one row to a letter/page per step.
+pub const FAST_AFTER: u32 = 6;
+
+/// How long the big jump letter stays on screen (ms).
+pub const JUMP_SHOW_MS: u32 = 900;
 
 /// Which menu entry an artist list was opened from. Both lead to
 /// Artist -> albums; "Albums" just labels the list by album count.
@@ -41,6 +57,13 @@ pub enum Screen {
     Playlists(Vec<String>),
     Queue(Vec<Track>),
     NowPlaying,
+    /// Actions for one playlist ([`PLAYLIST_ACTIONS`]).
+    PlaylistMenu(String),
+    /// "Add to playlist" picker: (what, uris, existing playlist names).
+    /// Row 0 is "New playlist", then the existing ones.
+    AddTo(String, Vec<String>, Vec<String>),
+    /// Delete this playlist? OK = yes, X/Left = no.
+    ConfirmDelete(String),
 }
 
 #[derive(Clone, Debug)]
@@ -72,6 +95,10 @@ pub struct MusicApp {
     pub visible_rows: usize,
     /// Library totals shown in the menu (refreshed after a rescan).
     pub stats: Option<LibraryStats>,
+    /// Up/Down hold tracking for fast scroll: (direction, repeats).
+    held: (i32, u32),
+    /// Letter shown while jumping (letter, ms left).
+    pub jump: Option<(char, u32)>,
 }
 
 impl Default for MusicApp {
@@ -103,6 +130,8 @@ impl MusicApp {
             need_progress: false,
             visible_rows: 6,
             stats: None,
+            held: (0, 0),
+            jump: None,
         }
     }
 
@@ -112,6 +141,11 @@ impl MusicApp {
 
     fn top_mut(&mut self) -> &mut Level {
         self.stack.last_mut().unwrap()
+    }
+
+    #[cfg(test)]
+    pub fn top_mut_for_tests(&mut self) -> &mut Level {
+        self.top_mut()
     }
 
     fn push(&mut self, screen: Screen) {
@@ -175,7 +209,54 @@ impl MusicApp {
             Screen::Playlists(v) => v.len(),
             Screen::Queue(v) => v.len(),
             Screen::NowPlaying => 0,
+            Screen::PlaylistMenu(_) => PLAYLIST_ACTIONS.len(),
+            Screen::AddTo(_, _, names) => names.len() + 1,
+            Screen::ConfirmDelete(_) => 0,
         }
+    }
+
+    /// Index letters for alphabetical lists (fast scroll jumps by letter);
+    /// None for lists in another order (they jump by page).
+    pub fn index_keys(screen: &Screen) -> Option<Vec<char>> {
+        match screen {
+            Screen::Artists(_, v) => Some(v.iter().map(|a| index_letter(&a.name)).collect()),
+            Screen::Playlists(v) => Some(v.iter().map(|n| index_letter(n)).collect()),
+            Screen::AddTo(_, _, names) => {
+                let mut k = alloc::vec!['+'];
+                k.extend(names.iter().map(|n| index_letter(n)));
+                Some(k)
+            }
+            _ => None,
+        }
+    }
+
+    /// One Up/Down step. Held keys speed up after [`FAST_AFTER`] repeats:
+    /// a letter per step in alphabetical lists, a page per step otherwise.
+    fn move_sel(&mut self, dir: i32, repeat: bool) {
+        if repeat && self.held.0 == dir {
+            self.held.1 += 1;
+        } else {
+            self.held = (dir, 0);
+        }
+        let len = Self::len_of(&self.top().screen);
+        let vis = self.visible_rows;
+        if len == 0 {
+            return;
+        }
+        if self.held.1 > FAST_AFTER {
+            if let Some(keys) = Self::index_keys(&self.top().screen) {
+                let sel = letter_jump(&keys, self.top().ls.sel, dir);
+                let ls = &mut self.top_mut().ls;
+                ls.sel = sel;
+                ls.scroll_into_view(len, vis);
+                self.jump = Some((keys[sel], JUMP_SHOW_MS));
+            } else {
+                self.top_mut().ls.page(dir * vis.max(1) as i32, len, vis);
+            }
+        } else {
+            self.top_mut().ls.step(dir, len, vis);
+        }
+        self.need_full = true;
     }
 
     /// Refresh player status; returns true if the display must change.
@@ -213,6 +294,13 @@ impl MusicApp {
     }
 
     pub fn tick(&mut self, dt_ms: u32) {
+        if let Some((_, left)) = self.jump.as_mut() {
+            *left = left.saturating_sub(dt_ms);
+            if *left == 0 {
+                self.jump = None;
+                self.need_full = true;
+            }
+        }
         if let Some((_, left)) = self.toast.as_mut() {
             *left = left.saturating_sub(dt_ms);
             if *left == 0 {
@@ -280,17 +368,17 @@ impl MusicApp {
         if self.top().screen == Screen::NowPlaying {
             return self.handle_now_playing(ev, be);
         }
-        let len = Self::len_of(&self.top().screen);
-        let vis = self.visible_rows;
+        if let Screen::ConfirmDelete(name) = self.top().screen.clone() {
+            match ev.key {
+                Key::Ok | Key::Circle | Key::Right if !rep => self.delete_playlist(be, &name),
+                Key::Cross | Key::Left if !rep => self.pop(),
+                _ => return Outcome::Nothing,
+            }
+            return Outcome::Changed;
+        }
         match ev.key {
-            Key::Up => {
-                self.top_mut().ls.step(-1, len, vis);
-                self.need_full = true;
-            }
-            Key::Down => {
-                self.top_mut().ls.step(1, len, vis);
-                self.need_full = true;
-            }
+            Key::Up => self.move_sel(-1, rep),
+            Key::Down => self.move_sel(1, rep),
             Key::Cross | Key::Left if !rep => {
                 if self.stack.len() <= 1 {
                     return Outcome::Exit; // back one level = leave the app
@@ -332,6 +420,14 @@ impl MusicApp {
             }
             Key::Cross if !rep => {
                 self.pop();
+                return Outcome::Changed;
+            }
+            Key::Square if !rep => {
+                self.add_current(be, false);
+                return Outcome::Changed;
+            }
+            Key::Triangle if !rep => {
+                self.add_current(be, true);
                 return Outcome::Changed;
             }
             _ => return Outcome::Nothing,
@@ -408,12 +504,39 @@ impl MusicApp {
             }
             Screen::Playlists(v) => {
                 let Some(name) = v.get(sel) else { return };
-                if let Some(t) = self.check(be.playlist_tracks(name)) {
-                    if add {
+                if add {
+                    if let Some(t) = self.check(be.playlist_tracks(name)) {
                         self.enqueue(be, &t);
-                    } else {
+                    }
+                } else {
+                    self.push(Screen::PlaylistMenu(name.clone()));
+                }
+            }
+            Screen::PlaylistMenu(name) if !add => match PLAYLIST_ACTIONS[sel] {
+                a @ ("Play" | "Shuffle play") => {
+                    if self.check(be.play_playlist(&name, a == "Shuffle play")).is_some() {
+                        self.poll(be);
+                        self.push(Screen::NowPlaying);
+                    }
+                }
+                "Tracks" => {
+                    if let Some(t) = self.check(be.playlist_tracks(&name)) {
                         self.push(Screen::Tracks(name.clone(), t));
                     }
+                }
+                _ => self.push(Screen::ConfirmDelete(name.clone())),
+            },
+            Screen::PlaylistMenu(name) => {
+                if let Some(t) = self.check(be.playlist_tracks(&name)) {
+                    self.enqueue(be, &t);
+                }
+            }
+            Screen::AddTo(what, uris, names) if !add => {
+                let name = if sel == 0 { new_playlist_name(&names) } else { names[sel - 1].clone() };
+                if self.check(be.playlist_add(&name, &uris)).is_some() {
+                    let n = uris.len() as u32;
+                    self.pop();
+                    self.toast(format!("{} added to {name}", if n == 1 { what } else { plural(n, "track") }));
                 }
             }
             Screen::Tracks(_, v) => {
@@ -453,6 +576,43 @@ impl MusicApp {
             }
             _ => {}
         }
+    }
+
+    /// Now Playing Square (track) / Triangle (album): open the playlist picker.
+    fn add_current(&mut self, be: &mut impl MusicBackend, album: bool) {
+        let Some(t) = self.current.clone() else {
+            self.toast("Nothing playing");
+            return;
+        };
+        let mut pick = (String::from("Track"), alloc::vec![t.uri.clone()]);
+        if album && !t.album.is_empty() {
+            let artist = if t.album_artist.is_empty() { t.artist.clone() } else { t.album_artist.clone() };
+            if let Some(v) = self.check(be.album_tracks(&AlbumRef::new(artist, t.album.clone()))) {
+                if !v.is_empty() {
+                    pick = (format!("Album ({})", plural(v.len() as u32, "track")), Self::uris(&v));
+                }
+            }
+        }
+        let names = self.check(be.playlists()).unwrap_or_default();
+        self.push(Screen::AddTo(pick.0, pick.1, names));
+    }
+
+    fn delete_playlist(&mut self, be: &mut impl MusicBackend, name: &str) {
+        if self.check(be.playlist_delete(name)).is_none() {
+            return;
+        }
+        // ConfirmDelete -> PlaylistMenu -> Playlists (refreshed)
+        self.pop();
+        self.pop();
+        if let Screen::Playlists(_) = self.top().screen {
+            if let Some(v) = self.check(be.playlists()) {
+                let len = v.len();
+                self.top_mut().screen = Screen::Playlists(v);
+                let vis = self.visible_rows;
+                self.top_mut().ls.scroll_into_view(len, vis);
+            }
+        }
+        self.toast(format!("Deleted {name}"));
     }
 
     fn enqueue(&mut self, be: &mut impl MusicBackend, t: &[Track]) {
