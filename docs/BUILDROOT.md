@@ -210,8 +210,8 @@ exists. The launcher's File transfer screen toggles it through the
 | GPU firmware (bootcode.bin → start.elf → kernel load), with `hdmi_ignore_hotplug` | ~2.3–2.5 s | estimate (ahepp.dev, Zero W) |
 | zImage load: **4.6 MB** (PoC: 9.4 MB) at ~6 MiB/s | ~0.8 s (PoC ~1.5 s) | estimate |
 | kernel start → `init` | **1.0–1.2 s** in QEMU `raspi0` (PoC 2.6 s) | **measured in emulation** (TCG); hardware ~1–1.5 s, estimate |
-| kernel start → launcher exec | **1.7–2.5 s** in QEMU over 4 boots (1.69, 2.10, 1.88, 2.52; PoC 2.90) | **measured in emulation** |
-| kernel start → splash first frame | 1.97 s in QEMU (no real panel) | measured in emulation |
+| kernel start → launcher exec | **1.7–2.5 s** in QEMU over 6 boots (released image: 1.66 first boot, 2.33 second boot; PoC 2.90) | **measured in emulation** |
+| kernel start → splash first frame | 1.9–2.6 s in QEMU (no real panel) | measured in emulation |
 | launcher exec → first frame | not measurable in QEMU (no SPI panel) | – |
 | init → rcS done | 5.7–8.0 s in QEMU | measured in emulation; does not gate the launcher |
 | **power-on → launcher first frame** | **~5–6 s** (PoC estimate 6–8 s) | **estimate**, not measured on hardware |
