@@ -43,15 +43,18 @@ sed -i \
 	-e 's/^dtoverlay=vc4-kms-v3d/#dtoverlay=vc4-kms-v3d  # ZPOD M6: no HDMI\/KMS (LCD is SPI, driven from userspace)/' \
 	-e 's/^max_framebuffers=2/#max_framebuffers=2/' \
 	"$CFG"
-if ! grep -q 'ZPOD M6' "$CFG"; then
-	cat >> "$CFG" <<- 'CFGEOF'
-		# --- ZPOD M6: boot time (docs/BOOT-TIME.md) ---
-		# no rainbow splash, no boot delay; full clock for the first 30 s of boot
-		disable_splash=1
-		boot_delay=0
-		initial_turbo=30
-	CFGEOF
+# (marker "--- ZPOD M6 boot" so the vc4 comment above does not count as done)
+if ! grep -q -- '--- ZPOD M6 boot' "$CFG"; then
+	printf '%s\n' \
+		'# --- ZPOD M6 boot time (docs/BOOT-TIME.md) ---' \
+		'# no rainbow splash, no boot delay; full clock for the first 30 s of boot' \
+		'disable_splash=1' \
+		'boot_delay=0' \
+		'initial_turbo=30' >> "$CFG"
 fi
+grep -qx 'disable_splash=1' "$CFG"
+grep -qx 'boot_delay=0' "$CFG"
+grep -qx 'initial_turbo=30' "$CFG"
 grep -q '^auto_initramfs=0' "$CFG"
 ! grep -q '^dtoverlay=vc4-kms-v3d' "$CFG"
 grep -q '^dtoverlay=aoide-zpod-dac' "$CFG"

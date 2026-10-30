@@ -124,7 +124,7 @@ chk "M4: zpod-rtc enabled"                    test -L "$R/etc/systemd/system/sys
 chk "M4: zpod-rtc-sync.timer enabled"         test -L "$R/etc/systemd/system/timers.target.wants/zpod-rtc-sync.timer"
 chk "M4: hwclock installed"                   bash -c "ls '$R'/usr/sbin/hwclock '$R'/sbin/hwclock 2>/dev/null | grep -q ."
 chk "M4: fake-hwclock absent"                 bash -c "! ls '$R'/etc/systemd/system/*.wants/fake-hwclock.service '$R'/sbin/fake-hwclock 2>/dev/null | grep -q ."
-chk "M4: zpod-battery-guard enabled"          test -L "$R/etc/systemd/system/multi-user.target.wants/zpod-battery-guard.service"
+chk "M4: low-battery guard enabled (M6: zpod-battery)" bash -c "test -L '$R/etc/systemd/system/multi-user.target.wants/zpod-battery-guard.service' || test -L '$R/etc/systemd/system/multi-user.target.wants/zpod-battery.service'"
 chk "M4: ui.conf [battery] shutdown_pct = 5"  grep -qx 'shutdown_pct = 5' "$R/etc/zpod/ui.conf"
 chk "M4: ui.conf [display] spi_mhz = 32"      grep -qx 'spi_mhz = 32' "$R/etc/zpod/ui.conf"
 # --- M4.1: login setup (no password/key baked) + build identity -------------
@@ -236,7 +236,8 @@ if [[ $M6 = 1 ]]; then
   chk "M6 boot: auto_initramfs=0"               grep -qx 'auto_initramfs=0' "$TMP/config.txt"
   chk "M6 boot: no vc4-kms-v3d"                 bash -c "! grep -q '^dtoverlay=vc4-kms-v3d' '$TMP/config.txt'"
   chk "M6 boot: camera/display autodetect off"  bash -c "grep -qx 'camera_auto_detect=0' '$TMP/config.txt' && grep -qx 'display_auto_detect=0' '$TMP/config.txt'"
-  chk "M6 boot: disable_splash=1, boot_delay=0" bash -c "grep -qx 'disable_splash=1' '$TMP/config.txt' && grep -qx 'boot_delay=0' '$TMP/config.txt'"
+  chk "M6 boot: disable_splash=1, boot_delay=0, initial_turbo=30" bash -c "grep -qx 'disable_splash=1' '$TMP/config.txt' && grep -qx 'boot_delay=0' '$TMP/config.txt' && grep -qx 'initial_turbo=30' '$TMP/config.txt'"
+  chk "M6 boot: firmware settings in [all] (after the last section header)" bash -c "[ \"\$(grep -E '^\[' '$TMP/config.txt' | tail -1)\" = '[all]' ] && [ \$(grep -n '^disable_splash=1' '$TMP/config.txt' | cut -d: -f1) -gt \$(grep -n '^\[all\]' '$TMP/config.txt' | tail -1 | cut -d: -f1) ]"
   chk "M6 boot: cmdline quiet"                  grep -qw quiet "$TMP/cmdline.txt"
   kv6=$(basename "$R"/lib/modules/*-rpi-v6)
   chk "M6 boot: ext4 + SD host built into $kv6 (no initramfs needed)" bash -c "for m in kernel/fs/ext4/ext4.ko kernel/drivers/mmc/core/mmc_block.ko kernel/drivers/mmc/host/bcm2835.ko; do grep -qx \$m '$R/lib/modules/$kv6/modules.builtin' || exit 1; done"
