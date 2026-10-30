@@ -1,6 +1,6 @@
 #!/bin/sh
 # Hardware helpers, all in the background: buttons (uinput "zpod-buttons",
-# the only volume writer), audio defaults, battery guard. Python start-up is
+# the only volume writer), audio defaults, battery logger/guard (zpod-battery). Python start-up is
 # slow on a Zero W, so none of this blocks the launcher (which retries input).
 start() {
 	mkdir -p /run/zpod
@@ -17,8 +17,10 @@ start() {
 			/usr/lib/zpod/zpod-audio-init.sh && alsactl -f /var/lib/alsa/asound.state store
 		fi
 	) </dev/null >>/run/zpod/audio.log 2>&1 &
+	# M6: zpod-battery (Rust) logs SOC/volts once a minute to /data/zpod/battery.log
+	# (Battery page) and powers off when empty; replaces zpod_battery_guard.py
 	start-stop-daemon -S -b -m -p /run/zpod/battery.pid -a /bin/sh -- -c \
-		'exec /usr/bin/python3 /usr/lib/zpod/zpod_battery_guard.py >>/run/zpod/battery.log 2>&1'
+		'exec nice -n 10 /usr/lib/zpod/bin/zpod-battery >>/run/zpod/battery.log 2>&1'
 }
 stop() {
 	alsactl -f /var/lib/alsa/asound.state store 2>/dev/null

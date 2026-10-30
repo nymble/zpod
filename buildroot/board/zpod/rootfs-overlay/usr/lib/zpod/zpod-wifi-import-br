@@ -10,6 +10,10 @@ BOOT=${ZPOD_BOOT_DIR:-/boot/firmware}
 CONF=${ZPOD_WPA_CONF:-/data/etc/wpa_supplicant.conf}
 TXT=$BOOT/zpod-wifi.txt
 log() { echo "zpod-wifi-import: $*"; }
+# M6 boot notice (files that arrive after the first boot; no SSID, no password)
+BOOTED_ONCE=${ZPOD_BOOTED_ONCE:-/var/lib/zpod/booted-once}
+NOTICE=${ZPOD_NOTICE:-/run/zpod/boot-notice}
+notice() { [ -e "$BOOTED_ONCE" ] || return 0; mkdir -p "${NOTICE%/*}"; printf '%s\n' "$*" >> "$NOTICE"; }
 umask 077
 if [ ! -f "$CONF" ]; then
 	printf 'ctrl_interface=DIR=/run/wpa_supplicant GROUP=zpod\nupdate_config=1\ncountry=US\n' > "$CONF"
@@ -62,7 +66,9 @@ if [ "$ok" = 1 ]; then
 	} >> "$tmp"
 	chmod 600 "$tmp"; mv -f "$tmp" "$CONF"; sync
 	log "imported zpod-wifi.txt into $CONF"
+	notice "zpod-wifi.txt: Wi-Fi network added"
 fi
+[ "$ok" = 1 ] || notice "zpod-wifi.txt: not valid, not imported (deleted)"
 ssid= psk= hexpsk=
 # overwrite, then delete (best effort: SD cards remap blocks)
 shred -z -n 1 -u "$TXT" 2>/dev/null || { dd if=/dev/zero of="$TXT" bs=512 count=8 conv=notrunc 2>/dev/null; rm -f "$TXT"; }

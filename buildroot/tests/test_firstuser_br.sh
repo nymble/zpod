@@ -15,7 +15,8 @@ setup() {
 	printf 'root:x:0:0:root:/root:/bin/sh\nzpod:x:999:999:ZPOD apps:/home/zpod:/bin/sh\n' > $T/etc/passwd
 	printf 'root:*::::::::\nzpod:*:::::::\n' > $T/etc/shadow
 	printf 'root:x:0:\naudio:x:29:zpod\nvideo:x:44:zpod\ninput:x:101:zpod\nsudo:x:27:\nzpod:x:999:\n' > $T/etc/group
-	export ZPOD_BOOT_DIR=$T/boot ZPOD_ETC=$T/etc ZPOD_HOMES=$T/home
+	export ZPOD_BOOT_DIR=$T/boot ZPOD_ETC=$T/etc ZPOD_HOMES=$T/home \
+		ZPOD_BOOTED_ONCE=$T/booted-once ZPOD_NOTICE=$T/notice
 }
 run() { sh "$S" > $T/log 2>&1; }
 
@@ -59,6 +60,17 @@ ok "6 private key refused" "[ ! -s $T/etc/ssh/authorized_keys ] && [ ! -e $T/boo
 
 setup; echo "root:$HASH" > $T/boot/userconf.txt; run
 ok "7 root in userconf refused" "grep -q '^root:\*:' $T/etc/shadow && [ -f $T/boot/failed_userconf.txt ]"
+
+# M6 boot notice: nothing on the first boot, one line per file afterwards
+setup; echo "$KEY" > $T/boot/zpod-ssh.pub; run
+ok "8 first boot: no notice" "[ ! -e $T/notice ]"
+touch $T/booted-once; echo "paul:$HASH" > $T/boot/userconf.txt
+echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAISecondTestKey000000000000000000000000000 b@mac' > $T/boot/zpod-ssh.pub; run
+ok "8 later boot: login notice" "grep -qx 'userconf.txt: login paul created' $T/notice"
+ok "8 later boot: key notice" "grep -qx 'zpod-ssh.pub: 1 new SSH key(s) for paul' $T/notice"
+ok "8 notice has no hash" "! grep -q testsalt $T/notice"
+setup; touch $T/booted-once; echo "paul:secret" > $T/boot/userconf.txt; run
+ok "8 invalid userconf notice" "grep -qx 'userconf.txt: invalid, renamed failed_userconf.txt' $T/notice"
 
 echo "passed $pass, failed $fail"
 [ $fail = 0 ]

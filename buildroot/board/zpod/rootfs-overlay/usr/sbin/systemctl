@@ -4,6 +4,9 @@
 #   poweroff | reboot | halt
 #   is-active|is-enabled|enable|disable|start|stop [--now] [--quiet] zpod-rsyncd.socket
 #     (the optional rsync share on the USB link, File transfer screen)
+#   is-active|is-enabled|enable|disable|start|stop|restart|try-restart [--now]
+#     zpod-drop.socket / zpod-drop.service (M6 drop box + OPDS; off by default;
+#     enabled = flag /data/etc/zpod/drop.enabled, run by /etc/init.d/S60zpod-drop)
 #   list-jobs   (nothing queued)
 q=0 now=0 cmd= unit=
 for a in "$@"; do
@@ -27,6 +30,20 @@ zpod-rsyncd|zpod-rsyncd.socket|zpod-rsyncd.service)
 	enable) mkdir -p ${FLAG%/*} && touch $FLAG && sync; [ $now = 1 ] && $R start; exit 0 ;;
 	disable) rm -f $FLAG; sync; [ $now = 1 ] && $R stop; exit 0 ;;
 	start) $R start force ;; stop) $R stop ;; restart) $R restart ;;
+	*) echo "systemctl: '$cmd' not supported for $unit" >&2; exit 1 ;;
+	esac ;;
+esac
+case "$unit" in
+zpod-drop|zpod-drop.socket|zpod-drop.service)
+	D=/etc/init.d/S60zpod-drop DF=/data/etc/zpod/drop.enabled
+	case "$cmd" in
+	is-active) $D status && { [ $q = 1 ] || echo active; exit 0; }; [ $q = 1 ] || echo inactive; exit 3 ;;
+	is-enabled) [ -e $DF ] && { [ $q = 1 ] || echo enabled; exit 0; }; [ $q = 1 ] || echo disabled; exit 1 ;;
+	enable) mkdir -p ${DF%/*} && touch $DF && sync; [ $now = 1 ] && $D start; exit 0 ;;
+	disable) rm -f $DF; sync; [ $now = 1 ] && $D stop; exit 0 ;;
+	start) $D start force ;; stop) $D stop ;;
+	restart) $D restart force ;;
+	try-restart) $D status && $D restart force; exit 0 ;;
 	*) echo "systemctl: '$cmd' not supported for $unit" >&2; exit 1 ;;
 	esac ;;
 esac

@@ -5,7 +5,8 @@
 #  2. Accounts: /etc/{passwd,shadow,group} are symlinks to /data/etc (the root
 #     is read-only squashfs); seed them from /usr/share/zpod/etc-base and add
 #     system accounts that a newer image brings.
-#  3. Bind /data/media on /srv/zpod/media (same as the Pi OS M5 layout).
+#  3. Bind /data/media on /srv/zpod/media (same as the Pi OS M5 layout) and
+#     /data/etc/zpod on /etc/zpod; apply first-boot files from ZPODBOOT.
 # Growing p4 to the end of the card runs later, in the background (S00).
 DISK=/dev/mmcblk0
 P=${DISK}p4
@@ -33,5 +34,38 @@ for f in passwd group shadow; do
 	fi
 done
 chmod 644 /data/etc/passwd /data/etc/group; chmod 600 /data/etc/shadow
+mkdir -p /data/media/music /data/media/playlists /data/zpod/apps /data/zpod/appdata \
+	/data/etc/dropbear /data/etc/ssh /data/etc/zpod /data/etc/sudoers.d /data/home \
+	/data/var/mpd /data/var/zpod /data/var/alsa /data/var/seedrng /data/var/dbus \
+	/data/var/bluetooth /data/log /data/books /data/inbox \
+	/data/etc/NetworkManager/system-connections
+# same owners as the Pi OS zpod-data-setup: music uid 1000 (login user)
+chown 1000:1000 /data/media /data/media/music /data/media/playlists /data/books /data/inbox
+chmod 0775 /data/media /data/media/music /data/media/playlists /data/books /data/inbox
+chmod 700 /data/etc/NetworkManager/system-connections
+chown zpod:zpod /data/zpod/appdata
+chmod 700 /data/etc/ssh /data/etc/dropbear /data/var/bluetooth
+chmod 750 /data/etc/sudoers.d
 mountpoint -q /srv/zpod/media || mount --bind /data/media /srv/zpod/media
+# /etc/zpod writable (the launcher's Tools switches rewrite drop.conf): copy the
+# image's files to /data/etc/zpod on every boot (drop.conf only if missing:
+# it holds the user's switches and token), then bind it over /etc/zpod.
+if ! mountpoint -q /etc/zpod; then
+	mkdir -p /data/etc/zpod
+	for f in /etc/zpod/*; do
+		n=${f##*/}
+		[ "$n" = drop.conf ] && [ -e /data/etc/zpod/drop.conf ] && continue
+		cp -p "$f" "/data/etc/zpod/$n"
+	done
+	mount --bind /data/etc/zpod /etc/zpod
+fi
+# First-boot files present: apply them now, before the launcher starts, so
+# its boot notice (M6) can report them. Without such files this costs nothing.
+B=/boot/firmware
+if [ -e $B/userconf.txt ] || [ -e $B/userconf ] || [ -e $B/zpod-ssh.pub ] || [ -e $B/zpod-wifi.txt ]; then
+	mkdir -p /data/log /run/zpod
+	/usr/lib/zpod/zpod-firstuser-br >>/data/log/firstuser.log 2>&1
+	/usr/lib/zpod/zpod-wifi-import-br >>/run/zpod/wifi.log 2>&1
+	/usr/sbin/zpod-bootmark first-boot-files
+fi
 exit 0

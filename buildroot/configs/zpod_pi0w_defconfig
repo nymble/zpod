@@ -1,5 +1,5 @@
 # ZPOD (uGeek handheld, Raspberry Pi Zero W Rev 1.1, BCM2835 / ARMv6 hard-float)
-# Buildroot fast-boot image (M6 test). Based on Buildroot 2026.02.3
+# Buildroot fast-boot image (M6 test2). Based on Buildroot 2026.02.3
 # configs/raspberrypi0w_defconfig. Build: buildroot/build.sh (docs/BUILDROOT.md).
 BR2_arm=y
 BR2_arm1176jzf_s=y
@@ -21,7 +21,7 @@ BR2_OPTIMIZE_2=y
 
 # --- system: BusyBox init + mdev, read-only root, no getty on serial ---
 BR2_TARGET_GENERIC_HOSTNAME="zpod"
-BR2_TARGET_GENERIC_ISSUE="ZPOD (Buildroot fast-boot M6 test)"
+BR2_TARGET_GENERIC_ISSUE="ZPOD (Buildroot fast-boot M6 test2)"
 BR2_INIT_BUSYBOX=y
 BR2_ROOTFS_DEVICE_CREATION_DYNAMIC_MDEV=y
 # BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW is not set
@@ -89,6 +89,7 @@ BR2_PACKAGE_WPA_SUPPLICANT=y
 BR2_PACKAGE_WPA_SUPPLICANT_NL80211=y
 BR2_PACKAGE_WPA_SUPPLICANT_CLI=y
 BR2_PACKAGE_WPA_SUPPLICANT_PASSPHRASE=y
+BR2_PACKAGE_HOSTAPD=y
 BR2_PACKAGE_IW=y
 BR2_PACKAGE_DROPBEAR=y
 BR2_PACKAGE_GESFTPSERVER=y

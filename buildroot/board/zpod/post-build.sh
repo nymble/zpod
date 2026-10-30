@@ -40,6 +40,10 @@ done
 # launcher's File transfer screen (the systemctl shim drives S61zpod-rsyncd)
 install -D -m 0644 "${BR2_EXTERNAL_ZPOD_PATH}/../apps/system/etc/zpod/rsyncd.conf" "$T/etc/zpod/rsyncd.conf"
 install -D -m 0644 "${BR2_EXTERNAL_ZPOD_PATH}/../apps/system/systemd/zpod-rsyncd.socket" "$T/usr/lib/systemd/system/zpod-rsyncd.socket"
+# Hotspot profile (the launcher writes a NetworkManager keyfile; the nmcli
+# shim runs hostapd from it): writable, on /data, 0700 (created at boot)
+mkdir -p "$T/etc/NetworkManager"
+ln -sfn /data/etc/NetworkManager/system-connections "$T/etc/NetworkManager/system-connections"
 # mdev: device access for the "zpod" app user (LCD, GPIO, I2C, buttons)
 if ! grep -q '^# ZPOD' "$T/etc/mdev.conf" 2>/dev/null; then
 	{
@@ -55,10 +59,20 @@ if ! grep -q '^# ZPOD' "$T/etc/mdev.conf" 2>/dev/null; then
 fi
 # Build identification (the launcher's About / Storage & build screens)
 REPO="${BR2_EXTERNAL_ZPOD_PATH}/.."
-DESC=$(git -C "$REPO" describe --always --dirty --tags 2>/dev/null || echo unknown)
+# M6 version/About split: ZPOD_VERSION = the image release (ZPOD_BR_VERSION,
+# set by the release build), the app core version stays in /etc/zpod/core-version.
+G="git -c safe.directory=* -C $REPO"
+GIT=$($G rev-parse --short=7 HEAD 2>/dev/null || echo unknown)
+[ -n "$($G status --porcelain --untracked-files=no 2>/dev/null)" ] && GIT="$GIT+dirty"
+DESC=$($G describe --always --dirty --tags 2>/dev/null || echo unknown)
+CORE=$(cat "$T/etc/zpod/core-version" 2>/dev/null || echo 0)
+VER=${ZPOD_BR_VERSION:-br-dev-$CORE}
 cat > "$T/etc/zpod-release" <<EOR
 ZPOD_BUILD=buildroot
-ZPOD_VERSION=$(cat "$T/etc/zpod/core-version" 2>/dev/null || echo 0)
-ZPOD_GIT=$DESC
+ZPOD_IMAGE=${ZPOD_BR_IMAGE:-$(date -u +%Y-%m-%d)-zpod-pi0w-$VER}
+ZPOD_VERSION=$VER
+ZPOD_CORE_VERSION=$CORE
+ZPOD_GIT=$GIT
+ZPOD_DESCRIBE=$DESC
 ZPOD_BUILD_DATE=$(date -u +%Y-%m-%d)
 EOR

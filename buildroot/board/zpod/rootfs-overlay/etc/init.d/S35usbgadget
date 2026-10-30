@@ -15,7 +15,8 @@ start() {
 	) </dev/null >>/run/zpod/usb.log 2>&1 &
 }
 stop() {
-	killall -q udhcpd
+	# only the USB one (a hotspot udhcpd on wlan0 has its own pidfile)
+	[ -f /run/udhcpd.usb0.pid ] && kill "$(cat /run/udhcpd.usb0.pid)" 2>/dev/null
 	/usr/lib/zpod/zpod-usb-gadget.sh stop 2>/dev/null
 }
 case "$1" in start) start ;; stop) stop ;; restart) stop; start ;; esac

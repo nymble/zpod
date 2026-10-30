@@ -5,16 +5,7 @@
 case "$1" in
 start)
 	ip link set lo up 2>/dev/null
-	mkdir -p /data/media/music /data/media/playlists /data/zpod/apps /data/zpod/appdata \
-		/data/etc/dropbear /data/etc/ssh /data/etc/zpod /data/etc/sudoers.d /data/home \
-		/data/var/mpd /data/var/zpod /data/var/alsa /data/var/seedrng /data/var/dbus \
-		/data/var/bluetooth /data/log
-	# same owners as the Pi OS zpod-data-setup: music uid 1000 (login user)
-	chown 1000:1000 /data/media /data/media/music /data/media/playlists
-	chmod 0775 /data/media /data/media/music /data/media/playlists
-	chown zpod:zpod /data/zpod/appdata
-	chmod 700 /data/etc/ssh /data/etc/dropbear /data/var/bluetooth
-	chmod 750 /data/etc/sudoers.d
+	# /data directories: zpod-data-early (sysinit)
 	[ -s /data/etc/machine-id ] || { dbus-uuidgen > /data/etc/machine-id 2>/dev/null || cat /proc/sys/kernel/random/uuid | tr -d '-' > /data/etc/machine-id; }
 	# Device nodes the apps (user zpod) need; mdev keeps hotplugged ones in line
 	for d in /dev/spidev0.0 /dev/spidev0.1 /dev/gpiochip* /dev/gpiomem /dev/i2c-1; do
@@ -28,8 +19,8 @@ start)
 			[ -e "$a" ] && ZPOD_CORE_VERSION_FILE=/etc/zpod/core-version /usr/lib/zpod/bin/zpod-app install --force "$a"
 		done
 	fi
-	# First boot (and later): login user + SSH keys from the FAT boot partition
-	# (zpod-wifi.txt is imported by S40wifi, in the background)
+	# Login user + SSH keys from the FAT boot partition (normally already done
+	# by zpod-data-early before the launcher; no-op then). zpod-wifi.txt: S40wifi
 	/usr/lib/zpod/zpod-firstuser-br >>/data/log/firstuser.log 2>&1
 	# /data grows to the end of the card (first boot only; online, background)
 	( /usr/sbin/zpod-data-grow >>/data/log/data-grow.log 2>&1; /usr/sbin/zpod-bootmark data-grow-done ) </dev/null &

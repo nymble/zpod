@@ -23,6 +23,17 @@ dump() {
 	for b in sudo btmgmt bluetoothctl mpc rsync sfdisk partx resize2fs wpa_cli iw nmcli; do printf '%s=%s ' $b "$(command -v $b || echo MISSING)"; done; echo
 	nmcli -t -f ACTIVE,SSID,SIGNAL device wifi list --rescan no 2>&1 | head -3
 	systemctl is-enabled zpod-rsyncd.socket; systemctl is-active zpod-rsyncd.socket
+	# M6
+	echo "boot-notice:"; sed 's/^/  notice| /' /run/zpod/boot-notice /data/var/zpod/boot-notice.last 2>/dev/null
+	ls /var/lib/zpod/booted-once 2>&1
+	grep -E '^ZPOD_(VERSION|CORE_VERSION|GIT|IMAGE)=' /etc/zpod-release
+	grep ' /etc/zpod ' /proc/mounts | cut -d' ' -f1-3; grep -E '^(dropbox|opds) *=' /etc/zpod/drop.conf
+	systemctl is-enabled zpod-drop.socket; systemctl is-active zpod-drop.service
+	ls -ld /data/books /data/inbox /etc/NetworkManager/system-connections 2>&1
+	printf 'saved-networks=%s\n' "$(nmcli -t -f NAME,UUID,TYPE,AUTOCONNECT,ACTIVE connection show 2>/dev/null | grep -c ':wpa-')"
+	for b in hostapd udhcpd zpod-battery; do printf '%s=%s ' $b "$(command -v $b || ls /usr/lib/zpod/bin/$b 2>/dev/null || echo MISSING)"; done; echo
+	ps -o pid,args | grep -E 'zpod-battery|zpod-drop|hostapd' | grep -v grep
+	tail -n 2 /run/zpod/battery.log /data/zpod/battery.log 2>/dev/null
 	echo "=== end ==="
 }
 dump rcS-done

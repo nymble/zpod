@@ -5,6 +5,8 @@
 #          grow) and put test first-boot files on the FAT partition: a throwaway
 #          userconf.txt (random password, hash only), zpod-ssh.pub (test key),
 #          zpod-wifi.txt (dummy SSID/PSK, checks the import and shred).
+#   late   put a second test key (zpod-ssh.pub) on the FAT partition: on the
+#          next boot the launcher shows it in the M6 boot notice.
 #   boot   boot sd.img; serial log to $Q/boot<N>.log. zpod.debug on the cmdline
 #          dumps the boot marks and state after rcS and 20 s later.
 # QEMU has no SPI panel, I2C devices, UDC, Wi-Fi or BT, so those parts are
@@ -31,6 +33,12 @@ setup)
 	printf 'SSID=%s\nPSK=%s\n' 'qemu-test-net' 'not-a-real-password' > "$T/zpod-wifi.txt"
 	for f in userconf.txt zpod-ssh.pub zpod-wifi.txt; do mcopy -o -i "$Q/sd.img@@$off" "$T/$f" ::$f; done
 	rm -rf "$T"; mdir -i "$Q/sd.img@@$off" ::
+	;;
+late)
+	off=$(( $(sfdisk -d "$Q/sd.img" | sed -n 's/.*: start= *\([0-9]*\),.*/\1/p' | head -n1) * 512 ))
+	T=$(mktemp -d)
+	echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIQemuLateKeyNotARealKey000000000000000000 qemu-late' > "$T/zpod-ssh.pub"
+	mcopy -o -i "$Q/sd.img@@$off" "$T/zpod-ssh.pub" ::zpod-ssh.pub; rm -rf "$T"
 	;;
 boot)
 	n=1; while [ -e "$Q/boot$n.log" ]; do n=$((n+1)); done
