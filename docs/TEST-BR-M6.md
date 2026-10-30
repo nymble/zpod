@@ -1,4 +1,4 @@
-# Hardware test: Buildroot fast-boot M6 test image (`v0.8.0-br-m6-fastboot-test1`)
+# Hardware test: Buildroot fast-boot M6 test image (`v0.9.0-br-m6-fastboot-test2`)
 
 **Spare card only** (Paul's older 32 GB card). Do not use the M5 music card:
 writing the image erases the card. Mac commands are zsh; `Pi$` is on the ZPOD
@@ -6,7 +6,7 @@ over SSH. Design and background: [BUILDROOT.md](./BUILDROOT.md).
 
 ## 0. Write and prepare the card (before the first power-on)
 
-1. Raspberry Pi Imager → "Use custom" → `2026-10-30-zpod-pi0w-v0.8.0-br-m6-fastboot-test1.img.xz`
+1. Raspberry Pi Imager → "Use custom" → `2026-10-30-zpod-pi0w-v0.9.0-br-m6-fastboot-test2.img.xz`
    (in `~/Downloads`) → the spare card. No Imager customisation (it is ignored).
 2. Re-insert the card: it mounts as **`/Volumes/ZPODBOOT`**. Put the
    first-boot files on it:
@@ -24,7 +24,7 @@ diskutil eject /Volumes/ZPODBOOT
 - [ ] Film the screen and the power switch together. Power on.
 - [ ] Expected on the 320x240 panel: the **ZPOD boot splash** (logo + progress
       bar) after ~2–3 s, then the **launcher home screen**: Music, Clock,
-      Tetris and System with icons, status bar (time, battery %, Wi-Fi bars,
+      Tetris and System with icons (core 0.9.0 / M6), status bar (time, battery %, Wi-Fi bars,
       USB badge, volume). Estimate: **~5–6 s from power-on** (not yet measured).
 - [ ] Record: power switch → splash, power switch → home screen (from the video).
 - [ ] `Pi$ zpod-boottime` (connect USB first, see 3). Note `launcher-exec` and
@@ -81,7 +81,29 @@ If the panel stays black or white: wait 30 s, then try SSH (3); send
 - [ ] Play music while the Bluetooth scanner runs: no mute or hiss (GPIO14
       stays LOW; Bluetooth is on the internal PL011, GPIO30-33).
 
-## 7. Power
+## 7. M6 apps (Buildroot backends)
+
+- [ ] System > About: version `v0.9.0-br-m6-fastboot-test2`, git commit and
+      build date; core 0.9.0 shown separately.
+- [ ] Battery panel: % / volts / rate; after a few minutes
+      `Pi$ tail /data/zpod/battery.log` has one line per minute.
+- [ ] Wi-Fi tools > Signal meter follows the signal when you walk away.
+- [ ] Wi-Fi tools > Channels lists the 2.4 GHz channels and their networks.
+- [ ] Wi-Fi tools > Saved networks lists the `zpod-wifi.txt` network as
+      active; "Connect" on it reconnects (`Pi$ wpa_cli status`).
+- [ ] Hotspot on: a phone sees `ZPOD-xxxx`, joins with the shown password and
+      gets 10.42.0.x; the client count goes to 1. `Pi$ cat /run/zpod/hostapd.log`.
+- [ ] With the hotspot on, Tools > Drop box on: the phone opens
+      `http://10.42.0.1:8080/` and uploads a file (lands in `/data/inbox` or
+      music); Book catalog on: an OPDS reader (KOReader) lists `/data/books`.
+- [ ] Hotspot off: the ZPOD rejoins home Wi-Fi within ~30 s (`ip -4 addr show wlan0`).
+- [ ] Drop box/Book catalog off again; after a reboot both are still off
+      (`Pi$ systemctl is-active zpod-drop.service` → inactive).
+- [ ] Boot notice: copy a second public key to ZPODBOOT as `zpod-ssh.pub`
+      and boot: the launcher's first screen says "zpod-ssh.pub: 1 new SSH
+      key(s) for paul" (and for root); OK dismisses it.
+
+## 8. Power
 
 - [ ] System > Shutdown: end screen, then safe to switch off. Power on again: boots.
 - [ ] Reboot from the menu works.

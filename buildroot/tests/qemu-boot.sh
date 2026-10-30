@@ -43,8 +43,11 @@ late)
 	T=$(mktemp -d)
 	echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIQemuLateKeyNotARealKey000000000000000000 qemu-late' > "$T/zpod-ssh.pub"
 	mcopy -o -i "$Q/sd.img@@$off" "$T/zpod-ssh.pub" ::zpod-ssh.pub
-	set -- $(sfdisk -d "$Q/sd.img" | sed -n 's/.*p4 : start= *\([0-9]*\), size= *\([0-9]*\),.*/\1 \2/p')
+	set -- $(sfdisk -d "$Q/sd.img" | sed -n 's/.*[^0-9]4 : start= *\([0-9]*\), size= *\([0-9]*\),.*/\1 \2/p')
 	dd if="$Q/sd.img" of="$T/p4" bs=512 skip="$1" count="$2" status=none
+	# QEMU is stopped by a timeout (like pulling power): replay the journal
+	# first, or debugfs edits are overwritten by the replay at the next mount
+	e2fsck -fy "$T/p4" >/dev/null 2>&1 || true
 	date +%s > "$T/once"
 	debugfs -w -R "write $T/once var/zpod/booted-once" "$T/p4" >/dev/null 2>&1
 	debugfs -R "ls var/zpod" "$T/p4" 2>/dev/null | grep -q booted-once || { echo "late: booted-once not written"; exit 1; }
@@ -53,8 +56,11 @@ late)
 	;;
 drop-on)
 	T=$(mktemp -d)
-	set -- $(sfdisk -d "$Q/sd.img" | sed -n 's/.*p4 : start= *\([0-9]*\), size= *\([0-9]*\),.*/\1 \2/p')
+	set -- $(sfdisk -d "$Q/sd.img" | sed -n 's/.*[^0-9]4 : start= *\([0-9]*\), size= *\([0-9]*\),.*/\1 \2/p')
 	dd if="$Q/sd.img" of="$T/p4" bs=512 skip="$1" count="$2" status=none
+	# QEMU is stopped by a timeout (like pulling power): replay the journal
+	# first, or debugfs edits are overwritten by the replay at the next mount
+	e2fsck -fy "$T/p4" >/dev/null 2>&1 || true
 	debugfs -R "cat etc/zpod/drop.conf" "$T/p4" 2>/dev/null | sed -e 's/^dropbox *=.*/dropbox = on/' -e 's/^opds *=.*/opds = on/' > "$T/drop.conf"
 	grep -q '^dropbox = on' "$T/drop.conf" || { echo "drop-on: no drop.conf on /data"; exit 1; }
 	: > "$T/flag"

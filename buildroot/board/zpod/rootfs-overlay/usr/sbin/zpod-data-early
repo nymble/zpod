@@ -59,10 +59,12 @@ if ! mountpoint -q /etc/zpod; then
 	done
 	mount --bind /data/etc/zpod /etc/zpod
 fi
-# First-boot files present: apply them now, before the launcher starts, so
-# its boot notice (M6) can report them. Without such files this costs nothing.
+# Setup files added AFTER the first boot: apply them now, before the launcher
+# starts, so its boot notice (M6) can report them. On the very first boot
+# (no booted-once yet; nothing is reported then) they stay in S00zpod-data /
+# S40wifi so the launcher is not delayed. Without such files this costs nothing.
 B=/boot/firmware
-if [ -e $B/userconf.txt ] || [ -e $B/userconf ] || [ -e $B/zpod-ssh.pub ] || [ -e $B/zpod-wifi.txt ]; then
+if [ -e /data/var/zpod/booted-once ] && { [ -e $B/userconf.txt ] || [ -e $B/userconf ] || [ -e $B/zpod-ssh.pub ] || [ -e $B/zpod-wifi.txt ]; }; then
 	mkdir -p /data/log /run/zpod
 	/usr/lib/zpod/zpod-firstuser-br >>/data/log/firstuser.log 2>&1
 	/usr/lib/zpod/zpod-wifi-import-br >>/run/zpod/wifi.log 2>&1

@@ -1,8 +1,8 @@
-# Buildroot fast-boot image (M6 test)
+# Buildroot fast-boot image (M6 test2)
 
 **Status: test image, built and booted in QEMU, not yet booted on hardware (2026-10-30).**
 Tracking issue: [#22](https://github.com/nymble/zpod/issues/22). Branch: `buildroot`, draft PR [#23](https://github.com/nymble/zpod/pull/23).
-Prereleases: [`v0.8.0-br-m6-fastboot-test1`](https://github.com/nymble/zpod/releases/tag/v0.8.0-br-m6-fastboot-test1) (M6 test, this document), [`v0.7.0-br-poc1`](https://github.com/nymble/zpod/releases/tag/v0.7.0-br-poc1) (first PoC).
+Prereleases: [`v0.9.0-br-m6-fastboot-test2`](https://github.com/nymble/zpod/releases/tag/v0.9.0-br-m6-fastboot-test2) (M6 apps, core 0.9.0, this document), [`v0.8.0-br-m6-fastboot-test1`](https://github.com/nymble/zpod/releases/tag/v0.8.0-br-m6-fastboot-test1) (M6 platform work, M5 apps), [`v0.7.0-br-poc1`](https://github.com/nymble/zpod/releases/tag/v0.7.0-br-poc1) (first PoC).
 
 This is the second OS track for the ZPOD: a Buildroot image with BusyBox
 init, a read-only squashfs root and a writable `/data` partition, running the
@@ -59,19 +59,19 @@ both VMs. `--network-address` (vz NAT, `network.address: true` and
 
 | Path | What |
 |---|---|
-| `configs/zpod_pi0w_defconfig` | ARM1176JZF-S, internal glibc toolchain (GCC 15, C++, headers from the 6.12 kernel; Bootlin toolchains are x86_64-host only), RPi kernel 6.12.61 `bcmrpi` + fragment, rpi-firmware, brcmfmac Wi-Fi + BT firmware, BusyBox init + mdev, squashfs LZ4 root. Packages: ALSA, MPD (alsa, flac, mpg123, faad2, vorbis, opus, id3tag, sqlite) + mpc, python3 + evdev + smbus2, wpa_supplicant + wpa_cli, iw, dropbear, gesftpserver (macOS `scp` uses SFTP), rsync, BlueZ (bluetoothd, bluetoothctl, btmgmt) + D-Bus, sudo, util-linux (sfdisk, partx), i2c-tools, e2fsprogs, exfatprogs |
+| `configs/zpod_pi0w_defconfig` | ARM1176JZF-S, internal glibc toolchain (GCC 15, C++, headers from the 6.12 kernel; Bootlin toolchains are x86_64-host only), RPi kernel 6.12.61 `bcmrpi` + fragment, rpi-firmware, brcmfmac Wi-Fi + BT firmware, BusyBox init + mdev, squashfs LZ4 root. Packages: ALSA, MPD (alsa, flac, mpg123, faad2, vorbis, opus, id3tag, sqlite) + mpc, python3 + evdev + smbus2, wpa_supplicant + wpa_cli, hostapd (hotspot), iw, dropbear, gesftpserver (macOS `scp` uses SFTP), rsync, BlueZ (bluetoothd, bluetoothctl, btmgmt) + D-Bus, sudo, util-linux (sfdisk, partx), i2c-tools, e2fsprogs, exfatprogs |
 | `board/zpod/linux.fragment` | squashfs/ext4 built in (no initramfs), spidev + GPIO cdev, uinput, `RASPBERRYPI_GPIOMEM=y`, bcm2835 I2S + PCM512x, I2C chardev, **DS3231 built in with `RTC_HCTOSYS`**, dwc2 + configfs NCM/ECM/RNDIS/ACM/mass storage, brcmfmac, Bluetooth `hci_uart` serdev + BCM (modules), exFAT. **M6 trim:** no ftrace/kprobes/kallsyms/latencytop/debugfs/audit/BPF/cgroups/LSM, no NFS/F2FS/other unused file systems, no netfilter/qdiscs/IPsec, no DRM/media, USB host/SCSI/HID as modules (the data port is gadget-only). zImage **4.6 MB (was 9.4 MB)** |
 | `board/zpod/config.txt` | the pi-gen hardware lines (I2C/I2S/SPI, `gpio=14=op,dl`, DC/backlight pins, button pull-ups, `dtoverlay=aoide-zpod-dac`, `i2c-rtc,ds3231`, `dwc2,dr_mode=peripheral`), plus `hdmi_ignore_hotplug=1`, `disable_splash=1`, `boot_delay=0`, `auto_initramfs=0`, `gpu_mem=16`. No `miniuart-bt`/`disable-bt` (see Bluetooth) |
 | `board/zpod/cmdline.txt` | `root=/dev/mmcblk0p2 rootfstype=squashfs ro quiet loglevel=3 console=tty1` (no serial console: GPIO14 must stay low) |
 | `package/zpod-dac` | `aoide-zpod-dac.ko` built from `drivers/aoide-zpod-dac/` (same source as the DKMS package) |
 | `package/zpod-overlays` | `aoide-zpod-dac.dtbo` compiled from `drivers/aoide-zpod-dac/aoide-zpod-dac-overlay.dts` |
-| `package/zpod-apps` | installs `apps/dist` (static musl ARMv6 launcher, bootsplash, drop, zpod-app + music/clock/tetris `.zpa`) |
-| `package/zpod-scripts` | `overlay/usr/lib/zpod/{zpod_buttons.py, zpod_battery_guard.py, zpod_hw.py, zpod-usb-gadget.sh, zpod-audio-init.sh}`, `asound.conf`, `buttons.conf`, `ui.conf` from the pi-gen overlay (single source) |
-| `board/zpod/rootfs-overlay/` | inittab, rcS with boot marks, init scripts, `zpod-data-early` / `zpod-data-grow`, `zpod-firstuser-br`, `zpod-wifi-import-br` + `zpod-wpa-psk`, mpd.conf, udhcpd, shims: `systemctl` (poweroff/reboot, the rsync share), `nmcli` (Wi-Fi scan/list on wpa_cli) |
-| `board/zpod/post-build.sh` | read-only root plumbing: `/opt/zpod/apps → /data/zpod/apps`, `/var/lib/{mpd,zpod,alsa,seedrng,dbus,bluetooth} → /data/var/*`, `/root/.ssh → /data/etc/ssh`, `/etc/dropbear → /data/etc/dropbear`, sudoers, btmgmt, rsyncd.conf, mdev rules, `/etc/zpod-release` |
+| `package/zpod-apps` | installs `apps/dist` (static musl ARMv6 launcher, bootsplash, drop (drop box + OPDS), zpod-battery, zpod-app + music/clock/tetris `.zpa`) |
+| `package/zpod-scripts` | `overlay/usr/lib/zpod/{zpod_buttons.py, zpod_hw.py, zpod-usb-gadget.sh, zpod-audio-init.sh}`, `asound.conf`, `buttons.conf`, `ui.conf` from the pi-gen overlay (single source) |
+| `board/zpod/rootfs-overlay/` | inittab, rcS with boot marks, init scripts, `zpod-data-early` / `zpod-data-grow`, `zpod-firstuser-br`, `zpod-wifi-import-br` + `zpod-wpa-psk`, mpd.conf, udhcpd, shims: `systemctl` (poweroff/reboot, the rsync share, the drop server), `nmcli` (Wi-Fi scan/list, saved networks and connect on wpa_cli, hotspot on hostapd + udhcpd) |
+| `board/zpod/post-build.sh` | read-only root plumbing: `/opt/zpod/apps → /data/zpod/apps`, `/var/lib/{mpd,zpod,alsa,seedrng,dbus,bluetooth} → /data/var/*`, `/root/.ssh → /data/etc/ssh`, `/etc/dropbear → /data/etc/dropbear`, sudoers, btmgmt, rsyncd.conf, mdev rules, `/etc/NetworkManager/system-connections → /data/...` (hotspot keyfile), `/etc/zpod-release` (`ZPOD_VERSION` = image release, `ZPOD_CORE_VERSION` = apps) |
 | `board/zpod/post-fakeroot.sh` | accounts on `/data`: `/etc/{passwd,group,shadow}` → `/data/etc/*` (base copies in `/usr/share/zpod/etc-base`), root password locked |
 | `board/zpod/post-image.sh`, `genimage.cfg.in` | pre-installs the bundled apps into the data partition and assembles `sdcard.img` |
-| `tests/` | `test_firstuser_br.sh` (26 cases), `test_shims_br.sh` (nmcli shim, data grow), `qemu-boot.sh` (QEMU smoke test) |
+| `tests/` | `test_firstuser_br.sh` (31 cases, incl. the boot notice), `test_shims_br.sh` (18: nmcli scan/saved/connect/hotspot, data grow), `qemu-boot.sh` (QEMU smoke test; `late`, `drop-on` steps) |
 
 ### Partition layout (MBR)
 
@@ -104,16 +104,19 @@ online (`resize2fs`). It is a no-op on later boots. Log: `/data/log/data-grow.lo
 ### Boot sequence (BusyBox init)
 
 1. `sysinit`: mount proc, sys and `/run`. Start **`zpod-bootsplash`** (Rust,
-   spidev). `zpod-data-early` (`mount -a`, `/data`, accounts, `/srv/zpod/media`
-   bind). Start the **launcher** in the background (`zpod-launcher-early`).
+   spidev). `zpod-data-early` (`mount -a`, `/data` and its directories,
+   accounts, `/srv/zpod/media` bind, `/data/etc/zpod` bind-mounted on
+   `/etc/zpod`; **setup files added after the first boot are applied here**
+   so the launcher's boot notice sees them; on the first boot they are applied
+   by `S00zpod-data`/`S40wifi` and do not delay the launcher). Start the **launcher** in the background (`zpod-launcher-early`).
 2. `rcS` runs `S00zpod-data` (layout, owners, device permissions, first login
    from `userconf.txt`/`zpod-ssh.pub`, `/data` grow in the background), seedrng,
    syslogd/klogd, `S10mdev` (module coldplug **in the background**),
-   `S30zpod-hw` (buttons daemon, audio defaults, battery guard; background),
+   `S30zpod-hw` (buttons daemon, audio defaults, `zpod-battery`; background),
    `S35usbgadget` (CDC-NCM + udhcpd; background), `S40wifi` (`zpod-wifi.txt`
    import, wpa_supplicant, DHCP, NTP; background), `S45bluetooth` (hci0,
-   D-Bus, bluetoothd; background), `S60zpod-drop`, `S61zpod-rsyncd` (only if
-   enabled). Dropbear and MPD start in the background.
+   D-Bus, bluetoothd; background), `S60zpod-drop` and `S61zpod-rsyncd` (both
+   only if switched on). Dropbear and MPD start in the background.
 3. `respawn`: `zpod-launcher-run` waits for the early launcher and restarts it
    whenever it exits. `tty1` getty is for HDMI debugging (root has no
    password; log in as the `userconf.txt` user).
@@ -155,7 +158,8 @@ What happens at first boot (`zpod-firstuser-br`, `zpod-wifi-import-br`):
 * `zpod-user.txt` + `zpod-ssh.pub` without `userconf.txt`: key-only login
   user with passwordless sudo (as on Pi OS). With only `zpod-ssh.pub`: root,
   key-only (dropbear `-s`, no password logins at all).
-* `zpod-wifi.txt`: imported in the background by `S40wifi` into
+* `zpod-wifi.txt`: imported (first boot: by `S40wifi` in the background;
+  later boots: in sysinit, for the boot notice) into
   `/data/etc/wpa_supplicant.conf` (0600, SSID hex-encoded, only the derived
   WPA PSK; `zpod-wpa-psk` computes it from stdin), then shredded and deleted.
 
@@ -166,17 +170,46 @@ ssh paul@10.12.194.1      # or: ssh root@10.12.194.1 (key only)
 zpod-boottime             # this boot's timing marks
 ```
 
+Files added **after** the first boot are reported on the launcher's first
+screen (M6 boot notice, `/run/zpod/boot-notice`, same lines as Pi OS, never a
+password or hash). They are applied in sysinit before the launcher, which
+costs time only on a boot where such a file is present (QEMU: about 0.3 s for
+a late SSH key; a late `zpod-wifi.txt` starts python for the PSK, about 1–2 s
+on a Zero W, estimate). On the first boot nothing is reported and the files are
+applied in the background as before.
+
 Logs: `/data/log/firstuser.log`, `/data/log/data-grow.log`, `/run/zpod/*.log`.
 
-## Wi-Fi without NetworkManager
+## Wi-Fi without NetworkManager (M6 Wi-Fi tools)
 
 `S40wifi` always starts wpa_supplicant on wlan0 (also with no network
 configured), with its control socket at `/run/wpa_supplicant` (group `zpod`).
-The launcher runs as root, so Tools > Wi-Fi scanner's `iw dev wlan0 scan`
-works directly. Its fallback calls `nmcli device wifi rescan`; `/usr/bin/nmcli`
-is a small shim that maps that (and `nmcli -t -f ACTIVE,SSID,SIGNAL device wifi
-list`) to `wpa_cli scan` / `scan_results`. Wi-Fi info uses `iw dev wlan0 link`.
-No app code changes were needed.
+The launcher runs as root. The M6 Wi-Fi tools were written for NetworkManager;
+on this image `/usr/bin/nmcli` is a shim that implements exactly the calls
+they make, so **no app code differs from Pi OS**:
+
+| Tool | Calls | Buildroot backend |
+|---|---|---|
+| Signal meter | `iw dev wlan0 link` | iw (unchanged) |
+| Channels | `iw dev wlan0 scan`; fallback `nmcli device wifi rescan/list` | iw; shim → `wpa_cli scan` / `scan_results` |
+| Saved networks | `nmcli -t -f NAME,UUID,TYPE,AUTOCONNECT,ACTIVE connection show`, `nmcli --wait 40 connection up uuid U` | shim: the `network={}` blocks of `/data/etc/wpa_supplicant.conf` (UUID `wpa-<id>`, active = `wpa_cli status`); connect = `wpa_cli select_network`, wait for COMPLETED, `enable_network all`, DHCP renew (udhcpc) |
+| Hotspot | keyfile `/etc/NetworkManager/system-connections/zpod-hotspot.nmconnection` (→ `/data`, 0700), `nmcli connection up/down zpod-hotspot`, `--active`, `iw dev wlan0 station dump` | shim: stops the client (`S40wifi stop`), writes `/run/zpod/hostapd.conf` (0600; WPA2-PSK CCMP, 2.4 GHz, the keyfile's SSID/passphrase/channel), `hostapd -B`, 10.42.0.1/24, BusyBox `udhcpd` (10.42.0.10–99, own pidfile). Down: stops both and restarts the client. No NAT (as on Pi OS the hotspot is for the drop box / OPDS / SSH) |
+
+Differences from Pi OS: networks can be added only from `zpod-wifi.txt` (or
+`wpa_cli`); the hotspot is client **or** AP (never both, same as NM on the
+BCM43430). Tested with fake `wpa_cli`/`hostapd`/`iw` in
+`tests/test_shims_br.sh`; QEMU has no Wi-Fi, so **the hotspot and connect paths
+are untested on hardware**.
+
+## M6 apps on this image
+
+| M6 feature | Buildroot | Notes |
+|---|---|---|
+| Battery panel + per-minute logger | `zpod-battery` (Rust, same binary as Pi OS) started by `S30zpod-hw` as root; log `/data/zpod/battery.log` | replaces the python guard; low-battery `systemctl poweroff` goes through the shim. QEMU: runs, no gauge (expected) |
+| Wi-Fi tools | nmcli shim + hostapd (above) | hardware test needed |
+| Drop box + OPDS catalog | `zpod-drop` (port 8080, uid/gid 1000), **off by default**; Tools switches → `systemctl enable --now zpod-drop.socket` → shim → flag `/data/etc/zpod/drop.enabled` + `S60zpod-drop`; `/etc/zpod` is `/data/etc/zpod` bind-mounted so `drop.conf` is writable (image files refreshed each boot, `drop.conf` kept); `/data/books`, `/data/inbox` (uid 1000, 0775) | QEMU: off by default, and on after `drop-on` |
+| Boot-time setup-files notice | `zpod-firstuser-br` / `zpod-wifi-import-br` write `/run/zpod/boot-notice` once `/var/lib/zpod/booted-once` exists; first-boot files are applied in sysinit before the launcher | QEMU: verified (`late` step) |
+| Version / About split | `/etc/zpod-release`: `ZPOD_VERSION=v0.9.0-br-m6-fastboot-test2`, `ZPOD_IMAGE`, `ZPOD_GIT` (7-hex), `ZPOD_CORE_VERSION=0.9.0`; `/etc/zpod/core-version` 0.9.0 | |
 
 ## Bluetooth and the UART (GPIO14)
 
@@ -250,17 +283,17 @@ Instrumentation on the device:
   the buttons, NCM on macOS, Wi-Fi and Bluetooth are unverified on this image.
 - **RAUC A/B updates: not done** (cut for time). p3 is a stub; updates mean
   re-flashing. Plan below.
-- **M6 apps:** not on main yet when this was built (Battery panel, Wi-Fi tools,
-  OPDS/drop box servers). The image has the M5 apps (core 0.6.0). Merge main
-  and rebuild when they land.
+- **M6 apps:** all present (core 0.9.0, see "M6 apps on this image"); the
+  Wi-Fi connect/hotspot backend is a shim and untested on hardware.
 - **Buttons daemon is Python** (start-up costs seconds on a Zero W). Port
   `zpod_buttons.py` to Rust. gpio-keys cannot be used because GPIO20 (Vol−)
   is the I2S DIN pin.
 - **No NetworkManager:** Wi-Fi networks are added only from `zpod-wifi.txt`
-  (or `wpa_cli`); there is no USB "shared" profile (udhcpd serves the USB link).
+  (or `wpa_cli`); there is no USB "shared" profile (udhcpd serves the USB link);
+  the hotspot has no NAT/DNS.
 - **No mDNS** (`zpod.local`): use `10.12.194.1` over USB or the Wi-Fi IP.
 - **No systemd/journal:** logs in `/run/zpod/*.log`, `/data/log/*.log` and
-  syslog; `systemctl` is a shim (poweroff, reboot, rsync share only).
+  syslog; `systemctl` is a shim (poweroff, reboot, rsync share, drop server).
 - **`zpod-usb-kick`** (USB re-enumeration) not ported; NCM needs none on macOS.
 - **MPD runs as root.** There is no `mpd` user yet.
 - **Rust apps are prebuilt** (`apps/dist`, cargo-zigbuild) rather than built
@@ -279,5 +312,5 @@ Instrumentation on the device:
    backend using firmware `tryboot` (`reboot "0 tryboot"`, `tryboot.txt`),
    mark-good from the launcher. **Verify tryboot on BCM2835 first**; the
    fallback is U-Boot with A/B env.
-4. Merge the M6 apps from main and rebuild; consider a `zpod_pi0w_nexmon`
-   variant pinned to a nexmon-supported kernel.
+4. Hardware-test the M6 Wi-Fi tools (connect, hotspot) and the drop server;
+   consider a `zpod_pi0w_nexmon` variant pinned to a nexmon-supported kernel.
