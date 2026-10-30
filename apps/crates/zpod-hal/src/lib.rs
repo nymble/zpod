@@ -13,6 +13,7 @@
 //! Nothing here depends on systemd.
 
 pub mod alarm;
+pub mod battery;
 pub mod conf;
 pub mod input;
 pub mod lcd;
@@ -21,6 +22,7 @@ pub mod scan;
 pub mod sim;
 pub mod storage;
 pub mod sys;
+pub mod wifi;
 
 pub use platform::Platform;
 pub use zpod_core::{Event, Key, KeyState, StatusInfo};

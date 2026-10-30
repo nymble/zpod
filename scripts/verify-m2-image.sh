@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Offline checks of an M2/M3/M4/M5 .img (never flashes anything). Mounts the root
+# Offline checks of an M2/M3/M4/M5/M6 .img (never flashes anything). Mounts the root
 # partition READ-ONLY via losetup --offset and reads the FAT with mtools
 # (IMG@@offset), then runs the Python imports / dkms status in a qemu chroot.
 # Usage: sudo scripts/verify-m2-image.sh path/to/image.img
@@ -193,7 +193,7 @@ chk "M5: bluetooth.service enabled"            bash -c "ls '$R'/etc/systemd/syst
 for b in iw btmgmt bluetoothctl aplay rsync mpc parted; do
   chk "M5: tool $b" bash -c "ls '$R'/usr/bin/$b '$R'/usr/sbin/$b 2>/dev/null | grep -q ."
 done
-chk "M5: core-version 0.6.0"                   grep -qx '0.6.0' "$R/etc/zpod/core-version"
+chk "M5: core-version >= 0.6.0"                bash -c "printf '0.6.0\n%s\n' \"\$(cat '$R/etc/zpod/core-version')\" | sort -V -C"
 chk "M5: launcher has Tools (Wi-Fi + Bluetooth scanner)" bash -c "grep -qa 'Wi-Fi scanner' '$R/usr/lib/zpod/bin/zpod-launcher' && grep -qa 'Bluetooth scanner' '$R/usr/lib/zpod/bin/zpod-launcher'"
 chk "M5: launcher rings alarms (alarm.conf)"   grep -qa 'alarm.conf' "$R/usr/lib/zpod/bin/zpod-launcher"
 chk "M5: launcher file transfer rescan + rsync" bash -c "grep -qa 'zpod-rsyncd.socket' '$R/usr/lib/zpod/bin/zpod-launcher' && grep -qa 'modified-since' '$R/usr/lib/zpod/bin/zpod-launcher'"
@@ -203,7 +203,51 @@ chk "M5: size trim: dpkg path-exclude"         grep -q '^path-exclude /usr/share
 chk "M5: size trim: no man pages"              bash -c "[ -z \"\$(find '$R/usr/share/man' -type f 2>/dev/null | head -1)\" ]"
 chk "M5: size trim: copyright files kept"      test -f "$R/usr/share/doc/mpd/copyright"
 chk "M5: size trim: no apt lists"              bash -c "[ -z \"\$(find '$R/var/lib/apt/lists' -maxdepth 1 -type f -name '*_Packages*' 2>/dev/null | head -1)\" ]"
-chk "M5: zpod-release ZPOD_VERSION is m5"      grep -qE '^ZPOD_VERSION=.*m5' "$R/etc/zpod-release"
+
+# --- M6: battery history, Wi-Fi tools, drop box + OPDS (off), boot trims -----
+M6=0; [[ -x "$R/usr/lib/zpod/bin/zpod-battery" ]] && M6=1
+if [[ $M6 = 1 ]]; then
+  W="$R/etc/systemd/system"
+  chk "M6: zpod-release ZPOD_VERSION is m6"     grep -qE '^ZPOD_VERSION=.*m6' "$R/etc/zpod-release"
+  chk "M6: core-version 0.8.0"                  grep -qx '0.8.0' "$R/etc/zpod/core-version"
+  chk "M6: zpod-battery is ARMv6"               bash -c "readelf -A '$R/usr/lib/zpod/bin/zpod-battery' | grep -qE 'Tag_CPU_arch: v6'"
+  chk "M6: zpod-battery enabled"                test -L "$W/multi-user.target.wants/zpod-battery.service"
+  chk "M6: Python battery guard disabled"       bash -c "! ls '$W'/*.wants/zpod-battery-guard.service 2>/dev/null | grep -q ."
+  chk "M6: zpod-battery after data + RTC"       grep -qx 'After=zpod-data-setup.service zpod-rtc.service' "$W/zpod-battery.service"
+  chk "M6: battery log path in binary"          grep -qa 'battery.log' "$R/usr/lib/zpod/bin/zpod-battery"
+  chk "M6: drop socket OFF by default"          bash -c "test -f '$W/zpod-drop.socket' && ! ls '$W'/*.wants/zpod-drop.socket 2>/dev/null | grep -q ."
+  chk "M6: drop.conf dropbox = off"             grep -qx 'dropbox = off' "$R/etc/zpod/drop.conf"
+  chk "M6: drop.conf opds = off"                grep -qx 'opds = off' "$R/etc/zpod/drop.conf"
+  chk "M6: drop.conf has no token"              bash -c "! grep -qE '^[[:space:]]*token[[:space:]]*=' '$R/etc/zpod/drop.conf'"
+  chk "M6: drop.conf books/inbox on /data"      bash -c "grep -qx 'books_dir = /data/books' '$R/etc/zpod/drop.conf' && grep -qx 'inbox_dir = /data/inbox' '$R/etc/zpod/drop.conf'"
+  chk "M6: drop service may write /data/inbox"  grep -qE '^ReadWritePaths=.*-/data/inbox' "$W/zpod-drop.service"
+  chk "M6: drop server has OPDS + drop box"     bash -c "grep -qa 'application/atom+xml;profile=opds-catalog' '$R/usr/lib/zpod/bin/zpod-drop' && grep -qa 'META-INF/container.xml' '$R/usr/lib/zpod/bin/zpod-drop' && grep -qa '/inbox/' '$R/usr/lib/zpod/bin/zpod-drop'"
+  chk "M6: data setup makes /data/books + /data/inbox" grep -q '/data/books /data/inbox' "$R/usr/lib/zpod/bin/zpod-data-setup"
+  for t in 'Book catalog' 'Drop box' 'Hotspot' 'Saved Wi-Fi' 'Channels' 'Signal' 'Full charge lasts' 'boot-notice' 'booted-once' 'zpod-hotspot'; do
+    chk "M6: launcher has '$t'" grep -qa "$t" "$R/usr/lib/zpod/bin/zpod-launcher"
+  done
+  chk "M6: launcher waits for first-boot scripts (notice)" grep -qx 'After=zpod-firstuser.service zpod-wifi-import.service' "$W/zpod-launcher.service"
+  chk "M6: firstuser writes boot notices"       bash -c "grep -q '^notice()' '$R/usr/lib/zpod/zpod-firstuser.sh' && grep -q 'notice \"userconf.txt ignored' '$R/usr/lib/zpod/zpod-firstuser.sh'"
+  chk "M6: wifi-import writes boot notices"     grep -q 'notice "zpod-wifi.txt: Wi-Fi network added"' "$R/usr/lib/zpod/zpod-wifi-import.sh"
+  chk "M6: no hotspot profile shipped"          test ! -e "$R/etc/NetworkManager/system-connections/zpod-hotspot.nmconnection"
+  chk "M6: no booted-once marker shipped"       test ! -e "$R/var/lib/zpod/booted-once"
+  chk "M6: no Wi-Fi PSK in any shipped profile" bash -c "! grep -rqsE '^(psk|password)=' '$R/etc/NetworkManager/system-connections/'"
+  # boot trims
+  chk "M6 boot: auto_initramfs=0"               grep -qx 'auto_initramfs=0' "$TMP/config.txt"
+  chk "M6 boot: no vc4-kms-v3d"                 bash -c "! grep -q '^dtoverlay=vc4-kms-v3d' '$TMP/config.txt'"
+  chk "M6 boot: camera/display autodetect off"  bash -c "grep -qx 'camera_auto_detect=0' '$TMP/config.txt' && grep -qx 'display_auto_detect=0' '$TMP/config.txt'"
+  chk "M6 boot: disable_splash=1, boot_delay=0" bash -c "grep -qx 'disable_splash=1' '$TMP/config.txt' && grep -qx 'boot_delay=0' '$TMP/config.txt'"
+  chk "M6 boot: cmdline quiet"                  grep -qw quiet "$TMP/cmdline.txt"
+  kv6=$(basename "$R"/lib/modules/*-rpi-v6)
+  chk "M6 boot: ext4 + SD host built into $kv6 (no initramfs needed)" bash -c "for m in kernel/fs/ext4/ext4.ko kernel/drivers/mmc/core/mmc_block.ko kernel/drivers/mmc/host/bcm2835.ko; do grep -qx \$m '$R/lib/modules/$kv6/modules.builtin' || exit 1; done"
+  chk "M6 boot: cmdline rootfstype=ext4 + rootwait" bash -c "grep -qw 'rootfstype=ext4' '$TMP/cmdline.txt' && grep -qw rootwait '$TMP/cmdline.txt'"
+  chk "M6 boot: keyboard-setup masked"          bash -c "[ \"\$(readlink '$W/keyboard-setup.service')\" = /dev/null ]"
+  chk "M6 boot: rpi-eeprom-update masked"       bash -c "[ \"\$(readlink '$W/rpi-eeprom-update.service')\" = /dev/null ]"
+  chk "M6 boot: apparmor + e2scrub_reap off"    bash -c "! ls '$W'/*.wants/apparmor.service '$W'/*.wants/e2scrub_reap.service 2>/dev/null | grep -q ."
+  for u in ssh zpod-usb-gadget rpi-usb-gadget-ics zpod-firstuser zpod-wifi-import zpod-data-grow zpod-data-setup userconfig regenerate_ssh_host_keys; do
+    chk "M6 boot: still enabled: $u" bash -c "ls '$W'/*.wants/$u.service 2>/dev/null | grep -q ."
+  done
+fi
 
 # qemu chroot: imports + dkms status (read-only root; tmpfs /tmp)
 if command -v qemu-arm-static >/dev/null && [[ -e /proc/sys/fs/binfmt_misc/qemu-arm ]]; then
@@ -253,6 +297,20 @@ test "$(stat -c %a $f)" = 600; test "$(stat -c %a $C/extra.nmconnection)" = 600
 grep -qx "ssid=ZPOD Test;Net" $f; grep -qx "psk=p\\\\\\\\ss w0rd!x" $f
 grep -qx "powersave=2" $f; grep -qx "key-mgmt=wpa-psk" $f; grep -qx "powersave=2" $C/extra.nmconnection
 rm -rf $B $C; echo import ok' 2>&1) && ok "M3.1 chroot: zpod-wifi-import (txt + nmconnection, 600, powersave=2, source deleted)" || bad "M3.1 chroot: zpod-wifi-import: $out"
+  if [[ $M6 = 1 ]]; then
+    out=$(chroot "$MNT" /bin/bash -c '
+set -e
+B=/tmp/zn-boot C=/tmp/zn-conn N=/tmp/zn-notice O=/tmp/zn-once; rm -rf $B $C $N $O; mkdir -p $B
+printf "SSID=Late Net\nPSK=latepassword1\n" > $B/zpod-wifi.txt
+ZPOD_BOOT_DIR=$B ZPOD_CONN_DIR=$C ZPOD_NO_COUNTRY=1 ZPOD_BOOTED_ONCE=$O ZPOD_NOTICE=$N /usr/lib/zpod/zpod-wifi-import.sh >/dev/null
+test ! -e $N
+touch $O; printf "SSID=Late Net\nPSK=latepassword1\n" > $B/zpod-wifi.txt
+ZPOD_BOOT_DIR=$B ZPOD_CONN_DIR=$C ZPOD_NO_COUNTRY=1 ZPOD_BOOTED_ONCE=$O ZPOD_NOTICE=$N /usr/lib/zpod/zpod-wifi-import.sh >/dev/null
+grep -qx "zpod-wifi.txt: Wi-Fi network added" $N; ! grep -q "latepassword1\|Late Net" $N
+rm -rf $B $C $N $O; echo notice ok' 2>&1) && ok "M6 chroot: late zpod-wifi.txt -> boot notice (no SSID/PSK in it; none on first boot)" || bad "M6 chroot: wifi-import notice: $out"
+    out=$(chroot "$MNT" /usr/bin/env ZPOD_I2C=/tmp/no-such-i2c /usr/lib/zpod/bin/zpod-battery --once 2>&1; echo "rc=$?")
+    [[ "$out" == *"no MAX17048"*"rc=1"* ]] && ok "M6 chroot: zpod-battery runs (ARMv6/qemu), reports a missing gauge cleanly" || bad "M6 chroot: zpod-battery --once: $out"
+  fi
   if [[ $M5 = 1 ]]; then
     # zpod-data-grow arithmetic on fake sysfs: 128 GB card, 4 TB card (2 TiB cap), already grown
     out=$(chroot "$MNT" /bin/sh -c '

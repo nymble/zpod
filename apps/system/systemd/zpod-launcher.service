@@ -4,6 +4,8 @@ Documentation=https://github.com/nymble/zpod/blob/main/docs/APPS.md
 After=zpod-buttons.service sound.target zpod-audio-init.service zpod-bootsplash.service
 # M5: app data (ZPOD_DATA_DIR) and music live on /data
 After=zpod-data-setup.service srv-zpod-media.mount
+# M6: boot notice (/run/zpod/boot-notice) is written by these first
+After=zpod-firstuser.service zpod-wifi-import.service
 Wants=zpod-buttons.service
 # Single LCD owner: starting the launcher stops the splash (it keeps its last
 # frame; we warm-init with no flash) and the old Python UI.

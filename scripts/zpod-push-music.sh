@@ -54,14 +54,27 @@ if [ "$MODE" = rsync ]; then
       echo "note: install rsync 3 (brew install rsync) for correct accented names, or use --http" >&2
     fi
   fi
+  # Permissions: macOS openrsync and rsync 2.6.9 ignore --chmod (M5: files
+  # arrived as 700 and MPD could not read them), so --chmod is only a hint for
+  # rsync 3; the remote chmod below is what makes every pushed file 644 and
+  # every folder 755, whatever rsync the Mac has.
+  q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+  fix=""
   for src in "$@"; do
     src=${src%/}
     # shellcheck disable=SC2086
     rsync -rtvh --progress --partial --modify-window=2 $DRY $DELETE $ICONV \
       --exclude '.*' --exclude 'Thumbs.db' --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
       "$src" "$USER_@$HOST:$DEST/"
+    name=$(basename "$src")
+    [ "$(uname)" = Darwin ] && name=$(printf '%s' "$name" | iconv -f UTF-8-MAC -t UTF-8 2>/dev/null || printf '%s' "$name")
+    fix="$fix $(q "$DEST/$name")"
   done
-  [ -n "$DRY" ] || ssh "$USER_@$HOST" 'mpc -q update && echo "library update started"'
+  if [ -z "$DRY" ]; then
+    # folders 755, files 644 (not chmod X: files that arrived 700 would get +x), then rescan
+    # shellcheck disable=SC2029
+    ssh "$USER_@$HOST" "find$fix -type d -exec chmod 755 {} + -o -type f -exec chmod 644 {} + && echo 'permissions fixed (dirs 755, files 644)' && mpc -q update && echo 'library update started'"
+  fi
 else
   base="http://$HOST:8080/music"
   hdr=""; [ -n "$TOKEN" ] && hdr="X-Zpod-Token: $TOKEN"

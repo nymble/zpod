@@ -1,4 +1,4 @@
-# Getting files onto the ZPOD (M4, M5)
+# Getting files onto the ZPOD (M4, M5, M6)
 
 Music lives in **`/srv/zpod/media/music`** (owned by the first user, uid
 1000), and playlists in `/srv/zpod/media/playlists`. On M5 images that folder
@@ -45,8 +45,10 @@ scripts/zpod-push-music.sh -H zpod.local ~/Music/Album   # force Wi-Fi
 scripts/zpod-push-music.sh -n ~/Music/Album              # dry run
 ```
 
-It runs `rsync -rtvh --partial --progress` into `/srv/zpod/media/music/` and
-then `mpc update`. You can resume interrupted copies by running it again. SSH
+It runs `rsync -rtvh --partial --progress` into `/srv/zpod/media/music/`,
+then makes every pushed folder 755 and file 644 on the ZPOD (`find … chmod`
+over SSH; M6 fix: Apple's openrsync ignores `--chmod`, so M5 left files 700
+and MPD could not read them), then `mpc update`. You can resume interrupted copies by running it again. SSH
 prompts for the `pi` password (********) unless you install a key once:
 `ssh-copy-id pi@10.12.194.1`.
 
@@ -103,6 +105,43 @@ Safety:
 
 The launcher's **File transfer** screen shows the current addresses and
 whether the drop server is listening.
+
+## 2a. Drop box and book catalog (M6, both off by default)
+
+M6 makes `zpod-drop` a small file server with two parts, each switched in
+**Tools** (OK = on/off). The socket on port 8080 only listens while at least
+one is on; M5's always-on music upload is now part of the drop box.
+
+| Part | Switch | URL | What |
+|---|---|---|---|
+| Drop box | Tools > Drop box | `http://<ZPOD>:8080/` | web page: browse and download `music`, `books` and `inbox`; upload any file into **`/data/inbox`** (max `max_upload_mb`, default 1024 MiB per file, and never closer than 64 MiB to a full `/data`); M5 music upload (`PUT /music/…`, `zpod-push-music.sh --http`) |
+| Book catalog | Tools > Book catalog | `http://<ZPOD>:8080/opds` | **OPDS 1.2** catalog of **`/data/books`** (EPUB, PDF, MOBI/AZW3, CBZ/CBR, FB2, DjVu, TXT): All books, Newest, By author. EPUB title/author/language/cover come from the book's OPF; other files use `Author - Title.ext` names |
+
+`<ZPOD>` is `10.12.194.1` over USB, `10.42.0.1` on the ZPOD's own hotspot
+(Tools > Hotspot), or `zpod.local` on your home Wi-Fi.
+
+Who may connect:
+
+* **USB** (10.12.194.0/28) and the **ZPOD hotspot** (10.42.0.0/24, WPA2
+  with a key generated on the ZPOD): no token.
+* **Home Wi-Fi**: refused unless `/etc/zpod/drop.conf` has `token = …`
+  (8+ characters, made on the Pi; see the file). Browser:
+  `http://zpod.local:8080/?token=<token>`; e-reader apps: user anything,
+  **password = the token** (HTTP Basic), or `?token=` in the catalog URL.
+
+E-reader apps: KOReader (Search > OPDS catalog > +), Thorium Reader,
+Marvin, Moon+ Reader, Calibre's "Get books" do not need an account; add
+`http://10.42.0.1:8080/opds` while connected to the ZPOD hotspot.
+
+Put books on the ZPOD with `scp book.epub paul@10.12.194.1:/data/books/`, by
+moving them from `/data/inbox` after a drop box upload, or with rsync. The
+catalog re-reads the folder on each request (EPUB metadata cached by
+size + mtime).
+
+Files: `/etc/zpod/drop.conf` (`dropbox`, `opds`, `books_dir`, `inbox_dir`,
+`max_upload_mb`, `token`), units `zpod-drop.socket` / `zpod-drop.service`
+(uid 1000, `ProtectSystem=strict`, writes only `/srv/zpod/media` and
+`/data/inbox`).
 
 ## 2b. Optional rsync share (M5, off by default)
 

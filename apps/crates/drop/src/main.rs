@@ -1,16 +1,30 @@
-//! zpod-drop: add music to the ZPOD from any browser or `curl -T`.
+//! zpod-drop: the ZPOD's tiny web server (M6: offline drop box + OPDS).
 //!
-//!   GET  /                 upload page (pick files or a whole folder)
-//!   PUT  /music/<path>     store one file under the music dir (atomic: .part + rename)
+//! Drop box (`dropbox = on` in /etc/zpod/drop.conf; Tools > Drop box):
+//!   GET  /                 home page: browse, upload, OPDS address
+//!   GET  /files/<area>/... browse/download music, books or the inbox
+//!   PUT  /inbox/<name>     upload any file into /data/inbox (size-capped)
+//!   PUT  /music/<path>     store one music file (atomic: .part + rename)
 //!   POST /update           ask MPD to rescan (also done automatically after uploads)
-//!   GET  /status           JSON: free bytes, music dir
+//! Book catalog (`opds = on`; Tools > Book catalog), see [`opds`]:
+//!   GET  /opds...          OPDS 1.2 feeds of /data/books
+//!   GET  /books/<path>, /cover/<path>
+//! Always: GET /status (JSON).
 //!
-//! Access: peers on the USB gadget subnet (10.12.194.0/28) are trusted; any
-//! other peer (Wi-Fi) must send the token from /etc/zpod/drop.conf as header
-//! `X-Zpod-Token` or `?token=`. No token configured => USB only.
+//! Both are OFF by default; the launcher turns the socket on when either is
+//! enabled. Access: peers on the USB gadget subnet (10.12.194.0/28) and on
+//! the ZPOD's own hotspot (10.42.0.0/24, WPA2 with a passphrase made on the
+//! device) are trusted; any other peer (home Wi-Fi) must send the token
+//! from drop.conf as header `X-Zpod-Token`, `?token=`, or as the HTTP Basic
+//! password (any user name; what OPDS reader apps support). No token => no
+//! home Wi-Fi access.
 //! Socket activation: if LISTEN_FDS=1 (systemd .socket), serve fd 3 and exit
 //! after 10 idle minutes; otherwise bind `listen` from the config.
 
+mod epub;
+mod opds;
+
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, TcpListener, TcpStream};
 use std::path::{Component, Path, PathBuf};
@@ -19,6 +33,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const MAX_FILE: u64 = 2 << 30;
+/// Space always left free on /data after an upload.
+const RESERVE: u64 = 64 << 20;
 const MAX_CONN: usize = 4;
 const IDLE_EXIT: Duration = Duration::from_secs(600);
 
@@ -26,8 +42,15 @@ const IDLE_EXIT: Duration = Duration::from_secs(600);
 struct Config {
     listen: String,
     music_dir: PathBuf,
+    books_dir: PathBuf,
+    inbox_dir: PathBuf,
     token: Option<String>,
     usb_net: (Ipv4Addr, u8),
+    hotspot_net: (Ipv4Addr, u8),
+    dropbox: bool,
+    opds: bool,
+    /// per-file upload limit for the inbox (bytes)
+    max_upload: u64,
 }
 
 impl Default for Config {
@@ -35,8 +58,14 @@ impl Default for Config {
         Config {
             listen: "0.0.0.0:8080".into(),
             music_dir: "/srv/zpod/media/music".into(),
+            books_dir: "/data/books".into(),
+            inbox_dir: "/data/inbox".into(),
             token: None,
             usb_net: (Ipv4Addr::new(10, 12, 194, 0), 28),
+            hotspot_net: (Ipv4Addr::new(10, 42, 0, 0), 24),
+            dropbox: false,
+            opds: false,
+            max_upload: 1 << 30,
         }
     }
 }
@@ -50,11 +79,20 @@ fn parse_config(text: &str) -> Config {
         match k.trim() {
             "listen" => c.listen = v,
             "music_dir" => c.music_dir = v.into(),
+            "books_dir" => c.books_dir = v.into(),
+            "inbox_dir" => c.inbox_dir = v.into(),
+            "dropbox" => c.dropbox = on(&v),
+            "opds" => c.opds = on(&v),
+            "max_upload_mb" => c.max_upload = v.parse::<u64>().map(|m| m.clamp(1, 2048) << 20).unwrap_or(c.max_upload),
             "token" if v.len() >= 8 => c.token = Some(v),
             _ => {}
         }
     }
     c
+}
+
+fn on(v: &str) -> bool {
+    matches!(v.to_ascii_lowercase().as_str(), "on" | "yes" | "true" | "1")
 }
 
 fn in_net(ip: IpAddr, (net, bits): (Ipv4Addr, u8)) -> bool {
@@ -67,7 +105,7 @@ fn in_net(ip: IpAddr, (net, bits): (Ipv4Addr, u8)) -> bool {
     }
 }
 
-fn pct_decode(s: &str) -> Option<String> {
+pub(crate) fn pct_decode(s: &str) -> Option<String> {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
@@ -121,6 +159,102 @@ fn safe_music_path(raw: &str) -> Result<PathBuf, &'static str> {
     Ok(out)
 }
 
+/// Relative path for browsing/downloading: no traversal, no hidden parts
+/// (any extension). Empty = the area root.
+fn safe_rel(raw: &str) -> Result<PathBuf, &'static str> {
+    let dec = pct_decode(raw).ok_or("bad percent-encoding")?;
+    if dec.len() > 1024 || dec.contains('\0') || dec.contains('\\') {
+        return Err("bad path");
+    }
+    let mut out = PathBuf::new();
+    for c in Path::new(&dec).components() {
+        match c {
+            Component::Normal(s) => {
+                let s = s.to_str().ok_or("bad path")?;
+                if s.starts_with('.') || s.len() > 255 {
+                    return Err("hidden or overlong path component");
+                }
+                out.push(s);
+            }
+            Component::CurDir => {}
+            _ => return Err("path traversal"),
+        }
+    }
+    Ok(out)
+}
+
+/// One inbox file name (no directories, not hidden, sane length).
+fn safe_inbox_name(raw: &str) -> Result<String, &'static str> {
+    let n = pct_decode(raw).ok_or("bad percent-encoding")?;
+    if n.chars().any(|c| c.is_control()) {
+        return Err("bad file name");
+    }
+    let n = n.trim();
+    if n.is_empty() || n.len() > 200 || n.starts_with('.') || n.contains(['/', '\\', '\0']) || n.chars().any(|c| c.is_control()) {
+        return Err("bad file name");
+    }
+    Ok(n.to_string())
+}
+
+/// "name.ext" -> "name (2).ext" until free.
+fn unique(dir: &Path, name: &str) -> PathBuf {
+    let p = dir.join(name);
+    if !p.exists() {
+        return p;
+    }
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
+        _ => (name.to_string(), String::new()),
+    };
+    (2..10_000).map(|i| dir.join(format!("{stem} ({i}){ext}"))).find(|p| !p.exists()).unwrap_or(p)
+}
+
+fn b64_decode(s: &str) -> Option<Vec<u8>> {
+    let val = |c: u8| -> Option<u32> {
+        Some(match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        } as u32)
+    };
+    let b: Vec<u8> = s.bytes().filter(|c| *c != b'=').collect();
+    let mut out = Vec::new();
+    for ch in b.chunks(4) {
+        let mut n = 0u32;
+        for (i, c) in ch.iter().enumerate() {
+            n |= val(*c)? << (18 - 6 * i);
+        }
+        let bytes = [(n >> 16) as u8, (n >> 8) as u8, n as u8];
+        out.extend_from_slice(&bytes[..ch.len().saturating_sub(1)]);
+    }
+    Some(out)
+}
+
+fn content_type(p: &Path) -> &'static str {
+    if let Some(m) = opds::mime_of(p) {
+        return m;
+    }
+    match p.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {
+        Some("mp3") => "audio/mpeg",
+        Some("flac") => "audio/flac",
+        Some("ogg" | "oga" | "opus") => "audio/ogg",
+        Some("m4a" | "aac") => "audio/mp4",
+        Some("wav") => "audio/wav",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("png") => "image/png",
+        Some("m3u" | "m3u8" | "cue" | "log" | "md") => "text/plain; charset=utf-8",
+        Some("html" | "htm") => "text/plain; charset=utf-8", // never render uploaded HTML
+        _ => "application/octet-stream",
+    }
+}
+
+fn esc(s: &str) -> String {
+    opds::xml(s)
+}
+
 struct Req {
     method: String,
     path: String,
@@ -171,10 +305,15 @@ fn read_req(r: &mut BufReader<&TcpStream>) -> Option<Req> {
 }
 
 fn respond(s: &mut TcpStream, code: u16, ctype: &str, body: &[u8]) {
+    respond_h(s, code, ctype, body, "")
+}
+
+fn respond_h(s: &mut TcpStream, code: u16, ctype: &str, body: &[u8], extra: &str) {
     let reason = match code {
         200 => "OK",
         201 => "Created",
         400 => "Bad Request",
+        401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
         411 => "Length Required",
@@ -183,8 +322,24 @@ fn respond(s: &mut TcpStream, code: u16, ctype: &str, body: &[u8]) {
         507 => "Insufficient Storage",
         _ => "",
     };
-    let _ = write!(s, "HTTP/1.1 {code} {reason}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n", body.len());
+    let _ = write!(s, "HTTP/1.1 {code} {reason}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n{extra}\r\n", body.len());
     let _ = s.write_all(body);
+}
+
+/// Stream a file (GET); HEAD sends only the headers.
+fn send_file(s: &mut TcpStream, p: &Path, head_only: bool) {
+    let Ok(mut f) = std::fs::File::open(p) else { return respond(s, 404, "text/plain", b"404\n") };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let _ = write!(
+        s,
+        "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {len}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nContent-Disposition: inline; filename*=UTF-8''{}\r\n\r\n",
+        content_type(p),
+        opds::href_path(&name)
+    );
+    if !head_only {
+        let _ = std::io::copy(&mut f, s);
+    }
 }
 
 fn free_bytes(p: &Path) -> u64 {
@@ -198,6 +353,7 @@ fn free_bytes(p: &Path) -> u64 {
 
 struct Shared {
     cfg: Config,
+    books: Mutex<HashMap<PathBuf, (i64, u64, opds::Book)>>,
     last_upload: Mutex<Option<Instant>>,
     last_activity: AtomicU64,
     active: AtomicUsize,
@@ -210,29 +366,141 @@ fn handle(mut s: TcpStream, sh: &Shared) {
     let rs = s.try_clone().unwrap();
     let mut r = BufReader::with_capacity(64 * 1024, &rs);
     let Some(req) = read_req(&mut r) else { return };
-    let trusted = in_net(peer, sh.cfg.usb_net) || peer.is_loopback();
-    let token_ok = sh.cfg.token.as_deref().is_some_and(|t| {
-        req.header("X-Zpod-Token") == Some(t) || req.query_param("token").as_deref() == Some(t)
-    });
+    let trusted = in_net(peer, sh.cfg.usb_net) || in_net(peer, sh.cfg.hotspot_net) || peer.is_loopback();
+    let basic_pw = req.header("Authorization").and_then(|a| a.strip_prefix("Basic ")).and_then(|b| b64_decode(b.trim())).and_then(|v| String::from_utf8(v).ok()).and_then(|up| up.split_once(':').map(|(_, p)| p.to_string()));
+    let qtok = req.query_param("token");
+    let token_ok = sh.cfg.token.as_deref().is_some_and(|t| req.header("X-Zpod-Token") == Some(t) || qtok.as_deref() == Some(t) || basic_pw.as_deref() == Some(t));
     if !trusted && !token_ok {
-        let msg = if sh.cfg.token.is_some() {
-            "403: token required for Wi-Fi uploads (see /etc/zpod/drop.conf)\n"
-        } else {
-            "403: uploads over Wi-Fi are disabled; use the USB cable, or set token= in /etc/zpod/drop.conf\n"
-        };
+        if sh.cfg.token.is_some() {
+            // OPDS readers ask for a user name + password: any name, password = token
+            return respond_h(&mut s, 401, "text/plain", b"401: token required on Wi-Fi (password = token from /etc/zpod/drop.conf)\n", "WWW-Authenticate: Basic realm=\"ZPOD\"\r\n");
+        }
+        let msg = "403: home Wi-Fi access is off; use the USB cable or the ZPOD hotspot, or set token= in /etc/zpod/drop.conf\n";
         respond(&mut s, 403, "text/plain", msg.as_bytes());
         return;
     }
-    match (req.method.as_str(), req.path.as_str()) {
-        ("GET", "/") => respond(&mut s, 200, "text/html; charset=utf-8", PAGE.as_bytes()),
+    // links keep ?token= for clients that authenticated that way
+    let q = match (&qtok, token_ok && !trusted) {
+        (Some(t), true) => format!("?token={}", opds::href_path(t)),
+        _ => String::new(),
+    };
+    let (m, path) = (req.method.as_str(), req.path.as_str());
+    let get = m == "GET" || m == "HEAD";
+    let off = |s: &mut TcpStream, what: &str| respond(s, 404, "text/plain", format!("404: the {what} is off (turn it on in Tools on the ZPOD)\n").as_bytes());
+    match (m, path) {
         ("GET", "/status") => {
             let body = format!(
-                "{{\"free_bytes\":{},\"music_dir\":\"{}\",\"core\":\"{}\"}}\n",
+                "{{\"free_bytes\":{},\"music_dir\":\"{}\",\"dropbox\":{},\"opds\":{},\"max_upload\":{},\"core\":\"{}\"}}\n",
                 free_bytes(&sh.cfg.music_dir),
                 sh.cfg.music_dir.display(),
+                sh.cfg.dropbox,
+                sh.cfg.opds,
+                sh.cfg.max_upload,
                 env!("CARGO_PKG_VERSION")
             );
             respond(&mut s, 200, "application/json", body.as_bytes());
+        }
+        (_, p) if get && (p == "/opds" || p.starts_with("/opds/")) => {
+            if !sh.cfg.opds {
+                return off(&mut s, "book catalog");
+            }
+            let books = opds::scan(&sh.cfg.books_dir, &mut sh.books.lock().unwrap());
+            let body = match p.trim_end_matches('/') {
+                "/opds" => opds::navigation(&books, &q),
+                "/opds/all" => opds::acquisition(&books, "all", "All books", "/opds/all", &q),
+                "/opds/new" => {
+                    let mut b = books.clone();
+                    b.sort_by(|x, y| y.mtime.cmp(&x.mtime));
+                    opds::acquisition(&b, "new", "Newest", "/opds/new", &q)
+                }
+                "/opds/authors" => opds::authors(&books, &q),
+                a if a.starts_with("/opds/author/") => {
+                    let name = pct_decode(&a["/opds/author/".len()..]).unwrap_or_default();
+                    let b: Vec<opds::Book> = books.into_iter().filter(|b| b.author == name || (b.author.is_empty() && name == "Unknown author")).collect();
+                    opds::acquisition(&b, "author", &name, a, &q)
+                }
+                _ => return respond(&mut s, 404, "text/plain", b"404\n"),
+            };
+            respond(&mut s, 200, "application/atom+xml;profile=opds-catalog; charset=utf-8", body.as_bytes());
+        }
+        (_, p) if get && (p.starts_with("/books/") || p.starts_with("/cover/")) => {
+            if !(sh.cfg.opds || sh.cfg.dropbox) {
+                return off(&mut s, "book catalog");
+            }
+            let rel = match safe_rel(&p[7..]) {
+                Ok(r) if !r.as_os_str().is_empty() => r,
+                _ => return respond(&mut s, 400, "text/plain", b"400: bad path\n"),
+            };
+            let f = sh.cfg.books_dir.join(&rel);
+            if p.starts_with("/books/") {
+                if opds::mime_of(&f).is_none() || !f.is_file() {
+                    return respond(&mut s, 404, "text/plain", b"404\n");
+                }
+                eprintln!("zpod-drop: {peer} book {}", rel.display());
+                send_file(&mut s, &f, m == "HEAD");
+            } else {
+                match epub::read_cover(&f) {
+                    Some((img, mt)) => respond_h(&mut s, 200, &mt, &img, "Cache-Control: max-age=86400\r\n"),
+                    None => respond(&mut s, 404, "text/plain", b"404: no cover\n"),
+                }
+            }
+        }
+        _ if !sh.cfg.dropbox => off(&mut s, "drop box"),
+        (_, "/") if get => {
+            let page = PAGE.replace("CSSHERE", CSS).replace("{{MAX}}", &(sh.cfg.max_upload >> 20).to_string()).replace("{{OPDS}}", if sh.cfg.opds { "" } else { "hidden" });
+            respond(&mut s, 200, "text/html; charset=utf-8", page.as_bytes());
+        }
+        (_, p) if get && p.starts_with("/files/") => {
+            let rest = &p["/files/".len()..];
+            let (area, sub) = rest.split_once('/').unwrap_or((rest, ""));
+            let root = match area {
+                "music" => &sh.cfg.music_dir,
+                "books" => &sh.cfg.books_dir,
+                "inbox" => &sh.cfg.inbox_dir,
+                _ => return respond(&mut s, 404, "text/plain", b"404\n"),
+            };
+            let rel = match safe_rel(sub) {
+                Ok(r) => r,
+                Err(e) => return respond(&mut s, 400, "text/plain", format!("400: {e}\n").as_bytes()),
+            };
+            let target = root.join(&rel);
+            if target.is_dir() {
+                let body = listing(area, &rel, &target, &q);
+                respond(&mut s, 200, "text/html; charset=utf-8", body.as_bytes());
+            } else if target.is_file() {
+                eprintln!("zpod-drop: {peer} download {area}/{}", rel.display());
+                send_file(&mut s, &target, m == "HEAD");
+            } else {
+                respond(&mut s, 404, "text/plain", b"404\n");
+            }
+        }
+        ("PUT", p) if p.starts_with("/inbox/") => {
+            let name = match safe_inbox_name(&p["/inbox/".len()..]) {
+                Ok(n) => n,
+                Err(e) => return respond(&mut s, 400, "text/plain", format!("400: {e}\n").as_bytes()),
+            };
+            let Some(len) = req.header("Content-Length").and_then(|v| v.parse::<u64>().ok()) else {
+                return respond(&mut s, 411, "text/plain", b"411: Content-Length required\n");
+            };
+            if len > sh.cfg.max_upload {
+                return respond(&mut s, 413, "text/plain", format!("413: over the {} MB limit\n", sh.cfg.max_upload >> 20).as_bytes());
+            }
+            let _ = std::fs::create_dir_all(&sh.cfg.inbox_dir);
+            if len + RESERVE > free_bytes(&sh.cfg.inbox_dir) {
+                return respond(&mut s, 507, "text/plain", b"507: not enough space\n");
+            }
+            if req.header("Expect").is_some_and(|e| e.eq_ignore_ascii_case("100-continue")) {
+                let _ = s.write_all(b"HTTP/1.1 100 Continue\r\n\r\n");
+            }
+            let dest = unique(&sh.cfg.inbox_dir, &name);
+            let fname = dest.file_name().unwrap().to_string_lossy().into_owned();
+            match store(&mut r, &sh.cfg.inbox_dir, Path::new(&fname), len) {
+                Ok(()) => {
+                    eprintln!("zpod-drop: {peer} inbox {fname} ({len} bytes)");
+                    respond(&mut s, 201, "text/plain", format!("stored inbox/{fname}\n").as_bytes());
+                }
+                Err(e) => respond(&mut s, 500, "text/plain", format!("500: {e}\n").as_bytes()),
+            }
         }
         ("POST", "/update") => {
             let ok = mpd_update();
@@ -249,7 +517,7 @@ fn handle(mut s: TcpStream, sh: &Shared) {
             if len > MAX_FILE {
                 return respond(&mut s, 413, "text/plain", b"413: file too large\n");
             }
-            if len + (64 << 20) > free_bytes(&sh.cfg.music_dir) {
+            if len + RESERVE > free_bytes(&sh.cfg.music_dir) {
                 return respond(&mut s, 507, "text/plain", b"507: not enough space\n");
             }
             if req.header("Expect").is_some_and(|e| e.eq_ignore_ascii_case("100-continue")) {
@@ -269,6 +537,53 @@ fn handle(mut s: TcpStream, sh: &Shared) {
         }
         _ => respond(&mut s, 404, "text/plain", b"404\n"),
     }
+}
+
+fn human(b: u64) -> String {
+    match b {
+        b if b >= 1 << 30 => format!("{:.1} GB", b as f64 / (1u64 << 30) as f64),
+        b if b >= 1 << 20 => format!("{:.1} MB", b as f64 / (1u64 << 20) as f64),
+        b if b >= 1 << 10 => format!("{} KB", b >> 10),
+        b => format!("{b} B"),
+    }
+}
+
+/// HTML directory listing (folders first, then files, by name).
+fn listing(area: &str, rel: &Path, dir: &Path, q: &str) -> String {
+    let mut ents: Vec<(bool, String, u64)> = std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter_map(|e| {
+                    let n = e.file_name().to_string_lossy().into_owned();
+                    if n.starts_with('.') {
+                        return None;
+                    }
+                    let m = e.metadata().ok()?;
+                    Some((m.is_dir(), n, m.len()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    ents.sort_by(|a, b| (!a.0, a.1.to_lowercase()).cmp(&(!b.0, b.1.to_lowercase())));
+    let relp = rel.to_string_lossy().replace('\\', "/");
+    let base = if relp.is_empty() { format!("/files/{area}") } else { format!("/files/{area}/{}", opds::href_path(&relp)) };
+    let mut h = format!("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>ZPOD {area}</title><style>{CSS}</style></head><body><h1><a href=\"/{q}\">ZPOD</a> / {}</h1><div class=\"box\">", esc(&format!("{area}/{relp}")));
+    if !relp.is_empty() {
+        let up = relp.rsplit_once('/').map(|(a, _)| format!("/files/{area}/{}", opds::href_path(a))).unwrap_or(format!("/files/{area}"));
+        h += &format!("<div class=\"r\"><a href=\"{up}{q}\">.. (up)</a></div>");
+    }
+    if ents.is_empty() {
+        h += "<small>(empty)</small>";
+    }
+    for (d, n, sz) in ents.iter().take(2000) {
+        let href = format!("{base}/{}{q}", opds::href_path(n));
+        if *d {
+            h += &format!("<div class=\"r\"><a href=\"{href}\">{}/</a></div>", esc(n));
+        } else {
+            h += &format!("<div class=\"r\"><a href=\"{href}\" download>{}</a><small>{}</small></div>", esc(n), human(*sz));
+        }
+    }
+    h + "</div></body></html>"
 }
 
 fn store(r: &mut impl Read, root: &Path, rel: &Path, len: u64) -> std::io::Result<()> {
@@ -334,13 +649,17 @@ fn main() {
     };
     let _ = std::fs::create_dir_all(&cfg.music_dir);
     eprintln!(
-        "zpod-drop: serving {} on {} (wifi token: {})",
-        cfg.music_dir.display(),
+        "zpod-drop: on {} drop box {} ({} MB/file), book catalog {} ({}); home Wi-Fi token: {}",
         listener.local_addr().map(|a| a.to_string()).unwrap_or_default(),
-        if cfg.token.is_some() { "set" } else { "none, USB only" }
+        if cfg.dropbox { "ON" } else { "off" },
+        cfg.max_upload >> 20,
+        if cfg.opds { "ON" } else { "off" },
+        cfg.books_dir.display(),
+        if cfg.token.is_some() { "set" } else { "none (USB + hotspot only)" }
     );
     let sh = Arc::new(Shared {
         cfg,
+        books: Mutex::new(HashMap::new()),
         last_upload: Mutex::new(None),
         last_activity: AtomicU64::new(0),
         active: AtomicUsize::new(0),
@@ -383,32 +702,35 @@ fn main() {
     }
 }
 
+const CSS: &str = "body{font:15px -apple-system,system-ui,sans-serif;background:#080a18;color:#ececf0;max-width:680px;margin:1.5em auto;padding:0 1em}h1{color:#ffc400;margin:0 0 .3em;font-size:1.4em}h1 a{color:#ffc400;text-decoration:none}a{color:#40c8ff}.box{background:#161a34;border-radius:10px;padding:1em;margin:1em 0}.r{display:flex;justify-content:space-between;gap:1em;padding:.25em 0;border-bottom:1px solid #22264a}small{color:#8c90a8}button,label.b{background:#0060b0;color:#fff;border:0;border-radius:6px;padding:.5em 1em;cursor:pointer;display:inline-block;margin:.2em 0}input[type=file]{display:none}progress{width:100%}#log{font:12px ui-monospace,monospace;white-space:pre-wrap;max-height:40vh;overflow:auto;color:#8c90a8}code{color:#ffc400}.hidden{display:none}";
+
 const PAGE: &str = r#"<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ZPOD drop</title><style>
-body{font:15px -apple-system,system-ui,sans-serif;background:#080a18;color:#ececf0;max-width:640px;margin:2em auto;padding:0 1em}
-h1{color:#ffc400;margin:0 0 .2em}.box{background:#161a34;border-radius:10px;padding:1em;margin:1em 0}
-button,label.b{background:#0060b0;color:#fff;border:0;border-radius:6px;padding:.5em 1em;cursor:pointer;display:inline-block}
-#log{font:12px ui-monospace,monospace;white-space:pre-wrap;max-height:40vh;overflow:auto;color:#8c90a8}
-progress{width:100%}small{color:#8c90a8}input[type=file]{display:none}</style></head><body>
-<h1>ZPOD drop</h1><small id="st">music folder</small>
-<div class="box"><p>Pick an album folder (keeps <i>Artist/Album/</i> structure) or single files.</p>
-<label class="b">Folder<input id="dir" type="file" webkitdirectory multiple></label>
-<label class="b">Files<input id="files" type="file" multiple></label>
+<title>ZPOD drop box</title><style>CSSHERE</style></head><body>
+<h1>ZPOD drop box</h1><small id="st"></small>
+<div class="box"><b>Browse &amp; download</b><div class="r"><a id="lm" href="files/music">Music</a><a id="lb" href="files/books">Books</a><a id="li" href="files/inbox">Inbox</a></div></div>
+<div class="box"><b>Upload to the inbox</b> <small>(/data/inbox, up to {{MAX}} MB per file)</small><br>
+<label class="b">Choose files<input id="files" type="file" multiple></label>
 <p><progress id="p" value="0" max="1"></progress></p><div id="log"></div></div>
-<small>Tip: from a Mac terminal, <code>scripts/zpod-push-music.sh</code> (rsync) is faster for big libraries.</small>
+<div class="box"><b>Add music</b> <small>(keeps Artist/Album folders; the library rescans itself)</small><br>
+<label class="b">Album folder<input id="dir" type="file" webkitdirectory multiple></label>
+<label class="b">Music files<input id="mf" type="file" multiple></label></div>
+<div class="box {{OPDS}}"><b>Book catalog (OPDS)</b><br>In KOReader, Thorium, Marvin...: add catalog <code id="ou">/opds</code></div>
 <script>
-const tok=new URLSearchParams(location.search).get('token');const H=tok?{'X-Zpod-Token':tok}:{};
+const tok=new URLSearchParams(location.search).get('token');const H=tok?{'X-Zpod-Token':tok}:{};const Q=tok?'?token='+encodeURIComponent(tok):'';
+for(const id of['lm','lb','li'])document.getElementById(id).href+=Q;document.getElementById('ou').textContent=location.origin+'/opds'+Q;
 const log=t=>{const l=document.getElementById('log');l.textContent+=t+'\n';l.scrollTop=1e9};
-fetch('status',{headers:H}).then(r=>r.json()).then(j=>{document.getElementById('st').textContent=j.music_dir+' \u00b7 '+(j.free_bytes/1e9).toFixed(1)+' GB free'}).catch(()=>{});
-const ok=/\.(mp3|flac|ogg|oga|opus|m4a|aac|wav|aiff?|wv|ape|mpc|jpe?g|png|m3u8?|cue)$/i;
-async function up(list){const fs=[...list].filter(f=>ok.test(f.name)&&!f.name.startsWith('.'));
+fetch('status',{headers:H}).then(r=>r.json()).then(j=>{document.getElementById('st').textContent=(j.free_bytes/1e9).toFixed(1)+' GB free'}).catch(()=>{});
+const mus=/\.(mp3|flac|ogg|oga|opus|m4a|aac|wav|aiff?|wv|ape|mpc|jpe?g|png|m3u8?|cue)$/i;
+async function up(list,music){const fs=[...list].filter(f=>!f.name.startsWith('.')&&(!music||mus.test(f.name)));
 const tot=fs.reduce((a,f)=>a+f.size,0)||1;let done=0;const p=document.getElementById('p');
 for(const f of fs){const rel=(f.webkitRelativePath||f.name).normalize('NFC');
-const url='music/'+rel.split('/').map(encodeURIComponent).join('/');
-try{const r=await fetch(url,{method:'PUT',body:f,headers:H});log((r.ok?'ok   ':'FAIL ')+rel+(r.ok?'':' '+(await r.text()).trim()))}
+const url=music?'music/'+rel.split('/').map(encodeURIComponent).join('/'):'inbox/'+encodeURIComponent(f.name.normalize('NFC'));
+if(!music&&f.size>{{MAX}}*1048576){log('SKIP '+rel+' (over {{MAX}} MB)');done+=f.size;continue}
+try{const r=await fetch(url,{method:'PUT',body:f,headers:H});log((r.ok?'ok   ':'FAIL ')+rel+' '+(await r.text()).trim())}
 catch(e){log('FAIL '+rel+' '+e)}done+=f.size;p.value=done/tot}
-log('done: '+fs.length+' files; the library rescans automatically')}
-document.getElementById('dir').onchange=e=>up(e.target.files);document.getElementById('files').onchange=e=>up(e.target.files);
+log('done: '+fs.length+' files')}
+document.getElementById('files').onchange=e=>up(e.target.files,false);
+document.getElementById('dir').onchange=e=>up(e.target.files,true);document.getElementById('mf').onchange=e=>up(e.target.files,true);
 </script></body></html>"#;
 
 #[cfg(test)]
@@ -441,6 +763,35 @@ mod tests {
         assert_eq!(c.token, None, "tokens under 8 chars are ignored");
         assert_eq!(c.music_dir, PathBuf::from("/x"));
         assert!(parse_config("token = 0123456789abcdef").token.is_some());
+    }
+
+    #[test]
+    fn m6_paths_names_auth() {
+        assert_eq!(safe_rel("").unwrap(), PathBuf::new());
+        assert_eq!(safe_rel("Sci%20Fi/a.epub").unwrap(), PathBuf::from("Sci Fi/a.epub"));
+        assert!(safe_rel("../x").is_err() && safe_rel("a/.git/x").is_err() && safe_rel("/etc").is_err());
+        assert_eq!(safe_inbox_name("My%20Notes.pdf").unwrap(), "My Notes.pdf");
+        for bad in ["", ".env", "a%2Fb", "..", "a%00b", "x%0A"] {
+            assert!(safe_inbox_name(bad).is_err(), "{bad}");
+        }
+        assert_eq!(b64_decode("enBvZDpzZWNyZXQxMjM=").unwrap(), b"zpod:secret123");
+        assert_eq!(b64_decode("YQ").unwrap(), b"a");
+        let c = parse_config("dropbox = on\nopds=yes\nmax_upload_mb = 100\n");
+        assert!(c.dropbox && c.opds);
+        assert_eq!(c.max_upload, 100 << 20);
+        let d = Config::default();
+        assert!(!d.dropbox && !d.opds, "both off by default");
+        assert!(in_net("10.42.0.23".parse().unwrap(), d.hotspot_net));
+        assert!(!in_net("10.42.1.2".parse().unwrap(), d.hotspot_net));
+        assert_eq!(content_type(Path::new("x.html")), "text/plain; charset=utf-8", "uploaded HTML never renders");
+        let dir = std::env::temp_dir().join(format!("zuniq-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), b"1").unwrap();
+        assert_eq!(unique(&dir, "a.txt"), dir.join("a (2).txt"));
+        assert_eq!(unique(&dir, "b.txt"), dir.join("b.txt"));
+        let html = listing("inbox", Path::new(""), &dir, "");
+        assert!(html.contains("href=\"/files/inbox/a.txt\" download>a.txt<"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

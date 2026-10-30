@@ -14,6 +14,11 @@ BOOT="${ZPOD_BOOT_DIR:-/boot/firmware}"
 CONN_DIR="${ZPOD_CONN_DIR:-/etc/NetworkManager/system-connections}"
 TXT="$BOOT/zpod-wifi.txt"
 log() { echo "zpod-wifi-import: $*"; }
+# M6: files that arrive after the first boot are reported on the launcher's
+# first screen (one line each in /run/zpod/boot-notice; no SSID, no password).
+BOOTED_ONCE="${ZPOD_BOOTED_ONCE:-/var/lib/zpod/booted-once}"
+NOTICE="${ZPOD_NOTICE:-/run/zpod/boot-notice}"
+notice() { [ -e "$BOOTED_ONCE" ] || return 0; mkdir -p "$(dirname "$NOTICE")"; printf '%s\n' "$*" >> "$NOTICE"; }
 umask 077
 
 # Overwrite with zeros, then unlink, then flush. Best effort: SD cards remap
@@ -79,10 +84,12 @@ if [ -f "$TXT" ]; then
     mv -f "$tmp" "$CONN_DIR/zpod-wifi.nmconnection"
     imported=$((imported + 1))
     log "imported zpod-wifi.txt as NetworkManager profile 'zpod-wifi'"
+    notice "zpod-wifi.txt: Wi-Fi network added"
     if [[ "$country" =~ ^[A-Z]{2}$ ]] && command -v raspi-config >/dev/null && [ -z "${ZPOD_NO_COUNTRY:-}" ]; then
       raspi-config nonint do_wifi_country "$country" >/dev/null 2>&1 || log "could not set Wi-Fi country"
     fi
   fi
+  [ "$ok" = 1 ] || notice "zpod-wifi.txt: not valid, not imported (deleted)"
   unset ssid psk
   wipe "$TXT"
 fi
@@ -99,6 +106,7 @@ for f in "$BOOT"/*.nmconnection; do
   mv -f "$tmp" "$CONN_DIR/$base"
   imported=$((imported + 1))
   log "installed NetworkManager profile from boot partition ($base)"
+  notice "$base: network profile installed"
   wipe "$f"
 done
 

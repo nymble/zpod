@@ -1,5 +1,5 @@
 [Unit]
-Description=ZPOD drop (HTTP music upload)
+Description=ZPOD drop box + OPDS book catalog (HTTP, port 8080)
 Documentation=https://github.com/nymble/zpod/blob/main/docs/FILE-TRANSFER.md
 Requires=zpod-drop.socket
 # Never run as uid 1000 while first boot renames that user (usermod -l refuses).
@@ -16,4 +16,5 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
-ReadWritePaths=/srv/zpod/media
+# M6: music upload, drop box uploads (/data/inbox); /data/books is read-only here
+ReadWritePaths=/srv/zpod/media -/data/inbox

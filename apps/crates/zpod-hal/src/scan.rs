@@ -162,7 +162,7 @@ pub fn sort_wifi(v: &mut [WifiNet], by: WifiSort) {
     }
 }
 
-fn run(cmd: &[&str], timeout_s: u32) -> Result<String, String> {
+pub(crate) fn run(cmd: &[&str], timeout_s: u32) -> Result<String, String> {
     let mut c = Command::new("timeout");
     c.arg(timeout_s.to_string()).args(cmd).stdin(Stdio::null());
     let o = c.output().map_err(|e| format!("{}: {e}", cmd[0]))?;
@@ -192,6 +192,9 @@ fn sim_wifi() -> Vec<WifiNet> {
         mk("", "02:11:22:00:00:04", 2412, -80.0, "WPA2", false),
         mk("Printer-Direct", "f8:d0:27:00:00:05", 2412, -73.0, "WPA2", false),
         mk("Neighbour 5G", "a4:2b:b0:00:00:06", 5180, -84.0, "WPA3", false),
+        mk("FlatB-2G", "3c:84:6a:00:00:07", 2437, -71.0, "WPA2", false),
+        mk("xfinitywifi", "9c:3d:cf:00:00:08", 2462, -78.0, "Open", false),
+        mk("Garage", "b0:be:76:00:00:09", 2427, -82.0, "WPA2", false),
     ]
 }
 

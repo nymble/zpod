@@ -23,8 +23,15 @@ pub enum Item {
     /// Installed app, index into the launcher's app list.
     App(usize),
     Transfer,
+    Battery,
     Wifi,
     WifiScan,
+    WifiSignal,
+    WifiChannels,
+    WifiSaved,
+    Hotspot,
+    DropBox,
+    Opds,
     BtScan,
     Menu(MenuId),
     BacklightTest,
@@ -44,8 +51,22 @@ pub enum Item {
 pub enum Page {
     Menu(MenuId),
     Transfer,
+    /// M6: charge, time left, history chart
+    Battery,
     Wifi,
     WifiScan,
+    /// M6: live signal meter (connected network, or the one picked in the scanner)
+    WifiSignal,
+    /// M6: APs per 2.4 GHz channel
+    WifiChannels,
+    /// M6: saved networks, OK = switch
+    WifiSaved,
+    /// M6: access point mode
+    Hotspot,
+    /// M6: web drop box / OPDS catalog on/off (true = OPDS)
+    Server(bool),
+    /// M6: first-boot files applied after the first boot (shown at start)
+    Notice,
     BtScan,
     /// Details of the selected scan row (Wi-Fi network or BT device).
     ScanDetail,
@@ -70,6 +91,9 @@ pub enum Effect {
     BacklightTest,
     CycleSpi,
     RefreshWifi,
+    /// Wi-Fi tools: OK on a page that does something (switch network,
+    /// hotspot on/off, server on/off, open the meter from scan details).
+    Activate(Page),
     /// File transfer: OK = rescan the music library now.
     RescanMusic,
     /// Entered a page that loads data (Wi-Fi info, apps list, date editor).
@@ -81,7 +105,7 @@ pub fn items(m: MenuId, n_apps: usize) -> Vec<Item> {
     match m {
         MenuId::Top => {
             let mut v: Vec<Item> = (0..n_apps).map(Item::App).collect();
-            v.extend([Item::Transfer, Item::Menu(MenuId::Tools), Item::Menu(MenuId::Settings), Item::Menu(MenuId::Power)]);
+            v.extend([Item::Transfer, Item::Battery, Item::Menu(MenuId::Tools), Item::Menu(MenuId::Settings), Item::Menu(MenuId::Power)]);
             v
         }
         MenuId::Settings => vec![
@@ -93,7 +117,17 @@ pub fn items(m: MenuId, n_apps: usize) -> Vec<Item> {
         ],
         MenuId::Display => vec![Item::BacklightTest, Item::SpiSpeed],
         MenuId::Diagnostics => vec![Item::Status, Item::Storage, Item::ButtonTest, Item::Tone],
-        MenuId::Tools => vec![Item::WifiScan, Item::BtScan, Item::Wifi],
+        MenuId::Tools => vec![
+            Item::WifiScan,
+            Item::WifiSignal,
+            Item::WifiChannels,
+            Item::WifiSaved,
+            Item::Hotspot,
+            Item::DropBox,
+            Item::Opds,
+            Item::BtScan,
+            Item::Wifi,
+        ],
         MenuId::Power => vec![Item::Reboot, Item::Shutdown],
     }
 }
@@ -103,11 +137,18 @@ pub fn label(it: Item) -> (&'static str, &'static str) {
     match it {
         Item::App(_) => ("", ""),
         Item::Transfer => ("File transfer", "How to connect, free space, rescan"),
+        Item::Battery => ("Battery", "Charge, time left, last charge, history"),
         Item::Wifi => ("Wi-Fi info", "This ZPOD: SSID, IP, MAC, signal"),
         Item::WifiScan => ("Wi-Fi scanner", "Networks nearby: channel, signal, security"),
+        Item::WifiSignal => ("Signal meter", "Live signal of the connected network"),
+        Item::WifiChannels => ("Channels", "Networks per 2.4 GHz channel, least busy"),
+        Item::WifiSaved => ("Saved networks", "Switch to another saved Wi-Fi"),
+        Item::Hotspot => ("Hotspot", "ZPOD as a Wi-Fi access point"),
+        Item::DropBox => ("Drop box", "Web page: browse, download, upload"),
+        Item::Opds => ("Book catalog", "OPDS feed of /data/books for e-readers"),
         Item::BtScan => ("Bluetooth scanner", "Classic + BLE devices nearby, RSSI"),
-        Item::Menu(MenuId::Tools) => ("Tools", "Wi-Fi & Bluetooth scanners, Wi-Fi info"),
-        Item::Menu(MenuId::Settings) => ("Settings", "Display, time, battery, diagnostics"),
+        Item::Menu(MenuId::Tools) => ("Tools", "Wi-Fi tools, hotspot, drop box, books"),
+        Item::Menu(MenuId::Settings) => ("Settings", "Display, time, about, diagnostics"),
         Item::Menu(MenuId::Power) => ("Power", "Reboot, shut down"),
         Item::Menu(MenuId::Display) => ("Display", "Backlight, SPI speed"),
         Item::Menu(MenuId::Diagnostics) => ("Diagnostics", "Status, storage & build, buttons, tone"),
@@ -115,7 +156,7 @@ pub fn label(it: Item) -> (&'static str, &'static str) {
         Item::BacklightTest => ("Backlight test", "GPIO27 off for 3 s (inferred pin)"),
         Item::SpiSpeed => ("Panel SPI speed", "32 MHz safe; 48/64 MHz test"),
         Item::DateTime => ("Date & time", "Set clock, saves to RTC"),
-        Item::About => ("Battery & about", "Battery, RTC, build, SD card"),
+        Item::About => ("About", "Version, SD card size and use, RTC"),
         Item::Apps => ("Installed apps", ""),
         Item::Status => ("System status", ""),
         Item::Storage => ("Storage & build", "SD card per partition, image version"),
@@ -135,12 +176,20 @@ pub fn title(p: Page) -> &'static str {
         Page::Menu(MenuId::Power) => "Power",
         Page::Menu(MenuId::Tools) => "Tools",
         Page::WifiScan => "Wi-Fi scanner",
+        Page::Battery => "Battery",
+        Page::WifiSignal => "Signal meter",
+        Page::WifiChannels => "Channels",
+        Page::WifiSaved => "Saved Wi-Fi",
+        Page::Hotspot => "Hotspot",
+        Page::Server(false) => "Drop box",
+        Page::Server(true) => "Books",
+        Page::Notice => "Setup files",
         Page::BtScan => "Bluetooth scanner",
         Page::ScanDetail => "Details",
         Page::Transfer => "File transfer",
         Page::Wifi => "Wi-Fi",
         Page::DateTime => "Date & time",
-        Page::About => "Battery & about",
+        Page::About => "About",
         Page::Apps => "Installed apps",
         Page::Status => "System status",
         Page::Storage => "Storage",
@@ -253,6 +302,18 @@ impl Menus {
                 }
                 Page::Wifi => Effect::RefreshWifi,
                 Page::Transfer => Effect::RescanMusic,
+                Page::WifiSaved if self.list().sel < rows.0 => Effect::Activate(Page::WifiSaved),
+                Page::Hotspot | Page::Server(_) => Effect::Activate(page),
+                Page::Notice => {
+                    self.back();
+                    Effect::Activate(Page::Notice)
+                }
+                Page::ScanDetail if self.stack.len() >= 2 && self.stack[self.stack.len() - 2].0 == Page::WifiScan => {
+                    let sel = self.list().sel;
+                    self.push(Page::WifiSignal);
+                    self.list_mut().sel = sel; // the scan row to follow
+                    Effect::Opened(Page::WifiSignal)
+                }
                 Page::WifiScan | Page::BtScan if self.list().sel < rows.0 => {
                     let sel = self.list().sel;
                     self.push(Page::ScanDetail);
@@ -274,8 +335,19 @@ impl Menus {
             Item::App(i) => Effect::Launch(i),
             Item::Menu(m) => open(self, Page::Menu(m)),
             Item::Transfer => open(self, Page::Transfer),
+            Item::Battery => open(self, Page::Battery),
             Item::Wifi => open(self, Page::Wifi),
             Item::WifiScan => open(self, Page::WifiScan),
+            Item::WifiSignal => {
+                self.push(Page::WifiSignal);
+                self.list_mut().sel = usize::MAX; // = the connected network
+                Effect::Opened(Page::WifiSignal)
+            }
+            Item::WifiChannels => open(self, Page::WifiChannels),
+            Item::WifiSaved => open(self, Page::WifiSaved),
+            Item::Hotspot => open(self, Page::Hotspot),
+            Item::DropBox => open(self, Page::Server(false)),
+            Item::Opds => open(self, Page::Server(true)),
             Item::BtScan => open(self, Page::BtScan),
             Item::DateTime => open(self, Page::DateTime),
             Item::About => open(self, Page::About),
@@ -422,12 +494,13 @@ mod tests {
 
     #[test]
     fn tools_menu_has_scanners_and_details() {
-        assert_eq!(items(MenuId::Top, 1), vec![Item::App(0), Item::Transfer, Item::Menu(MenuId::Tools), Item::Menu(MenuId::Settings), Item::Menu(MenuId::Power)]);
+        assert_eq!(items(MenuId::Top, 1), vec![Item::App(0), Item::Transfer, Item::Battery, Item::Menu(MenuId::Tools), Item::Menu(MenuId::Settings), Item::Menu(MenuId::Power)]);
         assert!(!items(MenuId::Top, 1).contains(&Item::Wifi), "Wi-Fi info moved to Tools");
         let mut m = Menus::new();
         select(&mut m, 0, Item::Menu(MenuId::Tools));
         assert_eq!(m.handle(Nav::Enter, 0, ROWS), Effect::Opened(Page::Menu(MenuId::Tools)));
-        assert_eq!(items(MenuId::Tools, 0), vec![Item::WifiScan, Item::BtScan, Item::Wifi]);
+        assert_eq!(items(MenuId::Tools, 0)[0], Item::WifiScan);
+        assert!(items(MenuId::Tools, 0).ends_with(&[Item::BtScan, Item::Wifi]));
         assert_eq!(m.handle(Nav::Enter, 0, ROWS), Effect::Opened(Page::WifiScan));
         // no rows yet: OK does nothing
         assert_eq!(m.handle(Nav::Enter, 0, (0, 5)), Effect::None);
@@ -441,6 +514,67 @@ mod tests {
         select(&mut m, 0, Item::BtScan);
         assert_eq!(m.handle(Nav::Enter, 0, ROWS), Effect::Opened(Page::BtScan));
         assert_eq!(m.handle(Nav::Home, 0, ROWS), Effect::Redraw);
+        assert_eq!(m.page(), Page::Menu(MenuId::Top));
+    }
+
+    #[test]
+    fn m6_battery_and_about_are_separate() {
+        assert!(items(MenuId::Top, 0).contains(&Item::Battery));
+        assert!(items(MenuId::Settings, 0).contains(&Item::About));
+        assert!(!items(MenuId::Settings, 0).contains(&Item::Battery));
+        assert_eq!(label(Item::About).0, "About");
+        let mut m = Menus::new();
+        select(&mut m, 0, Item::Battery);
+        assert_eq!(m.handle(Nav::Enter, 0, ROWS), Effect::Opened(Page::Battery));
+        assert_eq!(title(m.page()), "Battery");
+        m.handle(Nav::Back, 0, ROWS);
+        assert_eq!(m.page(), Page::Menu(MenuId::Top));
+    }
+
+    #[test]
+    fn m6_wifi_tools() {
+        let mut m = Menus::new();
+        select(&mut m, 0, Item::Menu(MenuId::Tools));
+        m.handle(Nav::Enter, 0, ROWS);
+        for (it, pg) in [(Item::WifiChannels, Page::WifiChannels), (Item::Hotspot, Page::Hotspot), (Item::DropBox, Page::Server(false)), (Item::Opds, Page::Server(true))] {
+            select(&mut m, 0, it);
+            assert_eq!(m.handle(Nav::Enter, 0, ROWS), Effect::Opened(pg));
+            m.handle(Nav::Back, 0, ROWS);
+        }
+        // OK toggles the hotspot / servers, Left goes back
+        select(&mut m, 0, Item::Hotspot);
+        m.handle(Nav::Enter, 0, ROWS);
+        assert_eq!(m.handle(Nav::Enter, 0, ROWS), Effect::Activate(Page::Hotspot));
+        m.handle(Nav::Back, 0, ROWS);
+        // saved networks: OK switches only on a real row
+        select(&mut m, 0, Item::WifiSaved);
+        m.handle(Nav::Enter, 0, ROWS);
+        assert_eq!(m.handle(Nav::Enter, 0, (0, 5)), Effect::None);
+        assert_eq!(m.handle(Nav::Enter, 0, (2, 5)), Effect::Activate(Page::WifiSaved));
+        m.handle(Nav::Back, 0, ROWS);
+        // meter from the menu follows the connected network
+        select(&mut m, 0, Item::WifiSignal);
+        assert_eq!(m.handle(Nav::Enter, 0, ROWS), Effect::Opened(Page::WifiSignal));
+        assert_eq!(m.list().sel, usize::MAX);
+        m.handle(Nav::Back, 0, ROWS);
+        // scanner > details > OK = meter for that row
+        select(&mut m, 0, Item::WifiScan);
+        m.handle(Nav::Enter, 0, ROWS);
+        m.handle(Nav::Down, 0, (3, 5));
+        m.handle(Nav::Enter, 0, (3, 5));
+        assert_eq!(m.page(), Page::ScanDetail);
+        assert_eq!(m.handle(Nav::Enter, 0, ROWS), Effect::Opened(Page::WifiSignal));
+        assert_eq!(m.list().sel, 1);
+        m.handle(Nav::Back, 0, ROWS);
+        m.handle(Nav::Back, 0, ROWS);
+        assert_eq!(m.page(), Page::WifiScan);
+    }
+
+    #[test]
+    fn m6_notice_ok_dismisses() {
+        let mut m = Menus::new();
+        m.push(Page::Notice);
+        assert_eq!(m.handle(Nav::Enter, 0, ROWS), Effect::Activate(Page::Notice));
         assert_eq!(m.page(), Page::Menu(MenuId::Top));
     }
 

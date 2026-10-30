@@ -1,0 +1,17 @@
+[Unit]
+Description=ZPOD battery: history log (1/min, /data/zpod/battery.log) + clean power-off when empty (MAX17048)
+Documentation=https://github.com/nymble/zpod/blob/main/docs/BATTERY.md
+# M6: replaces the Python zpod-battery-guard.service (same rule: SOC < 5 %
+# and VCELL < 3600 mV while not charging, three readings in a row).
+After=zpod-data-setup.service zpod-rtc.service
+Conflicts=zpod-battery-guard.service
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/zpod/bin/zpod-battery
+Restart=on-failure
+RestartSec=30
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
