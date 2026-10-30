@@ -74,7 +74,8 @@ script warns; `--http` mode converts names with `iconv` before uploading.
 
 ## 2. Drop server (light, no SSH): `zpod-drop`
 
-A ~400 kB static Rust HTTP server, socket-activated by systemd on port 8080.
+A ~600 kB static Rust HTTP server, socket-activated by systemd on port 8080.
+**M6: off by default**, switched on from Tools > Drop box / Book catalog (section 2a).
 It starts on the first connection and exits after 10 idle minutes, so it costs
 nothing while unused.
 
