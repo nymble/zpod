@@ -209,7 +209,7 @@ M6=0; [[ -x "$R/usr/lib/zpod/bin/zpod-battery" ]] && M6=1
 if [[ $M6 = 1 ]]; then
   W="$R/etc/systemd/system"
   chk "M6: zpod-release ZPOD_VERSION is m6"     grep -qE '^ZPOD_VERSION=.*m6' "$R/etc/zpod-release"
-  chk "M6: core-version 0.8.0"                  grep -qx '0.8.0' "$R/etc/zpod/core-version"
+  chk "M6: core-version 0.9.0"                  grep -qx '0.9.0' "$R/etc/zpod/core-version"
   chk "M6: zpod-battery is ARMv6"               bash -c "readelf -A '$R/usr/lib/zpod/bin/zpod-battery' | grep -qE 'Tag_CPU_arch: v6'"
   chk "M6: zpod-battery enabled"                test -L "$W/multi-user.target.wants/zpod-battery.service"
   chk "M6: Python battery guard disabled"       bash -c "! ls '$W'/*.wants/zpod-battery-guard.service 2>/dev/null | grep -q ."

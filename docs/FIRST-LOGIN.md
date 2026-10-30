@@ -19,7 +19,7 @@ Mac) after writing the image, before (or between) boots.
 > **key-only** setup (see below); on `v0.6.0-m5-rc1` and earlier a
 > `userconf.txt` added after that is ignored (see
 > [Recovery](#recovery-key-only-first-boot-then-userconftxt-v060-m5-rc1-and-earlier)).
-> From `v0.8.0-m6-rc1` a late `userconf.txt` is applied at the next boot and
+> From `v0.9.0-m6-rc1` a late `userconf.txt` is applied at the next boot and
 > the ZPOD **says so on its screen** (see
 > [Files added after the first boot](#files-added-after-the-first-boot-m6)).
 

@@ -8,7 +8,7 @@ Code: `apps/crates/zpod-core/src/nav.rs` (shared navigation),
 `overlay/usr/lib/zpod/zpod_buttons.py` (GPIO → keys, volume).
 
 Status labels: **M4** = in the M4 candidate; **M5** = in v0.6.0-m5;
-**M6** = in v0.8.0-m6-rc1; **next** = planned for the release after M6; **future** = wanted but not
+**M6** = in v0.9.0-m6-rc1; **next** = planned for the release after M6; **future** = wanted but not
 committed.
 Hardware labels: **confirmed** = measured on Paul's ZPOD; **inferred** = from
 vendor files or wiring, not yet proven.
