@@ -3,5 +3,5 @@
 # is still running, wait for it to exit first so only one launcher owns the LCD.
 # Apps run as the "zpod" user.
 while pidof zpod-launcher >/dev/null; do sleep 1; done
-export ZPOD_APP_USER=zpod HOME=/root PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export ZPOD_APP_USER=zpod ZPOD_DATA_DIR=/data/zpod/appdata HOME=/root PATH=/usr/sbin:/usr/bin:/sbin:/bin
 exec /usr/lib/zpod/bin/zpod-launcher >>/run/zpod/launcher.log 2>&1

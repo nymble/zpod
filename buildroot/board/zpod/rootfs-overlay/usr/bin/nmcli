@@ -1,0 +1,27 @@
+#!/bin/sh
+# nmcli shim for the Buildroot image (no NetworkManager). Implements only what
+# the ZPOD apps call (zpod-hal sys.rs / scan.rs), on top of wpa_supplicant:
+#   nmcli device wifi rescan [ifname wlan0]
+#   nmcli -t -f ACTIVE,SSID,SIGNAL device wifi list [--rescan no]
+# Everything else exits 1 with a note, like a missing NetworkManager would.
+IF=wlan0
+W="wpa_cli -p /run/wpa_supplicant -i $IF"
+args=" $* "
+case "$args" in
+*" device wifi rescan "*)
+	$W scan 2>/dev/null | grep -q OK && exit 0
+	echo "Error: wpa_supplicant is not running on $IF" >&2; exit 1 ;;
+*" device wifi list "*)
+	st=$($W status 2>/dev/null) || { echo "Error: wpa_supplicant is not running" >&2; exit 1; }
+	cur=$(printf '%s\n' "$st" | sed -n 's/^bssid=//p')
+	# scan_results: bssid / frequency / signal level / flags / ssid (tab separated)
+	$W scan_results 2>/dev/null | tail -n +2 | while IFS="$(printf '\t')" read -r b f s fl ss; do
+		[ -n "$b" ] || continue
+		a=no; [ "$b" = "$cur" ] && a=yes
+		p=$(( 2 * (s + 100) )); [ $p -gt 100 ] && p=100; [ $p -lt 0 ] && p=0
+		printf '%s:%s:%s\n' "$a" "$(printf '%s' "$ss" | sed 's/[\\:]/\\&/g')" "$p"
+	done
+	exit 0 ;;
+esac
+echo "nmcli: NetworkManager is not part of the ZPOD fast-boot image (shim; args: $*)" >&2
+exit 1

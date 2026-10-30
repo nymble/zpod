@@ -1,5 +1,5 @@
 # ZPOD (uGeek handheld, Raspberry Pi Zero W Rev 1.1, BCM2835 / ARMv6 hard-float)
-# Buildroot fast-boot image, proof of concept. Based on Buildroot 2026.02.3
+# Buildroot fast-boot image (M6 test). Based on Buildroot 2026.02.3
 # configs/raspberrypi0w_defconfig. Build: buildroot/build.sh (docs/BUILDROOT.md).
 BR2_arm=y
 BR2_arm1176jzf_s=y
@@ -21,7 +21,7 @@ BR2_OPTIMIZE_2=y
 
 # --- system: BusyBox init + mdev, read-only root, no getty on serial ---
 BR2_TARGET_GENERIC_HOSTNAME="zpod"
-BR2_TARGET_GENERIC_ISSUE="ZPOD (Buildroot fast-boot PoC)"
+BR2_TARGET_GENERIC_ISSUE="ZPOD (Buildroot fast-boot M6 test)"
 BR2_INIT_BUSYBOX=y
 BR2_ROOTFS_DEVICE_CREATION_DYNAMIC_MDEV=y
 # BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW is not set
@@ -32,6 +32,7 @@ BR2_TARGET_LOCALTIME="America/Los_Angeles"
 BR2_ROOTFS_USERS_TABLES="$(BR2_EXTERNAL_ZPOD_PATH)/board/zpod/users.table"
 BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_ZPOD_PATH)/board/zpod/rootfs-overlay"
 BR2_ROOTFS_POST_BUILD_SCRIPT="$(BR2_EXTERNAL_ZPOD_PATH)/board/zpod/post-build.sh"
+BR2_ROOTFS_POST_FAKEROOT_SCRIPT="$(BR2_EXTERNAL_ZPOD_PATH)/board/zpod/post-fakeroot.sh"
 BR2_ROOTFS_POST_IMAGE_SCRIPT="$(BR2_EXTERNAL_ZPOD_PATH)/board/zpod/post-image.sh"
 
 # --- kernel: Raspberry Pi vendor tree as pinned by Buildroot 2026.02.3 (6.12.61) ---
@@ -75,6 +76,8 @@ BR2_PACKAGE_MPD_OPUS=y
 BR2_PACKAGE_MPD_ID3TAG=y
 BR2_PACKAGE_MPD_SQLITE=y
 BR2_PACKAGE_MPD_TCP=y
+# mpc: "mpc update" after an rsync-share upload (rsyncd.conf post-xfer exec)
+BR2_PACKAGE_MPD_MPC=y
 
 # --- python helpers shared with the pi-gen image (buttons, battery guard) ---
 BR2_PACKAGE_PYTHON3=y
@@ -90,6 +93,13 @@ BR2_PACKAGE_IW=y
 BR2_PACKAGE_DROPBEAR=y
 BR2_PACKAGE_GESFTPSERVER=y
 BR2_PACKAGE_RSYNC=y
+# Bluetooth: BlueZ (btmgmt + bluetoothctl for the Tools scanner), D-Bus for bluetoothd
+BR2_PACKAGE_DBUS=y
+BR2_PACKAGE_BLUEZ5_UTILS=y
+BR2_PACKAGE_BLUEZ5_UTILS_CLIENT=y
+BR2_PACKAGE_BLUEZ5_UTILS_TOOLS=y
+# first login: sudo for the userconf.txt user (password) or key-only user (NOPASSWD)
+BR2_PACKAGE_SUDO=y
 
 # --- tools ---
 BR2_PACKAGE_KMOD=y
@@ -98,6 +108,10 @@ BR2_PACKAGE_XZ=y
 BR2_PACKAGE_I2C_TOOLS=y
 BR2_PACKAGE_E2FSPROGS=y
 BR2_PACKAGE_E2FSPROGS_RESIZE2FS=y
+# grow /data at first boot: sfdisk (resize p4 in the MBR) + partx (tell the kernel)
+BR2_PACKAGE_UTIL_LINUX=y
+BR2_PACKAGE_UTIL_LINUX_BINARIES=y
+BR2_PACKAGE_UTIL_LINUX_PARTX=y
 BR2_PACKAGE_DOSFSTOOLS=y
 BR2_PACKAGE_DOSFSTOOLS_FSCK_FAT=y
 BR2_PACKAGE_EXFATPROGS=y

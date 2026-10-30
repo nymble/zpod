@@ -5,7 +5,7 @@ devpts           /dev/pts        devpts   defaults,gid=5,mode=620,ptmxmode=0666 
 tmpfs            /dev/shm        tmpfs    mode=0777                               0      0
 tmpfs            /tmp            tmpfs    mode=1777                               0      0
 configfs         /sys/kernel/config configfs defaults                             0      0
-# p4: writable data (music, apps, keys, Wi-Fi config, state)
+# p4: writable data (music, apps, keys, Wi-Fi config, accounts, state); grown to the card at first boot
 /dev/mmcblk0p4   /data           ext4     defaults,noatime,nofail                 0      0
 # p1: FAT boot partition (config.txt, zpod-wifi.txt / zpod-ssh.pub drop-ins)
 /dev/mmcblk0p1   /boot/firmware  vfat     defaults,noatime,nofail,umask=0077      0      0

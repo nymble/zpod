@@ -10,6 +10,19 @@ dump() {
 	ps -o pid,args | grep -vE '\[|ps -o|grep' 
 	for f in /run/zpod/*.log; do echo "--- $f"; tail -n 5 "$f"; done
 	lsmod | head -20
+	echo "--- data / accounts / services"
+	cat /proc/partitions; df -h /data /srv/zpod/media 2>&1 | tail -n 2
+	grep -E ' /srv/zpod/media ' /proc/mounts
+	tail -n 20 /data/log/firstuser.log /data/log/data-grow.log 2>/dev/null
+	awk -F: '$3==1000{print "uid1000=" $1 " home=" $6 " shell=" $7}' /etc/passwd
+	u=$(awk -F: '$3==1000{print $1}' /etc/passwd)
+	[ -n "$u" ] && awk -F: -v u="$u" '$1==u{print "uid1000 password=" (substr($2,1,1)=="$" ? "hash set (" substr($2,1,3) ")" : "none/locked")}' /etc/shadow
+	tail -n 3 /run/zpod/wifi.log 2>/dev/null; grep -c '^network=' /data/etc/wpa_supplicant.conf; ls /boot/firmware
+	ls -la /etc/passwd /etc/shadow /data/etc/sudoers.d /data/etc/ssh 2>&1
+	ps -o pid,args | grep -E 'dropbear|bluetoothd|dbus|wpa_supp|mpd|rsync' | grep -v grep
+	for b in sudo btmgmt bluetoothctl mpc rsync sfdisk partx resize2fs wpa_cli iw nmcli; do printf '%s=%s ' $b "$(command -v $b || echo MISSING)"; done; echo
+	nmcli -t -f ACTIVE,SSID,SIGNAL device wifi list --rescan no 2>&1 | head -3
+	systemctl is-enabled zpod-rsyncd.socket; systemctl is-active zpod-rsyncd.socket
 	echo "=== end ==="
 }
 dump rcS-done

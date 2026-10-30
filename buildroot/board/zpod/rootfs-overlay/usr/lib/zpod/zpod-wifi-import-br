@@ -12,7 +12,7 @@ TXT=$BOOT/zpod-wifi.txt
 log() { echo "zpod-wifi-import: $*"; }
 umask 077
 if [ ! -f "$CONF" ]; then
-	printf 'ctrl_interface=/run/wpa_supplicant\nupdate_config=1\ncountry=US\n' > "$CONF"
+	printf 'ctrl_interface=DIR=/run/wpa_supplicant GROUP=zpod\nupdate_config=1\ncountry=US\n' > "$CONF"
 fi
 [ -f "$TXT" ] || exit 0
 
@@ -40,7 +40,7 @@ if [ "$ok" = 1 ] && [ "$have_psk" = 1 ] && [ -n "$psk" ]; then
 		hexpsk=$psk
 	elif [ "$n" -ge 8 ] && [ "$n" -le 63 ]; then
 		# passphrase on stdin (not argv); keep only the derived 256-bit PSK
-		hexpsk=$(printf '%s\n' "$psk" | wpa_passphrase "$ssid" 2>/dev/null | sed -n 's/^[[:space:]]*psk=\([0-9a-f]\{64\}\)$/\1/p')
+		hexpsk=$(printf '%s' "$psk" | /usr/lib/zpod/zpod-wpa-psk "$ssid" 2>/dev/null | grep -E '^[0-9a-f]{64}$')
 		[ -n "$hexpsk" ] || { log "could not derive the PSK; not imported"; ok=0; }
 	else
 		log "PSK must be 8-63 characters (or 64 hex digits); not imported"; ok=0

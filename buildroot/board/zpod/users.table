@@ -1,2 +1,4 @@
 # username uid group gid password home shell groups comment
-zpod 1000 zpod 1000 * - /bin/sh audio,input,video ZPOD apps
+# zpod: system user for the apps (like Pi OS's "useradd --system zpod");
+# uid 1000 is the login user made at first boot from userconf.txt.
+zpod 999 zpod 999 * - /bin/sh audio,input,video ZPOD apps

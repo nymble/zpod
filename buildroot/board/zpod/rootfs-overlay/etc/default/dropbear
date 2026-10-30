@@ -1,2 +1,8 @@
-# Key-only SSH: no password logins at all (keys from zpod-ssh.pub).
+# Sourced by /etc/init.d/S50dropbear. Root is always key-only.
+# -s: no password logins at all (default: key-only, zpod-ssh.pub).
+# -g: no password logins for root; other users may use their password. Used
+#     once userconf.txt has given the login user (uid 1000) a password hash.
 DROPBEAR_ARGS="-s"
+if awk -F: '$1!="root" && $2 ~ /^\$/ {f=1} END{exit !f}' /data/etc/shadow 2>/dev/null; then
+	DROPBEAR_ARGS="-g"
+fi

@@ -22,7 +22,7 @@ sed "s|#BOOT_FILES#|${BOOT_FILES}|" "${BOARD_DIR}/genimage.cfg.in" > "${GENIMAGE
 # Without it the device installs them on first boot (S00zpod-data).
 trap 'rm -rf "${ROOTPATH_TMP}"' EXIT
 ROOTPATH_TMP="$(mktemp -d)"
-mkdir -p "${ROOTPATH_TMP}/zpod/apps" "${ROOTPATH_TMP}/media/music" "${ROOTPATH_TMP}/media/playlists"
+mkdir -p "${ROOTPATH_TMP}/zpod/apps" "${ROOTPATH_TMP}/zpod/appdata" "${ROOTPATH_TMP}/media/music" "${ROOTPATH_TMP}/media/playlists"
 if [ -n "${ZPOD_HOST_APP:-}" ] && [ -x "${ZPOD_HOST_APP}" ]; then
 	for a in "${TARGET_DIR}"/usr/share/zpod/packages/*.zpa; do
 		ZPOD_APPS_DIR="${ROOTPATH_TMP}/zpod/apps" \
@@ -33,7 +33,8 @@ if [ -n "${ZPOD_HOST_APP:-}" ] && [ -x "${ZPOD_HOST_APP}" ]; then
 else
 	echo "post-image: ZPOD_HOST_APP not set; apps install on first boot"
 fi
-chown -R 1000:1000 "${ROOTPATH_TMP}/media"
+chown -R 1000:1000 "${ROOTPATH_TMP}/media"   # login user (uid 1000), as on Pi OS
+chown 999:999 "${ROOTPATH_TMP}/zpod/appdata"   # zpod (system user)
 
 rm -rf "${GENIMAGE_TMP}"
 genimage --rootpath "${ROOTPATH_TMP}" --tmppath "${GENIMAGE_TMP}" \

@@ -1,0 +1,24 @@
+#!/bin/sh
+# Bluetooth (background). The Zero W's BCM43430 BT is on the PL011 UART
+# (GPIO32/33, internal); the kernel's hci_uart serdev driver attaches it
+# (DT krnbt, default on), so no hciattach/btuart. GPIO14/15 (mini UART) are not
+# used: no miniuart-bt / disable-bt overlay (both would put UART0 on GPIO14).
+# The Tools > Bluetooth scanner uses btmgmt (kernel mgmt socket) first and
+# bluetoothctl (needs bluetoothd + D-Bus) as a fallback; both start here.
+start() {
+	(
+		modprobe -q hci_uart; modprobe -q btbcm
+		i=0; while [ ! -e /sys/class/bluetooth/hci0 ] && [ $i -lt 150 ]; do sleep 0.2; i=$((i+1)); done
+		[ -e /sys/class/bluetooth/hci0 ] && /usr/sbin/zpod-bootmark hci0-present || echo "no hci0"
+		mkdir -p /run/dbus
+		[ -e /run/dbus/system_bus_socket ] || dbus-daemon --system
+		/usr/libexec/bluetooth/bluetoothd -n </dev/null >>/run/zpod/bluetoothd.log 2>&1 &
+		echo $! > /run/zpod/bluetoothd.pid
+	) </dev/null >>/run/zpod/bt.log 2>&1 &
+}
+stop() {
+	[ -f /run/zpod/bluetoothd.pid ] && kill "$(cat /run/zpod/bluetoothd.pid)" 2>/dev/null
+	[ -f /run/messagebus.pid ] && kill "$(cat /run/messagebus.pid)" 2>/dev/null
+}
+case "$1" in start) start ;; stop) stop ;; restart) stop; start ;; esac
+exit 0

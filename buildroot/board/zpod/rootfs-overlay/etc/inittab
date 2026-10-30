@@ -9,7 +9,8 @@
 # Boot splash first (static Rust binary, spidev + GPIO cdev are built in)
 ::sysinit:/usr/lib/zpod/zpod-bootsplash-start
 ::sysinit:/bin/mkdir -p /dev/pts /dev/shm
-::sysinit:/bin/mount -a
+# mount -a + /data (tmpfs fallback, accounts on /data/etc, /srv/zpod/media bind)
+::sysinit:/usr/sbin/zpod-data-early
 null::sysinit:/bin/ln -sf /proc/self/fd /dev/fd
 null::sysinit:/bin/ln -sf /proc/self/fd/0 /dev/stdin
 null::sysinit:/bin/ln -sf /proc/self/fd/1 /dev/stdout

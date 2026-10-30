@@ -1,0 +1,37 @@
+#!/bin/sh
+# ZPOD sysinit step (replaces a bare "mount -a"): runs before the launcher.
+#  1. /data (p4, ext4 "zpoddata"): create the file system only if p4 has none
+#     (blkid finds no type), mount everything in fstab, tmpfs fallback.
+#  2. Accounts: /etc/{passwd,shadow,group} are symlinks to /data/etc (the root
+#     is read-only squashfs); seed them from /usr/share/zpod/etc-base and add
+#     system accounts that a newer image brings.
+#  3. Bind /data/media on /srv/zpod/media (same as the Pi OS M5 layout).
+# Growing p4 to the end of the card runs later, in the background (S00).
+DISK=/dev/mmcblk0
+P=${DISK}p4
+BASE=/usr/share/zpod/etc-base
+if [ -b "$P" ] && [ -z "$(blkid "$P" 2>/dev/null)" ] && ! dumpe2fs -h "$P" >/dev/null 2>&1; then
+	echo "zpod-data-early: $P has no file system: creating ext4 zpoddata"
+	mkfs.ext4 -q -F -L zpoddata -b 4096 -m 0 -i 65536 -E resize=536870912 "$P"
+fi
+mount -a
+if ! mountpoint -q /data; then
+	echo "zpod-data-early: /data not mounted; using tmpfs (nothing persists)"
+	mount -t tmpfs -o mode=0755 tmpfs /data
+	touch /run/zpod-data-tmpfs 2>/dev/null
+fi
+mkdir -p /data/etc /data/media/music /data/media/playlists
+for f in passwd group shadow; do
+	if [ ! -s /data/etc/$f ]; then
+		cp -p $BASE/$f /data/etc/$f
+	else
+		# add base (system) entries that are missing by name, e.g. after an OS update
+		while IFS= read -r line; do
+			n=${line%%:*}
+			grep -q "^$n:" /data/etc/$f || printf '%s\n' "$line" >> /data/etc/$f
+		done < $BASE/$f
+	fi
+done
+chmod 644 /data/etc/passwd /data/etc/group; chmod 600 /data/etc/shadow
+mountpoint -q /srv/zpod/media || mount --bind /data/media /srv/zpod/media
+exit 0

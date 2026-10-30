@@ -1,0 +1,35 @@
+#!/usr/bin/python3
+# WPA-PSK from a passphrase: PBKDF2-HMAC-SHA1(passphrase, SSID, 4096, 32 bytes),
+# the same value wpa_passphrase prints. Passphrase on stdin (never argv), SSID
+# as argv[1]; prints 64 hex digits. Needed because the Buildroot python has no
+# hashlib.pbkdf2_hmac (no OpenSSL) and wpa_passphrase 2.11 fails to read stdin
+# when it is not a terminal (tcgetattr).
+import hashlib, os, sys
+
+def pbkdf2_sha1(pw, salt, iters, dklen):
+    blk = 64
+    if len(pw) > blk:
+        pw = hashlib.sha1(pw).digest()
+    pw = pw.ljust(blk, b"\0")
+    inner = hashlib.sha1(bytes(b ^ 0x36 for b in pw))
+    outer = hashlib.sha1(bytes(b ^ 0x5C for b in pw))
+    def prf(msg):
+        i = inner.copy(); i.update(msg)
+        o = outer.copy(); o.update(i.digest())
+        return o.digest()
+    out = b""
+    n = 1
+    while len(out) < dklen:
+        u = prf(salt + n.to_bytes(4, "big"))
+        acc = int.from_bytes(u, "big")
+        for _ in range(iters - 1):
+            u = prf(u)
+            acc ^= int.from_bytes(u, "big")
+        out += acc.to_bytes(20, "big")
+        n += 1
+    return out[:dklen]
+
+pw = sys.stdin.buffer.read()
+if pw.endswith(b"\n"):
+    pw = pw[:-1]
+print(pbkdf2_sha1(pw, os.fsencode(sys.argv[1]), 4096, 32).hex())
