@@ -136,6 +136,8 @@ chk "M4.1: zpod-firstuser enabled"            test -L "$R/etc/systemd/system/mul
 chk "M4.1: zpod-firstuser.sh executable"      test -x "$R/usr/lib/zpod/zpod-firstuser.sh"
 chk "M4.1: firstuser runs before userconfig"  grep -q '^Before=userconfig.service' "$R/usr/lib/systemd/system/zpod-firstuser.service"
 chk "M4.1: userconfig drop-in (skip when set up)" grep -q 'ConditionPathExists=/etc/ssh/sshd_config.d/rename_user.conf' "$R/etc/systemd/system/userconfig.service.d/90-zpod.conf"
+chk "M5.1: firstuser also runs for a late userconf.txt" grep -q '^ConditionPathExists=|/boot/firmware/userconf.txt' "$R/usr/lib/systemd/system/zpod-firstuser.service"
+chk "M5.1: firstuser applies late userconf.txt"   grep -q '^late_userconf$' "$R/usr/lib/zpod/zpod-firstuser.sh"
 chk "M4.1: userconfig still enabled (userconf.txt works)" test -L "$R/etc/systemd/system/multi-user.target.wants/userconfig.service"
 chk "M4.1: /etc/zpod-release has git + image" bash -c "grep -q '^ZPOD_GIT=[0-9a-f]\{7\}' '$R/etc/zpod-release' && grep -q '^ZPOD_IMAGE=.' '$R/etc/zpod-release' && grep -q '^ZPOD_VERSION=.' '$R/etc/zpod-release'"
 if [[ $M4 = 1 ]]; then

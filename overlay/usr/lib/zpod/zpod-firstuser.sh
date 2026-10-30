@@ -17,6 +17,14 @@
 # that user (same as stock Raspberry Pi OS 010_pi-nopasswd). With a valid
 # userconf.txt the stock service sets the name and password as usual and the
 # keys below follow the user (usermod -m moves the home directory).
+#
+# Late userconf.txt (issue: key-only first boot, then userconf.txt added): the
+# key-only path ends the rename wizard (cancel-rename removes rename_user.conf
+# and disables userconfig.service), so the stock service never reads a
+# userconf.txt added afterwards. If the key-only setup was done here (our
+# sudoers file exists) and a valid userconf.txt appears, this script applies it
+# itself: rename to its name, set its password hash, delete userconf.txt, and
+# remove the passwordless sudoers file. It then installs any keys as usual.
 set -euo pipefail
 BOOT="${ZPOD_BOOT_DIR:-/boot/firmware}"
 PUB="$BOOT/zpod-ssh.pub"
@@ -26,7 +34,33 @@ USERCONF="${ZPOD_USERCONF:-/usr/lib/userconf-pi/userconf}"
 SUDOERS="${ZPOD_SUDOERS:-/etc/sudoers.d/010_zpod-nopasswd}"
 log() { echo "zpod-firstuser: $*"; }
 
-[ -f "$PUB" ] || { log "no zpod-ssh.pub; nothing to do"; exit 0; }
+# Late userconf.txt after a key-only first boot (see header).
+late_userconf() {
+  local f line name hash
+  [ -e "$RENAME_CONF" ] && return 0        # wizard still open: userconfig.service handles it
+  [ -f "$SUDOERS" ] || return 0            # not a zpod key-only setup: leave the user alone
+  for f in "$BOOT/userconf" "$BOOT/userconf.txt"; do
+    [ -f "$f" ] || continue
+    line="$(head -n1 "$f" | tr -d '\r')"
+    name="${line%%:*}"; hash="${line#*:}"
+    if [[ ! "$name" =~ ^[a-z][a-z0-9-]{0,31}$ ]] || [ "$name" = root ] || [ -z "$hash" ] || [ "$hash" = "$line" ]; then
+      log "$(basename "$f"): invalid (want name:<openssl passwd -6 hash>); renamed failed_$(basename "$f")"
+      mv -f "$f" "$BOOT/failed_$(basename "$f")"; sync; return 0
+    fi
+    local cur; cur="$(getent passwd 1000 | cut -d: -f1)"
+    if [ "$name" != "$cur" ] && getent passwd "$name" >/dev/null; then
+      log "$(basename "$f"): user '$name' already exists; not applied"; return 0
+    fi
+    log "late $(basename "$f") after key-only setup: '$cur' -> '$name', password set"
+    "$USERCONF" "$name" "$hash"           # rename + chpasswd -e + cancel-rename
+    rm -f "$f" "$SUDOERS" "$BOOT/failed_userconf" "$BOOT/failed_userconf.txt"; sync
+    log "removed $SUDOERS (user now has a password; sudo asks for it)"
+    return 0
+  done
+}
+late_userconf
+
+[ -f "$PUB" ] || { log "no zpod-ssh.pub; nothing more to do"; exit 0; }
 
 # Keep only well-formed public key lines (never private keys).
 keys="$(tr -d '\r' < "$PUB" | sed 's/^\xef\xbb\xbf//' | grep -E '^(ssh-(ed25519|rsa|dss)|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com) [A-Za-z0-9+/=]+( .*)?$' || true)"
