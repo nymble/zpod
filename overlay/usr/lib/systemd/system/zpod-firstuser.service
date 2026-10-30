@@ -1,10 +1,13 @@
 [Unit]
-Description=ZPOD: SSH public keys (and key-only first user) from zpod-ssh.pub on the boot partition
+Description=ZPOD: SSH public keys (and key-only first user / late userconf.txt) from the boot partition
 Documentation=https://github.com/nymble/zpod/blob/main/docs/USB-GADGET.md
 RequiresMountsFor=/boot/firmware /home
 After=local-fs.target systemd-remount-fs.service
 Before=userconfig.service ssh.service zpod-drop.service
-ConditionPathExists=/boot/firmware/zpod-ssh.pub
+# Any of these (| = OR): keys, or a userconf.txt added after a key-only first boot.
+ConditionPathExists=|/boot/firmware/zpod-ssh.pub
+ConditionPathExists=|/boot/firmware/userconf.txt
+ConditionPathExists=|/boot/firmware/userconf
 
 [Service]
 Type=oneshot

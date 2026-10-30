@@ -10,7 +10,7 @@ cat > $T/userconf <<'U'
 #!/bin/sh
 new=$1; old=$(getent passwd 1000 | cut -d: -f1)
 if [ "$old" != "$new" ]; then usermod -l "$new" "$old"; usermod -m -d "/home/$new" "$new"; groupmod -n "$new" "$old"; fi
-usermod -s /bin/bash "$new"; rm -f "$ZPOD_RENAME_CONF"
+usermod -s /bin/bash "$new"; [ -z "${2:-}" ] || echo "$new:$2" | chpasswd -e; rm -f "$ZPOD_RENAME_CONF"
 U
 chmod +x $T/userconf
 export ZPOD_BOOT_DIR=$B ZPOD_RENAME_CONF=$T/sshd/rename_user.conf ZPOD_USERCONF=$T/userconf ZPOD_SUDOERS=$T/sudoers
@@ -45,4 +45,26 @@ test -e $B/zpod-ssh.pub && test ! -e /home/pi/.ssh/authorized_keys && getent pas
 # 6. key-only without zpod-user.txt keeps 'pi'
 reset; echo "$K1" > $B/zpod-ssh.pub; bash $S >/dev/null
 getent passwd pi | grep -q '/bin/bash$' && grep -qx 'pi ALL=(ALL) NOPASSWD: ALL' $T/sudoers || fail "6: keep pi"
-echo "test_firstuser: all 6 cases passed"
+# 7. key-only first boot, then a valid userconf.txt on a later boot (the M5 bug):
+#    renamed to userconf's name, password hash set, sudoers removed, keys follow
+reset; echo "$K1" > $B/zpod-ssh.pub; bash $S >/dev/null
+test -e $T/sudoers -a ! -e $ZPOD_RENAME_CONF || fail "7: key-only setup first"
+echo 'paul:$6$salt$latehash' > $B/userconf.txt; bash $S
+getent passwd paul | grep -q ':1000:.*:/home/paul:/bin/bash$' || fail "7: renamed to paul"
+! getent passwd pi >/dev/null || fail "7: pi still exists"
+[ "$(getent shadow paul | cut -d: -f2)" = '$6$salt$latehash' ] || fail "7: password hash"
+test ! -e $T/sudoers || fail "7: passwordless sudoers not removed"
+test ! -e $B/userconf.txt || fail "7: userconf.txt not deleted"
+grep -qxF "$K1" /home/paul/.ssh/authorized_keys || fail "7: key did not follow the home"
+# 7b. same, with zpod-ssh.pub added again together with userconf.txt
+reset; echo "$K1" > $B/zpod-ssh.pub; bash $S >/dev/null
+echo 'paul:$6$salt$latehash' > $B/userconf.txt; echo "$K2" > $B/zpod-ssh.pub; bash $S >/dev/null
+[ "$(wc -l < /home/paul/.ssh/authorized_keys)" = 2 ] && test ! -e $T/sudoers -a ! -e $B/zpod-ssh.pub || fail "7b: late userconf + keys"
+# 8. user set up normally (no zpod sudoers): a later userconf.txt is left to the stock rules (ignored)
+reset; rm -f $ZPOD_RENAME_CONF; usermod -s /bin/bash pi; echo 'paul:$6$salt$x' > $B/userconf.txt; bash $S >/dev/null
+getent passwd pi >/dev/null && ! getent passwd paul >/dev/null && test -e $B/userconf.txt || fail "8: must not touch a set-up user"
+# 9. key-only, then an invalid userconf.txt: renamed failed_userconf.txt, sudoers kept, still pi
+reset; echo "$K1" > $B/zpod-ssh.pub; bash $S >/dev/null
+echo 'Paul' > $B/userconf.txt; bash $S >/dev/null
+test -e $B/failed_userconf.txt -a ! -e $B/userconf.txt -a -e $T/sudoers && getent passwd pi >/dev/null || fail "9: invalid late userconf"
+echo "test_firstuser: all 10 cases passed"

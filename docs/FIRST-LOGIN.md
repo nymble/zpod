@@ -13,6 +13,13 @@ The ZPOD has no keyboard (the data port is a USB gadget), so the HDMI wizard
 cannot be used: put the setup on the boot partition (volume **bootfs** on the
 Mac) after writing the image, before (or between) boots.
 
+> **Add every bootfs file before the first power-on.** Write `userconf.txt`,
+> `zpod-ssh.pub`, `zpod-user.txt` and `zpod-wifi.txt` in one go, eject, and only
+> then boot. A boot with `zpod-ssh.pub` but no `userconf.txt` finishes a
+> **key-only** setup (see below); on `v0.6.0-m5-rc1` and earlier a
+> `userconf.txt` added after that is ignored (see
+> [Recovery](#recovery-key-only-first-boot-then-userconftxt-v060-m5-rc1-and-earlier)).
+
 ## Quick setup (cut/paste, on the Mac; volume `bootfs`)
 
 Two steps. Paste **Step 1**, enter the ZPOD login password when OpenSSL asks (twice), then paste **Step 2**.
@@ -77,6 +84,17 @@ refused.
   passwordless for it (like stock Raspberry Pi OS `010_pi-nopasswd`, file
   `/etc/sudoers.d/010_zpod-nopasswd`). Set a password later with
   `sudo passwd paul` if you want one.
+  **Always add `zpod-user.txt` with your name** (`echo paul >
+  /Volumes/bootfs/zpod-user.txt`) for key-only cards, so the login is `paul`
+  and not `pi`.
+* **`userconf.txt` added after a key-only boot** (images after
+  `v0.6.0-m5-rc1`): `zpod-firstuser.service` also runs when only
+  `userconf.txt` is on bootfs. If the card was set up key-only (the
+  `010_zpod-nopasswd` file exists), it renames the user to `userconf.txt`'s
+  name, sets its password, deletes `userconf.txt` and removes
+  `/etc/sudoers.d/010_zpod-nopasswd` (sudo then asks for the password). An
+  invalid file is renamed `failed_userconf.txt`. A card whose user was set up
+  with a password is not changed by a later `userconf.txt`.
 * Adding `zpod-ssh.pub` later (already set-up card) just adds the key.
 
 ## Recovery: card already booted without a user (no reflash)
@@ -90,7 +108,34 @@ refused.
 3. `diskutil eject /Volumes/bootfs`, boot, wait ~2 min, `ssh paul@zpod.local`.
 
 The rename only waits for the files: `userconfig.service` stays enabled until a
-user is set up, so this works on any boot.
+user is set up, so this works on any boot (but see the next section if the
+card already did a key-only setup).
+
+## Recovery: key-only first boot, then `userconf.txt` (`v0.6.0-m5-rc1` and earlier)
+
+Symptom: the card booted once with `zpod-ssh.pub` but without a valid
+`userconf.txt`; `userconf.txt` was added later, and `ssh paul@…` fails while
+`ssh pi@…` works with the key. The key-only setup ended the rename wizard
+(removed `/etc/ssh/sshd_config.d/rename_user.conf`, disabled
+`userconfig.service`), so `userconf.txt` was never read. Put a valid
+`userconf.txt` on bootfs (Step 1 above), boot, then reopen the wizard and
+reboot (key login as `pi`, passwordless sudo, no password prompt):
+
+```sh
+ssh pi@10.12.194.1 'sudo touch /etc/ssh/sshd_config.d/rename_user.conf && sudo systemctl enable userconfig && sudo reboot'
+```
+
+`userconfig.service` then renames `pi` to `paul` and sets the password from
+`userconf.txt`. Afterwards remove the leftover passwordless-sudo file, which
+still names `pi` (harmless, but no longer needed; sudo asks for paul's
+password):
+
+```sh
+ssh -t paul@10.12.194.1 'sudo rm -f /etc/sudoers.d/010_zpod-nopasswd'
+```
+
+Images after `v0.6.0-m5-rc1` do this automatically at the next boot with
+`userconf.txt` present (see above).
 
 ## Storage layout (M5 images)
 

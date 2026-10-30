@@ -15,8 +15,23 @@ Conventions: **Mac$** = the Mac (zsh), **Pi$** = the ZPOD over SSH
 2. Do the two-step first-boot setup from [FIRST-LOGIN.md](FIRST-LOGIN.md)
    (Step 1 asks for the password; Step 2 has none). The files are unchanged
    in M5.
+   **Put all bootfs files (`userconf.txt`, `zpod-ssh.pub`, `zpod-user.txt`,
+   `zpod-wifi.txt`) on the card before the first power-on.**
 3. Boot. First boot takes longer (it grows `/data`). Note the time to the
    menu.
+
+If the card booted once with `zpod-ssh.pub` but before a valid
+`userconf.txt` was there (key-only setup as `pi`; `ssh paul@…` fails), add
+`userconf.txt`, boot, and run (key login, no password prompt):
+
+```sh
+Mac$ ssh pi@10.12.194.1 'sudo touch /etc/ssh/sshd_config.d/rename_user.conf && sudo systemctl enable userconfig && sudo reboot'
+```
+
+After the reboot `pi` is renamed `paul` with the password from
+`userconf.txt`. Then remove the leftover passwordless-sudo file (asks for
+paul's password): `Mac$ ssh -t paul@10.12.194.1 'sudo rm -f /etc/sudoers.d/010_zpod-nopasswd'`.
+Fixed for the next release (see [FIRST-LOGIN.md](FIRST-LOGIN.md)).
 
 Check:
 
