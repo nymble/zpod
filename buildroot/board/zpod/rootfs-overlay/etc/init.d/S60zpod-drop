@@ -13,6 +13,6 @@ start)
 	start-stop-daemon -S -q -b -m -p $PID -c 1000:1000 -x /usr/lib/zpod/bin/zpod-drop ;;
 stop) start-stop-daemon -K -q -p $PID; rm -f $PID ;;
 restart) "$0" stop; sleep 0.3; "$0" start "$2" ;;
-status) [ -f $PID ] && kill -0 "$(cat $PID)" 2>/dev/null ;;
+status) [ -f $PID ] && kill -0 "$(cat $PID)" 2>/dev/null; exit $? ;;
 esac
 exit 0

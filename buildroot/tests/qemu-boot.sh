@@ -5,8 +5,12 @@
 #          grow) and put test first-boot files on the FAT partition: a throwaway
 #          userconf.txt (random password, hash only), zpod-ssh.pub (test key),
 #          zpod-wifi.txt (dummy SSID/PSK, checks the import and shred).
-#   late   put a second test key (zpod-ssh.pub) on the FAT partition: on the
-#          next boot the launcher shows it in the M6 boot notice.
+#   late   put a second test key (zpod-ssh.pub) on the FAT partition and mark
+#          /data "booted once" (the launcher does that on hardware, but in QEMU
+#          it never gets past opening the panel): the next boot writes the M6
+#          boot notice (/run/zpod/boot-notice, in the debug dump).
+#   drop-on  switch the drop box + book catalog on in /data (as Tools > Drop
+#          box does through the systemctl shim): the next boot runs zpod-drop.
 #   boot   boot sd.img; serial log to $Q/boot<N>.log. zpod.debug on the cmdline
 #          dumps the boot marks and state after rcS and 20 s later.
 # QEMU has no SPI panel, I2C devices, UDC, Wi-Fi or BT, so those parts are
@@ -38,7 +42,29 @@ late)
 	off=$(( $(sfdisk -d "$Q/sd.img" | sed -n 's/.*: start= *\([0-9]*\),.*/\1/p' | head -n1) * 512 ))
 	T=$(mktemp -d)
 	echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIQemuLateKeyNotARealKey000000000000000000 qemu-late' > "$T/zpod-ssh.pub"
-	mcopy -o -i "$Q/sd.img@@$off" "$T/zpod-ssh.pub" ::zpod-ssh.pub; rm -rf "$T"
+	mcopy -o -i "$Q/sd.img@@$off" "$T/zpod-ssh.pub" ::zpod-ssh.pub
+	set -- $(sfdisk -d "$Q/sd.img" | sed -n 's/.*p4 : start= *\([0-9]*\), size= *\([0-9]*\),.*/\1 \2/p')
+	dd if="$Q/sd.img" of="$T/p4" bs=512 skip="$1" count="$2" status=none
+	date +%s > "$T/once"
+	debugfs -w -R "write $T/once var/zpod/booted-once" "$T/p4" >/dev/null 2>&1
+	debugfs -R "ls var/zpod" "$T/p4" 2>/dev/null | grep -q booted-once || { echo "late: booted-once not written"; exit 1; }
+	dd if="$T/p4" of="$Q/sd.img" bs=512 seek="$1" conv=notrunc status=none
+	rm -rf "$T"
+	;;
+drop-on)
+	T=$(mktemp -d)
+	set -- $(sfdisk -d "$Q/sd.img" | sed -n 's/.*p4 : start= *\([0-9]*\), size= *\([0-9]*\),.*/\1 \2/p')
+	dd if="$Q/sd.img" of="$T/p4" bs=512 skip="$1" count="$2" status=none
+	debugfs -R "cat etc/zpod/drop.conf" "$T/p4" 2>/dev/null | sed -e 's/^dropbox *=.*/dropbox = on/' -e 's/^opds *=.*/opds = on/' > "$T/drop.conf"
+	grep -q '^dropbox = on' "$T/drop.conf" || { echo "drop-on: no drop.conf on /data"; exit 1; }
+	: > "$T/flag"
+	debugfs -w -f - "$T/p4" >/dev/null 2>&1 <<DF
+rm etc/zpod/drop.conf
+write $T/drop.conf etc/zpod/drop.conf
+write $T/flag etc/zpod/drop.enabled
+DF
+	dd if="$T/p4" of="$Q/sd.img" bs=512 seek="$1" conv=notrunc status=none
+	rm -rf "$T"
 	;;
 boot)
 	n=1; while [ -e "$Q/boot$n.log" ]; do n=$((n+1)); done
