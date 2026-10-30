@@ -1,0 +1,6 @@
+menu "ZPOD packages"
+source "$BR2_EXTERNAL_ZPOD_PATH/package/zpod-dac/Config.in"
+source "$BR2_EXTERNAL_ZPOD_PATH/package/zpod-overlays/Config.in"
+source "$BR2_EXTERNAL_ZPOD_PATH/package/zpod-apps/Config.in"
+source "$BR2_EXTERNAL_ZPOD_PATH/package/zpod-scripts/Config.in"
+endmenu

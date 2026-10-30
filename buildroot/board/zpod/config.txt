@@ -1,0 +1,46 @@
+# ZPOD (Pi Zero W) config.txt -- Buildroot fast-boot image (proof of concept)
+# Same hardware lines as the pi-gen image (build/tweaks/stage2-05-zpod-m2),
+# plus boot-speed settings. Base-DT dtparams come before any dtoverlay=.
+start_file=start.elf
+fixup_file=fixup.dat
+kernel=zImage
+
+# --- boot speed ---
+# No HDMI on the ZPOD: skip EDID retries (~2.5 s saved on a Zero W, ahepp.dev 2025)
+hdmi_ignore_hotplug=1
+hdmi_blanking=2
+disable_splash=1
+boot_delay=0
+# No initramfs: SD, squashfs and ext4 are built into the kernel
+auto_initramfs=0
+gpu_mem=16
+disable_overscan=1
+
+# --- base-DT parameters (I2C1, I2S, SPI0; on-board PWM audio off) ---
+dtparam=i2c_arm=on
+dtparam=i2s=on
+dtparam=spi=on
+dtparam=audio=off
+
+# --- headphone amp: GPIO14 must stay LOW (so no UART/serial console) ---
+enable_uart=0
+gpio=14=op,dl
+
+# --- display: ILI9340 on SPI0 CE0, DC=GPIO25 (driven from userspace spidev) ---
+gpio=25=op,dl
+# GPIO27 = backlight (inferred): on as early as possible
+gpio=27=op,dh
+
+# --- buttons: active-low, pull-ups (BCM). GPIO20 (Vol-) is the I2S DIN pin:
+# pull-up only, its function is left alone (so gpio-keys cannot claim it).
+gpio=4,5,6,12,13,16,17,22,23,24,26=ip,pu
+gpio=20=pu
+
+# --- audio: Aoide ZPOD DAC, PCM5122 @ I2C1 0x4d (overlay built from drivers/aoide-zpod-dac) ---
+dtoverlay=aoide-zpod-dac
+
+# --- I2C1: DS3231 RTC @0x68 (MAX17048 fuel gauge @0x36 is read from userspace) ---
+dtoverlay=i2c-rtc,ds3231
+
+# --- USB OTG port as gadget (CDC-NCM Ethernet, 10.12.194.1/28) ---
+dtoverlay=dwc2,dr_mode=peripheral

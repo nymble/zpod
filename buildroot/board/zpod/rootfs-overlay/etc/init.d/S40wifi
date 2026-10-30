@@ -1,0 +1,36 @@
+#!/bin/sh
+# Wi-Fi in the background (never blocks the launcher): brcmfmac, then
+# wpa_supplicant on /data/etc/wpa_supplicant.conf ALWAYS (also with no network
+# configured, so the Tools > Wi-Fi scanner can scan; its control socket is
+# group zpod), power save off, udhcpc, then ntpd (writes the DS3231 via
+# hwclock -w once synchronised). No NetworkManager: /usr/bin/nmcli is a shim.
+CONF=/data/etc/wpa_supplicant.conf
+start() {
+	(
+		# zpod-wifi.txt on the boot partition -> $CONF (first boot or later)
+		/usr/lib/zpod/zpod-wifi-import-br
+		modprobe -q brcmfmac
+		i=0; while [ ! -e /sys/class/net/wlan0 ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done
+		[ -e /sys/class/net/wlan0 ] || { echo "no wlan0"; exit 0; }
+		/usr/sbin/zpod-bootmark wlan0-present
+		# the control socket for wpa_cli (root and group zpod)
+		grep -q '^ctrl_interface=' "$CONF" || sed -i '1i ctrl_interface=DIR=/run/wpa_supplicant GROUP=zpod' "$CONF"
+		sed -i 's|^ctrl_interface=/run/wpa_supplicant$|ctrl_interface=DIR=/run/wpa_supplicant GROUP=zpod|' "$CONF"
+		rfkill unblock wlan 2>/dev/null
+		ip link set wlan0 up
+		wpa_supplicant -B -D nl80211 -i wlan0 -c "$CONF" -P /run/wpa_supplicant.pid
+		iw dev wlan0 set power_save off 2>/dev/null
+		grep -q '^network=' "$CONF" 2>/dev/null || { echo "no networks in $CONF (scan only)"; exit 0; }
+		udhcpc -b -S -i wlan0 -p /run/udhcpc.wlan0.pid -x hostname:zpod -s /usr/share/udhcpc/default.script
+		i=0; while ! ip -4 addr show wlan0 | grep -q inet && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+		ip -4 addr show wlan0 | grep -q inet && /usr/sbin/zpod-bootmark wlan0-ip
+		ntpd -p pool.ntp.org -S /usr/lib/zpod/zpod-ntp-hook
+	) </dev/null >>/run/zpod/wifi.log 2>&1 &
+}
+stop() {
+	killall -q ntpd
+	[ -f /run/udhcpc.wlan0.pid ] && kill "$(cat /run/udhcpc.wlan0.pid)" 2>/dev/null
+	[ -f /run/wpa_supplicant.pid ] && kill "$(cat /run/wpa_supplicant.pid)" 2>/dev/null
+}
+case "$1" in start) start ;; stop) stop ;; restart) stop; start ;; esac
+exit 0

@@ -1,0 +1,40 @@
+#!/bin/sh
+# ZPOD (Buildroot): grow p4 (/data) to the end of the SD card, online.
+# Same rule as the Pi OS zpod-data-grow (there p3): act only when more than
+# 8 MiB is free after the data partition; MBR limit 2 TiB. Runs every boot in
+# the background (S00zpod-data); a no-op after the first boot.
+#   ZPOD_DRY_RUN=1   only print what it would do
+set -u
+DISK=${ZPOD_DISK:-/dev/mmcblk0}
+SYS=${ZPOD_SYS_BLOCK:-/sys/block/mmcblk0}
+N=4
+PART=${DISK}p$N
+[ -e "$SYS/mmcblk0p$N/start" ] || { echo "zpod-data-grow: no p$N"; exit 0; }
+total=$(cat "$SYS/size")
+start=$(cat "$SYS/mmcblk0p$N/start")
+size=$(cat "$SYS/mmcblk0p$N/size")
+end=$((start + size - 1))
+max=$((total - 1))
+lim=4294967295
+[ "$max" -gt "$lim" ] && max=$lim
+if [ $((max - end)) -gt 16384 ]; then
+	new=$((max - start + 1))
+	echo "zpod-data-grow: p$N end sector $end -> $max ($((new / 2048)) MiB)"
+	[ -n "${ZPOD_DRY_RUN:-}" ] && exit 0
+	# write the new size into the MBR, then tell the kernel (BLKPG resize works
+	# while p2 and p4 are mounted; a full re-read would not)
+	echo "$start,$new" | sfdisk -q --no-reread --no-tell-kernel -N $N "$DISK" || { echo "zpod-data-grow: sfdisk failed"; exit 1; }
+	partx -u --nr $N "$DISK" || { echo "zpod-data-grow: partx failed (new size after reboot)"; }
+fi
+[ -n "${ZPOD_DRY_RUN:-}" ] && exit 0
+# grow the ext4 file system online to the partition size (no-op when it fits)
+mountpoint -q /data && grep -q "^$PART /data ext4" /proc/mounts || exit 0
+psz=$(( $(cat "$SYS/mmcblk0p$N/size") / 8 ))          # 4 KiB blocks
+fsz=$(dumpe2fs -h "$PART" 2>/dev/null | sed -n 's/^Block count:[[:space:]]*//p')
+bs=$(dumpe2fs -h "$PART" 2>/dev/null | sed -n 's/^Block size:[[:space:]]*//p')
+[ "$bs" = 4096 ] || psz=$(( $(cat "$SYS/mmcblk0p$N/size") * 512 / ${bs:-4096} ))
+if [ -n "$fsz" ] && [ "$psz" -gt $((fsz + 2048)) ]; then
+	echo "zpod-data-grow: resize2fs $PART ($fsz -> $psz blocks)"
+	resize2fs "$PART" && echo "zpod-data-grow: /data is now $(df -h /data | awk 'NR==2{print $2}')"
+fi
+exit 0

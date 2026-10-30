@@ -1,0 +1,167 @@
+#!/bin/sh
+# nmcli shim for the Buildroot image (no NetworkManager). Implements only what
+# the ZPOD apps call (zpod-hal sys.rs / scan.rs / wifi.rs), on top of
+# wpa_supplicant (client), hostapd + udhcpd (hotspot) and iw:
+#   nmcli device wifi rescan [ifname wlan0]
+#   nmcli -t -f ACTIVE,SSID,SIGNAL device wifi list [--rescan no]
+#   nmcli -t -f NAME,UUID,TYPE,AUTOCONNECT,ACTIVE connection show
+#        saved networks = network blocks of /data/etc/wpa_supplicant.conf,
+#        UUID "wpa-<id>" (wpa_supplicant's network id)
+#   nmcli -t -f NAME connection show --active
+#   nmcli [--wait N] connection up uuid wpa-<id>     (join a saved network)
+#   nmcli [--wait N] connection up zpod-hotspot      (hostapd access point)
+#   nmcli connection down zpod-hotspot
+#   nmcli connection reload | device connect wlan0    (no-ops)
+# The hotspot profile is the NetworkManager keyfile the launcher writes
+# (/etc/NetworkManager/system-connections -> /data/etc/NetworkManager/...):
+# ssid=, psk=, channel=; address 10.42.0.1/24 like NM's "shared" method, but
+# with no NAT (the ZPOD has no uplink while it is an access point).
+# Everything else exits 1 with a note, like a missing NetworkManager would.
+IF=wlan0
+CONF=${ZPOD_WPA_CONF:-/data/etc/wpa_supplicant.conf}
+NMDIR=${ZPOD_NM_CONN_DIR:-/etc/NetworkManager/system-connections}
+HS=zpod-hotspot
+HSIP=10.42.0.1
+RUN=${ZPOD_RUN:-/run/zpod}
+HPID=$RUN/hostapd.pid
+DPID=$RUN/udhcpd.wlan0.pid
+W="wpa_cli -p /run/wpa_supplicant -i $IF"
+S40=${ZPOD_S40:-/etc/init.d/S40wifi}
+args=" $* "
+wait_s=30
+case "$args" in *" --wait "*) wait_s=$(printf '%s\n' "$args" | sed -n 's/.* --wait \([0-9][0-9]*\) .*/\1/p') ;; esac
+[ -n "$wait_s" ] || wait_s=30
+
+esc() { sed 's/[\\:]/\\&/g'; }
+alive() { [ -f "$1" ] && kill -0 "$(cat "$1")" 2>/dev/null; }
+hs_active() { alive "$HPID"; }
+
+# id<TAB>ssid for each network block of $CONF (ssid "quoted" or hex)
+conf_networks() {
+	[ -r "$CONF" ] || return 0
+	awk 'function hex(s,  i,o,h,c){h="0123456789abcdef";o="";s=tolower(s)
+		for(i=1;i<length(s);i+=2){c=(index(h,substr(s,i,1))-1)*16+index(h,substr(s,i+1,1))-1;o=o sprintf("%c",c)}return o}
+		/^network=\{/{n++;ss="";inb=1;next}
+		inb&&/^[ \t]*ssid=/{v=$0;sub(/^[ \t]*ssid=/,"",v);if(v~/^"/){sub(/^"/,"",v);sub(/"[ \t]*$/,"",v)}else v=hex(v);ss=v;next}
+		inb&&/^[ \t]*\}/{print n-1 "\t" ss;inb=0}' "$CONF"
+}
+cur_id() {
+	st=$($W status 2>/dev/null) || return 1
+	printf '%s\n' "$st" | grep -q '^wpa_state=COMPLETED' || return 1
+	printf '%s\n' "$st" | sed -n 's/^id=//p'
+}
+
+hs_down() {
+	alive "$DPID" && kill "$(cat "$DPID")" 2>/dev/null
+	alive "$HPID" && kill "$(cat "$HPID")" 2>/dev/null
+	i=0; while hs_active && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
+	rm -f "$HPID" "$DPID"
+	ip addr del $HSIP/24 dev $IF 2>/dev/null
+}
+client_up() {   # (re)start the client side: wpa_supplicant, udhcpc, ntpd
+	$W ping 2>/dev/null | grep -q PONG || { $S40 start; i=0; while ! $W ping 2>/dev/null | grep -q PONG && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done; }
+}
+
+hs_up() {
+	f=$NMDIR/$HS.nmconnection
+	[ -r "$f" ] || { echo "Error: unknown connection '$HS'." >&2; exit 10; }
+	ssid=$(sed -n 's/^[ \t]*ssid=//p' "$f" | head -1)
+	psk=$(sed -n 's/^[ \t]*psk=//p' "$f" | head -1)
+	ch=$(sed -n 's/^[ \t]*channel=//p' "$f" | head -1)
+	case "$ch" in [1-9]|1[0-3]) ;; *) ch=6 ;; esac
+	[ -n "$ssid" ] && [ ${#psk} -ge 8 ] || { echo "Error: hotspot profile incomplete" >&2; exit 4; }
+	command -v hostapd >/dev/null || { echo "Error: hostapd not installed" >&2; exit 4; }
+	hs_down
+	$S40 stop
+	i=0; while [ -f /run/wpa_supplicant.pid ] && kill -0 "$(cat /run/wpa_supplicant.pid)" 2>/dev/null && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
+	ip addr flush dev $IF 2>/dev/null
+	mkdir -p "$RUN"
+	umask 077
+	cat > "$RUN/hostapd.conf" <<HC
+interface=$IF
+driver=nl80211
+ssid=$ssid
+hw_mode=g
+channel=$ch
+ieee80211n=1
+wmm_enabled=1
+auth_algs=1
+wpa=2
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
+wpa_passphrase=$psk
+HC
+	umask 022
+	cat > "$RUN/udhcpd.wlan0.conf" <<DC
+start 10.42.0.10
+end 10.42.0.99
+interface $IF
+max_leases 40
+lease_file $RUN/udhcpd.wlan0.leases
+pidfile $DPID
+opt subnet 255.255.255.0
+opt lease 3600
+DC
+	touch "$RUN/udhcpd.wlan0.leases"
+	ip link set $IF up
+	hostapd -B -P "$HPID" "$RUN/hostapd.conf" >"$RUN/hostapd.log" 2>&1
+	i=0; while ! iw dev $IF info 2>/dev/null | grep -q 'type AP' && [ $i -lt $((wait_s * 10)) ]; do sleep 0.1; i=$((i+1)); done
+	if ! hs_active || ! iw dev $IF info 2>/dev/null | grep -q 'type AP'; then
+		echo "Error: hotspot did not start (see $RUN/hostapd.log)" >&2
+		hs_down; client_up; exit 4
+	fi
+	ip addr add $HSIP/24 dev $IF 2>/dev/null
+	udhcpd -S "$RUN/udhcpd.wlan0.conf"
+	echo "Connection successfully activated ($HS)"
+	exit 0
+}
+
+case "$args" in
+*" device wifi rescan "*)
+	hs_active && { echo "Error: Wi-Fi is a hotspot right now; no scanning" >&2; exit 1; }
+	$W scan 2>/dev/null | grep -q OK && exit 0
+	echo "Error: wpa_supplicant is not running on $IF" >&2; exit 1 ;;
+*" device wifi list "*)
+	st=$($W status 2>/dev/null) || { echo "Error: wpa_supplicant is not running" >&2; exit 1; }
+	cur=$(printf '%s\n' "$st" | sed -n 's/^bssid=//p')
+	# scan_results: bssid / frequency / signal level / flags / ssid (tab separated)
+	$W scan_results 2>/dev/null | tail -n +2 | while IFS="$(printf '\t')" read -r b f s fl ss; do
+		[ -n "$b" ] || continue
+		a=no; [ "$b" = "$cur" ] && a=yes
+		p=$(( 2 * (s + 100) )); [ $p -gt 100 ] && p=100; [ $p -lt 0 ] && p=0
+		printf '%s:%s:%s\n' "$a" "$(printf '%s' "$ss" | esc)" "$p"
+	done
+	exit 0 ;;
+*" connection show"*" --active "*)
+	c=$(cur_id) && conf_networks | while IFS="$(printf '\t')" read -r id ss; do [ "$id" = "$c" ] && printf '%s\n' "$ss" | esc; done
+	hs_active && echo "$HS"
+	exit 0 ;;
+*" connection show "*)
+	c=$(cur_id) || c=none
+	conf_networks | while IFS="$(printf '\t')" read -r id ss; do
+		a=no; [ "$id" = "$c" ] && a=yes
+		printf '%s:wpa-%s:802-11-wireless:yes:%s\n' "$(printf '%s' "$ss" | esc)" "$id" "$a"
+	done
+	[ -r "$NMDIR/$HS.nmconnection" ] && { a=no; hs_active && a=yes; printf '%s:%s:802-11-wireless:no:%s\n' "$HS" "$HS" "$a"; }
+	exit 0 ;;
+*" connection reload "*|*" device connect "*) exit 0 ;;
+*" connection up "*"$HS "*) hs_up ;;
+*" connection down "*"$HS "*)
+	hs_down; client_up; echo "Connection '$HS' successfully deactivated"; exit 0 ;;
+*" connection up uuid wpa-"*)
+	id=$(printf '%s\n' "$args" | sed -n 's/.* uuid wpa-\([0-9][0-9]*\) .*/\1/p')
+	[ -n "$id" ] && conf_networks | cut -f1 | grep -qx "$id" || { echo "Error: unknown connection" >&2; exit 10; }
+	hs_active && hs_down
+	client_up
+	$W select_network "$id" >/dev/null || { echo "Error: wpa_supplicant is not running" >&2; exit 4; }
+	i=0; while [ "$(cur_id)" != "$id" ] && [ $i -lt $((wait_s * 10)) ]; do sleep 0.1; i=$((i+1)); done
+	$W enable_network all >/dev/null
+	[ "$(cur_id)" = "$id" ] || { echo "Error: Connection activation failed (timeout)" >&2; exit 4; }
+	if alive /run/udhcpc.wlan0.pid; then kill -USR1 "$(cat /run/udhcpc.wlan0.pid)"
+	else udhcpc -b -S -i $IF -p /run/udhcpc.wlan0.pid -x hostname:zpod -s /usr/share/udhcpc/default.script >/dev/null 2>&1; fi
+	pidof ntpd >/dev/null || ntpd -p pool.ntp.org -S /usr/lib/zpod/zpod-ntp-hook
+	echo "Connection successfully activated"
+	exit 0 ;;
+esac
+echo "nmcli: NetworkManager is not part of the ZPOD fast-boot image (shim; args: $*)" >&2
+exit 1

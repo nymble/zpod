@@ -1357,6 +1357,7 @@ fn main() {
     l.p.fb.mark_all_dirty();
     let mut status_redraw_at = Instant::now();
     let mut powering = false;
+    let mut first_frame_logged = false;
 
     loop {
         if proc::terminating() {
@@ -1434,6 +1435,10 @@ fn main() {
             l.draw();
         }
         l.p.flush();
+        if !first_frame_logged && !l.p.is_sim() {
+            first_frame_logged = true;
+            proc::boot_mark("launcher-first-frame");
+        }
 
         let mut timeout = match (&l.toast, live) {
             (Some((_, until)), _) => until.saturating_duration_since(Instant::now()).max(Duration::from_millis(20)),

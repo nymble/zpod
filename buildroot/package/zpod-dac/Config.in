@@ -1,0 +1,9 @@
+config BR2_PACKAGE_ZPOD_DAC
+	bool "zpod-dac (Aoide ZPOD PCM5122 ASoC machine driver)"
+	depends on BR2_LINUX_KERNEL
+	help
+	  Out-of-tree ASoC machine driver aoide-zpod-dac.ko (compatible
+	  "aoide,aoide-zpod-dac", card "sndrpiaoidezpod"): bcm2835 I2S +
+	  in-tree pcm512x codec at I2C1 0x4d. PCM5122 GPIO4 drives the
+	  headphone amp. Source: drivers/aoide-zpod-dac/ in this repo (the
+	  same file the pi-gen image builds with DKMS).

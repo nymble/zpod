@@ -1,0 +1,73 @@
+#!/bin/sh
+# ZPOD sysinit step (replaces a bare "mount -a"): runs before the launcher.
+#  1. /data (p4, ext4 "zpoddata"): create the file system only if p4 has none
+#     (blkid finds no type), mount everything in fstab, tmpfs fallback.
+#  2. Accounts: /etc/{passwd,shadow,group} are symlinks to /data/etc (the root
+#     is read-only squashfs); seed them from /usr/share/zpod/etc-base and add
+#     system accounts that a newer image brings.
+#  3. Bind /data/media on /srv/zpod/media (same as the Pi OS M5 layout) and
+#     /data/etc/zpod on /etc/zpod; apply first-boot files from ZPODBOOT.
+# Growing p4 to the end of the card runs later, in the background (S00).
+DISK=/dev/mmcblk0
+P=${DISK}p4
+BASE=/usr/share/zpod/etc-base
+if [ -b "$P" ] && [ -z "$(blkid "$P" 2>/dev/null)" ] && ! dumpe2fs -h "$P" >/dev/null 2>&1; then
+	echo "zpod-data-early: $P has no file system: creating ext4 zpoddata"
+	mkfs.ext4 -q -F -L zpoddata -b 4096 -m 0 -i 65536 -E resize=536870912 "$P"
+fi
+mount -a
+if ! mountpoint -q /data; then
+	echo "zpod-data-early: /data not mounted; using tmpfs (nothing persists)"
+	mount -t tmpfs -o mode=0755 tmpfs /data
+	touch /run/zpod-data-tmpfs 2>/dev/null
+fi
+mkdir -p /data/etc /data/media/music /data/media/playlists
+for f in passwd group shadow; do
+	if [ ! -s /data/etc/$f ]; then
+		cp -p $BASE/$f /data/etc/$f
+	else
+		# add base (system) entries that are missing by name, e.g. after an OS update
+		while IFS= read -r line; do
+			n=${line%%:*}
+			grep -q "^$n:" /data/etc/$f || printf '%s\n' "$line" >> /data/etc/$f
+		done < $BASE/$f
+	fi
+done
+chmod 644 /data/etc/passwd /data/etc/group; chmod 600 /data/etc/shadow
+mkdir -p /data/media/music /data/media/playlists /data/zpod/apps /data/zpod/appdata \
+	/data/etc/dropbear /data/etc/ssh /data/etc/zpod /data/etc/sudoers.d /data/home \
+	/data/var/mpd /data/var/zpod /data/var/alsa /data/var/seedrng /data/var/dbus \
+	/data/var/bluetooth /data/log /data/books /data/inbox \
+	/data/etc/NetworkManager/system-connections
+# same owners as the Pi OS zpod-data-setup: music uid 1000 (login user)
+chown 1000:1000 /data/media /data/media/music /data/media/playlists /data/books /data/inbox
+chmod 0775 /data/media /data/media/music /data/media/playlists /data/books /data/inbox
+chmod 700 /data/etc/NetworkManager/system-connections
+chown zpod:zpod /data/zpod/appdata
+chmod 700 /data/etc/ssh /data/etc/dropbear /data/var/bluetooth
+chmod 750 /data/etc/sudoers.d
+mountpoint -q /srv/zpod/media || mount --bind /data/media /srv/zpod/media
+# /etc/zpod writable (the launcher's Tools switches rewrite drop.conf): copy the
+# image's files to /data/etc/zpod on every boot (drop.conf only if missing:
+# it holds the user's switches and token), then bind it over /etc/zpod.
+if ! mountpoint -q /etc/zpod; then
+	mkdir -p /data/etc/zpod
+	for f in /etc/zpod/*; do
+		n=${f##*/}
+		[ "$n" = drop.conf ] && [ -e /data/etc/zpod/drop.conf ] && continue
+		cp -p "$f" "/data/etc/zpod/$n"
+	done
+	mount --bind /data/etc/zpod /etc/zpod
+fi
+# Setup files added AFTER the first boot: apply them now, before the launcher
+# starts, so its boot notice (M6) can report them. On the very first boot
+# (no booted-once yet; nothing is reported then) they stay in S00zpod-data /
+# S40wifi so the launcher is not delayed. Without such files this costs nothing.
+B=/boot/firmware
+if [ -e /data/var/zpod/booted-once ] && { [ -e $B/userconf.txt ] || [ -e $B/userconf ] || [ -e $B/zpod-ssh.pub ] || [ -e $B/zpod-wifi.txt ]; }; then
+	mkdir -p /data/log /run/zpod
+	/usr/lib/zpod/zpod-firstuser-br >>/data/log/firstuser.log 2>&1
+	/usr/lib/zpod/zpod-wifi-import-br >>/run/zpod/wifi.log 2>&1
+	/usr/sbin/zpod-bootmark first-boot-files
+fi
+exit 0

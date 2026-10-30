@@ -1,0 +1,58 @@
+# ZPOD SD layout (MBR, 4 primaries):
+#  p1 boot  FAT32 64M  firmware, kernel, dtb, overlays, config.txt, cmdline.txt
+#                      (+ zpod-wifi.txt / zpod-ssh.pub drop-ins; mounted at /boot/firmware)
+#  p2 rootA squashfs (LZ4, read-only), 256M partition
+#  p3 rootB squashfs, 256M partition (A/B stub: same image as A, not booted yet)
+#  p4 data  ext4 "zpoddata" 256M in the image: /data (music, apps, accounts,
+#           ssh keys, Wi-Fi, state). Grown to the end of the card at first boot
+#           (zpod-data-grow: sfdisk + partx + online resize2fs, max 2 TiB).
+#           Same file system and directory layout as the Pi OS M5+ /data (there p3).
+image boot.vfat {
+	vfat {
+		label = "ZPODBOOT"
+		files = {
+#BOOT_FILES#
+		}
+	}
+	size = 64M
+}
+
+image data.ext4 {
+	ext4 {
+		label = "zpoddata"
+		use-mke2fs = true
+		features = "^metadata_csum_seed"
+		# 4 KiB blocks, no reserved blocks, 1 inode per 64 KiB, resize to 2 TiB
+		# (same as the Pi OS image's /data)
+		extraargs = "-b 4096 -m 0 -i 65536 -E resize=536870912"
+	}
+	size = 256M
+}
+
+image sdcard.img {
+	hdimage {
+	}
+
+	partition boot {
+		partition-type = 0xC
+		bootable = "true"
+		image = "boot.vfat"
+	}
+
+	partition rootA {
+		partition-type = 0x83
+		image = "rootfs.squashfs"
+		size = 256M
+	}
+
+	partition rootB {
+		partition-type = 0x83
+		image = "rootfs.squashfs"
+		size = 256M
+	}
+
+	partition data {
+		partition-type = 0x83
+		image = "data.ext4"
+	}
+}
