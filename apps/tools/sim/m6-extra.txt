@@ -1,0 +1,12 @@
+# first-boot notice (ZPOD_NOTICE) on the first screen, then Battery without a gauge
+wait 400
+shot launcher-boot-notice
+key ok
+wait 200
+key down
+key down
+key down
+key down
+key ok
+wait 300
+shot launcher-battery-nogauge

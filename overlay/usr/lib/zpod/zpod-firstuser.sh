@@ -25,6 +25,10 @@
 # sudoers file exists) and a valid userconf.txt appears, this script applies it
 # itself: rename to its name, set its password hash, delete userconf.txt, and
 # remove the passwordless sudoers file. It then installs any keys as usual.
+#
+# M6: whatever this does on a boot AFTER the first one (the launcher writes
+# /var/lib/zpod/booted-once on its first start) is also written, one line
+# each, to /run/zpod/boot-notice; the launcher shows it on its first screen.
 set -euo pipefail
 BOOT="${ZPOD_BOOT_DIR:-/boot/firmware}"
 PUB="$BOOT/zpod-ssh.pub"
@@ -32,29 +36,43 @@ NAMEF="$BOOT/zpod-user.txt"
 RENAME_CONF="${ZPOD_RENAME_CONF:-/etc/ssh/sshd_config.d/rename_user.conf}"
 USERCONF="${ZPOD_USERCONF:-/usr/lib/userconf-pi/userconf}"
 SUDOERS="${ZPOD_SUDOERS:-/etc/sudoers.d/010_zpod-nopasswd}"
+BOOTED_ONCE="${ZPOD_BOOTED_ONCE:-/var/lib/zpod/booted-once}"
+NOTICE="${ZPOD_NOTICE:-/run/zpod/boot-notice}"
 log() { echo "zpod-firstuser: $*"; }
+notice() { [ -e "$BOOTED_ONCE" ] || return 0; mkdir -p "$(dirname "$NOTICE")"; printf '%s\n' "$*" >> "$NOTICE"; }
 
 # Late userconf.txt after a key-only first boot (see header).
 late_userconf() {
   local f line name hash
   [ -e "$RENAME_CONF" ] && return 0        # wizard still open: userconfig.service handles it
-  [ -f "$SUDOERS" ] || return 0            # not a zpod key-only setup: leave the user alone
+  if [ ! -f "$SUDOERS" ]; then             # not a zpod key-only setup: leave the user alone
+    if [ -f "$BOOT/userconf.txt" ] || [ -f "$BOOT/userconf" ]; then
+      log "userconf file present but the user was set up already; ignored"
+      notice "userconf.txt ignored: login already set up"
+    fi
+    return 0
+  fi
   for f in "$BOOT/userconf" "$BOOT/userconf.txt"; do
     [ -f "$f" ] || continue
     line="$(head -n1 "$f" | tr -d '\r')"
     name="${line%%:*}"; hash="${line#*:}"
     if [[ ! "$name" =~ ^[a-z][a-z0-9-]{0,31}$ ]] || [ "$name" = root ] || [ -z "$hash" ] || [ "$hash" = "$line" ]; then
       log "$(basename "$f"): invalid (want name:<openssl passwd -6 hash>); renamed failed_$(basename "$f")"
-      mv -f "$f" "$BOOT/failed_$(basename "$f")"; sync; return 0
+      mv -f "$f" "$BOOT/failed_$(basename "$f")"; sync
+      notice "$(basename "$f"): invalid, renamed failed_$(basename "$f")"; return 0
     fi
     local cur; cur="$(getent passwd 1000 | cut -d: -f1)"
     if [ "$name" != "$cur" ] && getent passwd "$name" >/dev/null; then
-      log "$(basename "$f"): user '$name' already exists; not applied"; return 0
+      log "$(basename "$f"): user '$name' already exists; not applied"
+      notice "$(basename "$f"): user '$name' exists, not applied"; return 0
     fi
     log "late $(basename "$f") after key-only setup: '$cur' -> '$name', password set"
     "$USERCONF" "$name" "$hash"           # rename + chpasswd -e + cancel-rename
     rm -f "$f" "$SUDOERS" "$BOOT/failed_userconf" "$BOOT/failed_userconf.txt"; sync
     log "removed $SUDOERS (user now has a password; sudo asks for it)"
+    if [ "$cur" != "$name" ]; then notice "$(basename "$f"): $cur is now $name, password set"
+    else notice "$(basename "$f"): password set for $name"; fi
+    notice "sudo now asks for that password"
     return 0
   done
 }
@@ -64,10 +82,11 @@ late_userconf
 
 # Keep only well-formed public key lines (never private keys).
 keys="$(tr -d '\r' < "$PUB" | sed 's/^\xef\xbb\xbf//' | grep -E '^(ssh-(ed25519|rsa|dss)|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com) [A-Za-z0-9+/=]+( .*)?$' || true)"
-if grep -q 'PRIVATE KEY' "$PUB"; then log "zpod-ssh.pub contains a PRIVATE key: ignored"; keys=""; fi
+if grep -q 'PRIVATE KEY' "$PUB"; then log "zpod-ssh.pub contains a PRIVATE key: ignored"; notice "zpod-ssh.pub: PRIVATE key, ignored (delete it!)"; keys=""; fi
 n=$(printf '%s' "$keys" | grep -c . || true)
 if [ "$n" -eq 0 ]; then
   log "zpod-ssh.pub has no valid public key lines; left in place for inspection"
+  notice "zpod-ssh.pub: no valid public key, ignored"
   exit 0
 fi
 
@@ -120,3 +139,4 @@ done <<< "$keys"
 chown "$user:$grp" "$ak"; chmod 0600 "$ak"
 rm -f "$PUB"; sync
 log "installed $added new key(s) for '$user' ($n in zpod-ssh.pub); zpod-ssh.pub removed"
+notice "zpod-ssh.pub: $added new SSH key(s) for $user"

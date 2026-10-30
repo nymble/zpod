@@ -1,6 +1,6 @@
 [package]
 name = "zpod-drop"
-description = "ZPOD drop server: tiny HTTP PUT upload endpoint + browser page for adding music over USB or Wi-Fi"
+description = "ZPOD web server: offline drop box (browse, download, upload to /data/inbox) and OPDS 1.2 book catalog; off by default"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,3 +12,5 @@ path = "src/main.rs"
 [dependencies]
 libc.workspace = true
 zpod-mpd.workspace = true
+zpod-core.workspace = true
+flate2.workspace = true

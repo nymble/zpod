@@ -1,10 +1,13 @@
 [Unit]
-Description=ZPOD drop (HTTP music upload) socket
+Description=ZPOD drop box + OPDS catalog socket (port 8080)
 Documentation=https://github.com/nymble/zpod/blob/main/docs/FILE-TRANSFER.md
 
 [Socket]
 ListenStream=8080
-# zpod-drop itself rejects non-USB peers unless a token is configured.
+# M6: OFF by default. Tools > Drop box / Book catalog turns it on (systemctl
+# enable --now) and off again when both are off. zpod-drop itself rejects
+# home-Wi-Fi peers unless a token is configured; USB and the ZPOD hotspot
+# (10.42.0.0/24, WPA2 key made on the device) need none.
 FreeBind=yes
 
 [Install]

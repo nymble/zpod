@@ -4,6 +4,9 @@
 #   /data/media/music      music library (uid 1000 = the first user)
 #   /data/media/playlists  MPD playlists (1000:mpd, group-writable)
 #   /data/zpod/appdata     app settings/saves (ZPOD_DATA_DIR, user zpod)
+#   /data/books            e-books for the OPDS catalog (M6, uid 1000)
+#   /data/inbox            drop box uploads (M6, uid 1000)
+#   /data/zpod/battery.log battery history (M6, zpod-battery, root)
 set -eu
 mountpoint -q /data || exit 0
 install -d -o 1000 -g 1000 -m 0775 /data/media /data/media/music
@@ -12,6 +15,7 @@ if getent group mpd >/dev/null; then
 else
   install -d -o 1000 -g 1000 -m 0775 /data/media/playlists
 fi
+install -d -o 1000 -g 1000 -m 0775 /data/books /data/inbox
 install -d -o root -g root -m 0755 /data/zpod
 if getent passwd zpod >/dev/null; then
   install -d -o zpod -g zpod -m 0755 /data/zpod/appdata

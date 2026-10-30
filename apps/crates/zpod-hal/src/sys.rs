@@ -213,8 +213,14 @@ impl Default for Gauge {
 impl Gauge {
     /// (percent, volts, charging)
     pub fn read(&mut self) -> Option<(f32, f32, bool)> {
+        self.read_rate().map(|(p, v, r)| (p, v, r > crate::battery::CHARGING_RATE))
+    }
+
+    /// (percent, volts, CRATE %/h; positive = charging). M6 Battery page.
+    pub fn read_rate(&mut self) -> Option<(f32, f32, f32)> {
         if sim() {
-            return env_f32("ZPOD_SIM_BATT").map(|p| (p, 3.9, false));
+            let r = env_f32("ZPOD_SIM_CRATE").unwrap_or(-6.0);
+            return env_f32("ZPOD_SIM_BATT").map(|p| (p, 3.9, r));
         }
         if self.dev.is_none() {
             if Instant::now() < self.next_try {
@@ -225,10 +231,7 @@ impl Gauge {
         }
         let g = self.dev.as_mut()?;
         match (g.soc_percent(), g.vcell()) {
-            (Ok(p), Ok(v)) => {
-                let charging = g.crate_pct_per_hour().map(|r| r > 0.5).unwrap_or(false);
-                Some((p, v, charging))
-            }
+            (Ok(p), Ok(v)) => Some((p, v, g.crate_pct_per_hour().unwrap_or(0.0))),
             _ => {
                 self.dev = None;
                 None

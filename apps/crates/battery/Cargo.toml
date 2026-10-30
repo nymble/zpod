@@ -1,0 +1,15 @@
+[package]
+name = "zpod-battery"
+description = "ZPOD battery logger + low-battery guard (MAX17048): one reading a minute to /data/zpod/battery.log"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "zpod-battery"
+path = "src/main.rs"
+
+[dependencies]
+zpod-hal.workspace = true
+zpod-drivers.workspace = true
+linux-embedded-hal.workspace = true

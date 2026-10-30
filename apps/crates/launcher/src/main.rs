@@ -18,13 +18,20 @@
 //!   library rescan ([`transfer`]), date/RTC, power.
 //! * `zpod-launcher --end-screen poweroff|reboot|off` draws just that frame
 //!   (for BusyBox shutdown scripts).
+//! * M6: Battery page (history from zpod-battery), About split from it,
+//!   Wi-Fi tools (signal meter, channels, saved networks, hotspot), Drop box
+//!   and Book catalog switches ([`server`]), and a first-screen notice when
+//!   bootfs setup files were applied after the first boot.
 
 mod icons;
 mod menu;
+mod pages;
 mod proc;
 mod ring;
+mod server;
 mod tools;
 mod transfer;
+mod wifitools;
 
 use std::path::PathBuf;
 use std::process::Child;
@@ -35,10 +42,10 @@ use menu::{Effect, Item, MenuId, Menus, Page};
 use proc::StopKind;
 use zpod_apps::AppInfo;
 use zpod_core::{classify, DateTime, Event, Key, KeyState, Nav, PlayState, StatusInfo};
-use zpod_hal::{alarm, conf, lcd, storage, sys, Platform};
+use zpod_hal::{alarm, battery, conf, lcd, storage, sys, wifi, Platform};
 use zpod_ui::{
     fill, rect,
-    status::{battery_icon, draw_status_bar},
+    status::draw_status_bar,
     text::{self, Align},
     theme::*,
     widgets::{self, Row, HINTS_H},
@@ -143,6 +150,23 @@ struct Launcher {
     xfer_at: Instant,
     ringer: Option<ring::Ringer>,
     alarm_checked: Instant,
+    wt: wifitools::WifiTools,
+    batt: Option<pages::BattView>,
+    batt_at: Instant,
+    srv: server::State,
+    srv_at: Instant,
+    notice: Vec<String>,
+}
+
+/// First-boot setup files applied on a later boot (written by
+/// zpod-firstuser.sh / zpod-wifi-import.sh, one line each).
+const NOTICE: &str = "/run/zpod/boot-notice";
+/// Exists after the first boot reached the launcher (the scripts above only
+/// report "late" files once this is there).
+const BOOTED_ONCE: &str = "/var/lib/zpod/booted-once";
+
+fn notice_path() -> PathBuf {
+    std::env::var_os("ZPOD_NOTICE").map(Into::into).unwrap_or_else(|| NOTICE.into())
 }
 
 fn dir_stamp(p: &std::path::Path) -> Option<std::time::SystemTime> {
@@ -196,9 +220,46 @@ impl Launcher {
             xfer_at: Instant::now(),
             ringer: None,
             alarm_checked: Instant::now() - Duration::from_secs(5),
+            wt: wifitools::WifiTools::default(),
+            batt: None,
+            batt_at: Instant::now(),
+            srv: server::State::default(),
+            srv_at: Instant::now(),
+            notice: Vec::new(),
         };
         l.rescan(true);
+        l.notice = std::fs::read_to_string(notice_path())
+            .map(|t| t.lines().map(str::trim).filter(|x| !x.is_empty()).map(str::to_string).collect())
+            .unwrap_or_default();
+        if !l.notice.is_empty() {
+            l.menus.push(Page::Notice);
+        }
+        if !sys::sim() && !std::path::Path::new(BOOTED_ONCE).exists() {
+            let _ = std::fs::create_dir_all("/var/lib/zpod");
+            let _ = std::fs::write(BOOTED_ONCE, format!("{}\n", sys::unix_now()));
+        }
         l
+    }
+
+    fn load_battery(&mut self) {
+        let (samples, sessions) = battery::load();
+        self.batt = Some(pages::BattView { now: self.gauge.read_rate(), samples, sessions, unix_now: sys::unix_now(), low_pct: low_batt_pct() });
+        self.batt_at = Instant::now();
+        self.redraw = true;
+    }
+
+    fn refresh_server(&mut self) {
+        self.srv = server::state();
+        self.srv_at = Instant::now();
+        self.redraw = true;
+    }
+
+    fn dismiss_notice(&mut self) {
+        self.notice.clear();
+        if !sys::sim() {
+            let _ = std::fs::create_dir_all("/var/lib/zpod");
+            let _ = std::fs::rename(notice_path(), "/var/lib/zpod/boot-notice.last");
+        }
     }
 
     fn rescan(&mut self, force: bool) {
@@ -233,6 +294,7 @@ impl Launcher {
             Page::Apps => (self.apps.len() + self.broken.len(), (LIST_H / APPS_ROW) as usize),
             Page::WifiScan => (self.tools.wifi.items.len(), (LIST_H / APPS_ROW) as usize),
             Page::BtScan => (self.tools.bt.items.len(), (LIST_H / APPS_ROW) as usize),
+            Page::WifiSaved => (self.wt.saved.len(), (LIST_H / APPS_ROW) as usize),
             _ => (0, 1),
         }
     }
@@ -334,30 +396,73 @@ impl Launcher {
             }
             Page::About => {
                 let _ = fb.fill_solid(&area, BG);
-                let batt = self.gauge.read();
                 let rtc = sys::rtc_info();
                 let kernel = std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default();
                 let host = std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default();
-                let rows: [(&str, String); 8] = [
-                    ("Battery", batt.map(|(p, v, c)| format!("{p:.0}%  {v:.2} V{}", if c { "  charging" } else { "" })).unwrap_or_else(|| "n/a (gauge 0x36)".into())),
-                    ("Low batt", format!("shuts down below {:.0}%", low_batt_pct())),
-                    ("RTC", rtc.map(|(n, t)| format!("{n}  {t} UTC")).unwrap_or_else(|| "none (DS3231 0x68 not bound)".into())),
-                    ("Build", storage::release().brief()),
-                    ("SD card", storage::sd_summary()),
-                    ("Host", format!("{}  login {}", host.trim(), storage::login_line())),
-                    ("Kernel", kernel.trim().to_string()),
-                    ("Core", format!("zpod {}  ({} apps)", zpod_apps::core_version(), self.apps.len())),
+                let rel = storage::release();
+                let mut rows: Vec<(&str, String)> = vec![
+                    ("Version", if rel.is_known() { rel.brief() } else { "unknown (no /etc/zpod-release)".into() }),
+                    ("SD card", storage::sd_card_bytes().map(|b| storage::human_card(b)).unwrap_or_else(|| "n/a".into())),
                 ];
-                for (i, (k, v)) in rows.iter().enumerate() {
-                    let y = LIST_Y + 6 + i as i32 * 24;
+                for (k, v, _) in storage::partition_lines() {
+                    rows.push((k, v));
+                }
+                rows.push(("Host", format!("{}  login {}", host.trim(), storage::login_line())));
+                rows.push(("RTC", rtc.map(|(n, t)| format!("{n}  {t} UTC")).unwrap_or_else(|| "none (DS3231 0x68 not bound)".into())));
+                rows.push(("Kernel", kernel.trim().to_string()));
+                rows.push(("Core", format!("zpod {}  ({} apps)", zpod_apps::core_version(), self.apps.len())));
+                let dy = if rows.len() > 8 { 20 } else { 24 };
+                for (i, (k, v)) in rows.iter().enumerate().take(10) {
+                    let y = LIST_Y + 5 + i as i32 * dy;
                     text::draw(fb, Font::Small, k, 10, y + 3, DIM);
                     text::draw_fit(fb, Font::Body, v, 84, y, 230, FG);
                 }
-                if let Some((p, _, c)) = batt {
-                    battery_icon(fb, 280, LIST_Y + 9, p, c);
-                }
-                widgets::hints(fb, &[("Lt/X", "back"), ("Home", "top")]);
+                widgets::hints(fb, &[("Lt/X", "back"), ("Home", "top"), ("", "battery: top menu > Battery")]);
             }
+            Page::Battery => match &self.batt {
+                Some(b) => pages::draw_battery(fb, b),
+                None => {
+                    let _ = fb.fill_solid(&area, BG);
+                }
+            },
+            Page::WifiSignal => pages::draw_meter(fb, &self.wt),
+            Page::WifiChannels => {
+                let chans = wifi::congestion(&self.tools.wifi.items);
+                let conn = self.tools.wifi.items.iter().find(|n| n.associated).map(|n| n.channel);
+                let age = self.tools.wifi.age_text();
+                pages::draw_channels(fb, &chans, conn, self.tools.wifi.busy.is_some(), &age, self.tools.wifi.items.len());
+            }
+            Page::WifiSaved => {
+                let ls = *self.menus.list();
+                let w = &self.wt;
+                if w.saved.is_empty() {
+                    let _ = fb.fill_solid(&area, BG);
+                    let msg = w.saved_err.clone().map(|e| format!("nmcli: {e}")).unwrap_or_else(|| "No saved Wi-Fi networks. Add one with zpod-wifi.txt.".into());
+                    text::draw_fit(fb, Font::Body, &msg, 12, LIST_Y + 80, 296, if w.saved_err.is_some() { WARN } else { DIM });
+                } else {
+                    let subs: Vec<String> = w.saved.iter().map(|n| if n.active { "connected now".to_string() } else if n.autoconnect { "joins automatically when in range".to_string() } else { "manual".to_string() }).collect();
+                    widgets::draw_list(fb, area, APPS_ROW, &ls, w.saved.len(), |i| Row {
+                        title: &w.saved[i].name,
+                        sub: Some(&subs[i]),
+                        right: if w.saved[i].active { Some("on") } else { None },
+                        icon: None,
+                        mark: if w.saved[i].active { Some(CYAN) } else { None },
+                    });
+                }
+                if let Some(j) = &w.job {
+                    widgets::toast(fb, &j.what);
+                }
+                widgets::hints(fb, &[("OK", "switch to"), ("Sq", "refresh"), ("Lt/X", "back")]);
+            }
+            Page::Hotspot => {
+                let home = self.wt.home_ssid.clone().or_else(|| self.wifi.ssid.clone());
+                pages::draw_hotspot(fb, self.wt.hotspot.as_ref(), self.wt.job.as_ref().map(|j| j.what.as_str()), home.as_deref(), &self.srv);
+            }
+            Page::Server(opds) => {
+                let hs = self.wt.hotspot.as_ref().is_some_and(|h| h.active);
+                pages::draw_server(fb, opds, &self.srv, hs);
+            }
+            Page::Notice => pages::draw_notice(fb, &self.notice),
             Page::Storage => {
                 let _ = fb.fill_solid(&area, BG);
                 let rel = storage::release();
@@ -712,6 +817,21 @@ impl Launcher {
                 self.toast(if self.tools.bt_by_name { "Sorted by name" } else { "Sorted by signal" }, 900);
                 return None;
             }
+            (Page::WifiChannels, Nav::Other(Key::Square)) => {
+                self.tools.wifi.start(tools::wifi_job);
+                self.redraw = true;
+                return None;
+            }
+            (Page::WifiSaved, Nav::Other(Key::Square)) => {
+                self.wt.refresh_saved();
+                self.redraw = true;
+                return None;
+            }
+            (Page::Hotspot, Nav::Other(Key::Triangle)) => {
+                self.wt.new_password();
+                self.redraw = true;
+                return None;
+            }
             (Page::Transfer, Nav::Other(Key::Square)) => {
                 match self.xfer.rsync {
                     None => self.toast("rsync share not installed", 1800),
@@ -748,6 +868,31 @@ impl Launcher {
                 self.wifi = sys::wifi_info();
                 None
             }
+            Effect::Activate(p) => {
+                match p {
+                    Page::WifiSaved => {
+                        let sel = self.menus.list().sel;
+                        if let Some(m) = self.wt.connect(sel) {
+                            self.toast(m, 1200);
+                        }
+                    }
+                    Page::Hotspot => {
+                        let best = (!self.tools.wifi.items.is_empty()).then(|| wifi::best_channel(&wifi::congestion(&self.tools.wifi.items)));
+                        self.wt.toggle_hotspot(best);
+                    }
+                    Page::Server(opds) => match server::toggle(opds) {
+                        Ok(st) => {
+                            let on = if opds { st.opds } else { st.dropbox };
+                            self.srv = st;
+                            self.toast(format!("{} {}", if opds { "Book catalog" } else { "Drop box" }, if on { "on" } else { "off" }), 1500);
+                        }
+                        Err(e) => self.toast(e, 2500),
+                    },
+                    Page::Notice => self.dismiss_notice(),
+                    _ => {}
+                }
+                None
+            }
             Effect::RescanMusic => {
                 match transfer::rescan() {
                     Ok(()) => self.toast("Rescanning music library", 1500),
@@ -762,6 +907,23 @@ impl Launcher {
             Effect::Opened(p) => {
                 match p {
                     Page::Wifi => self.wifi = sys::wifi_info(),
+                    Page::Battery => self.load_battery(),
+                    Page::WifiSignal => {
+                        let sel = self.menus.list().sel;
+                        let t = self.tools.wifi.items.get(sel).filter(|n| !n.associated).map(|n| wifitools::Target { bssid: n.bssid.clone(), ssid: n.ssid.clone(), channel: n.channel });
+                        self.wt.open_meter(t);
+                    }
+                    Page::WifiChannels => self.tools.wifi.start_if_stale(tools::wifi_job),
+                    Page::WifiSaved => self.wt.refresh_saved(),
+                    Page::Hotspot => {
+                        self.wt.refresh_hotspot();
+                        self.wifi = sys::wifi_info();
+                        self.refresh_server();
+                    }
+                    Page::Server(_) => {
+                        self.wt.refresh_hotspot();
+                        self.refresh_server();
+                    }
                     Page::Apps => self.rescan(true),
                     Page::DateTime => self.time_edit = TimeEdit::new(sys::now_local()),
                     Page::ButtonTest => self.buttons = ButtonTest::default(),
@@ -1048,9 +1210,9 @@ fn draw_transfer(fb: &mut zpod_ui::Framebuffer, x: &transfer::Info) {
     };
     kv(fb, &mut y, "Wi-Fi", &wifi, if x.wlan.is_some() { FG } else { DIM });
     let web = if x.drop_on {
-        format!("http://{}:{DROP_PORT}/  (token on Wi-Fi)", x.usb.clone().or(x.wlan.clone()).unwrap_or_else(|| "<ip>".into()))
+        format!("http://{}:{DROP_PORT}/  (drop box)", x.usb.clone().or(x.wlan.clone()).unwrap_or_else(|| "<ip>".into()))
     } else {
-        "drop server off".into()
+        "drop box off (Tools > Drop box)".into()
     };
     kv(fb, &mut y, "Browser", &web, if x.drop_on { FG } else { DIM });
     let rs = match x.rsync {
@@ -1238,11 +1400,26 @@ fn main() {
                 status_redraw_at = Instant::now() + Duration::from_secs(1);
             }
         }
+        if let Some(msg) = l.wt.poll_job() {
+            l.toast(msg, 2200);
+            l.wifi = sys::wifi_info();
+            l.refresh_server();
+        }
         let page = l.menus.page();
+        if page == Page::WifiSignal && l.wt.meter_tick() {
+            l.redraw = true;
+        }
+        if page == Page::Battery && l.batt_at.elapsed() >= Duration::from_secs(20) {
+            l.load_battery();
+        }
+        if matches!(page, Page::Hotspot | Page::Server(_)) && l.srv_at.elapsed() >= Duration::from_secs(5) && !l.wt.busy() {
+            l.wt.refresh_hotspot();
+            l.refresh_server();
+        }
         if page == Page::Transfer && l.xfer_at.elapsed() >= Duration::from_secs(if l.xfer.updating { 1 } else { 3 }) {
             l.refresh_transfer();
         }
-        if matches!(page, Page::WifiScan | Page::BtScan) && l.tools.busy() && Instant::now() >= status_redraw_at {
+        if matches!(page, Page::WifiScan | Page::BtScan | Page::WifiChannels) && l.tools.busy() && Instant::now() >= status_redraw_at {
             l.redraw = true; // "N s ago" / "scanning" hint
             status_redraw_at = Instant::now() + Duration::from_secs(1);
         }
@@ -1271,7 +1448,7 @@ fn main() {
         if let Some((_, until)) = l.spi_trial {
             timeout = timeout.min(until.saturating_duration_since(Instant::now()).max(Duration::from_millis(20)));
         }
-        if l.tools.busy() {
+        if l.tools.busy() || l.wt.busy() || page == Page::WifiSignal {
             timeout = timeout.min(Duration::from_millis(250));
         }
         let Some(ev) = l.p.next_event(Some(timeout)) else {

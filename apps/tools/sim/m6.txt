@@ -1,0 +1,87 @@
+# M6 screens: Battery (top menu), Tools > Wi-Fi tools, hotspot, drop box,
+# book catalog, Settings > About. Top: clock, music, tetris, File transfer,
+# Battery, Tools >, Settings >, Power >
+wait 300
+shot launcher-home
+key down
+key down
+key down
+key down
+key ok
+wait 300
+shot launcher-battery
+key left
+key down
+key ok
+wait 100
+shot launcher-tools
+# Signal meter (connected network, 1 Hz)
+key down
+key ok
+wait 9000
+shot launcher-wifi-meter
+key left
+# Channels (2.4 GHz)
+key down
+key ok
+wait 1200
+shot launcher-wifi-channels
+key left
+# Saved networks
+key down
+key ok
+wait 300
+shot launcher-wifi-saved
+key left
+# Hotspot: off (warning) -> on (SSID + password) -> off
+key down
+key ok
+wait 300
+shot launcher-hotspot-off
+key ok
+wait 2600
+shot launcher-hotspot-on
+key ok
+wait 2600
+key left
+# Drop box: off -> on
+key down
+key ok
+wait 300
+shot launcher-dropbox-off
+key ok
+wait 1800
+shot launcher-dropbox-on
+key left
+# Book catalog (OPDS): on
+key down
+key ok
+key ok
+wait 1800
+shot launcher-opds-on
+key left
+# Tools scroll view (bottom of the list)
+wait 100
+shot launcher-tools-bottom
+key left
+# Settings > About (version, SD size and use)
+key down
+key ok
+key down
+key down
+key ok
+wait 300
+shot launcher-about
+key home
+# Wi-Fi scanner > details > OK = meter for that network (Home keeps the
+# top selection on Settings, so Up = Tools)
+key up
+key ok
+key ok
+wait 900
+key down
+key ok
+wait 100
+key ok
+wait 7000
+shot launcher-wifi-meter-scan

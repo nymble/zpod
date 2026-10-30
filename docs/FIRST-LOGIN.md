@@ -19,6 +19,9 @@ Mac) after writing the image, before (or between) boots.
 > **key-only** setup (see below); on `v0.6.0-m5-rc1` and earlier a
 > `userconf.txt` added after that is ignored (see
 > [Recovery](#recovery-key-only-first-boot-then-userconftxt-v060-m5-rc1-and-earlier)).
+> From `v0.9.0-m6-rc1` a late `userconf.txt` is applied at the next boot and
+> the ZPOD **says so on its screen** (see
+> [Files added after the first boot](#files-added-after-the-first-boot-m6)).
 
 ## Quick setup (cut/paste, on the Mac; volume `bootfs`)
 
@@ -137,18 +140,42 @@ ssh -t paul@10.12.194.1 'sudo rm -f /etc/sudoers.d/010_zpod-nopasswd'
 Images after `v0.6.0-m5-rc1` do this automatically at the next boot with
 `userconf.txt` present (see above).
 
+## Files added after the first boot (M6)
+
+M6 images remember that they have booted once (`/var/lib/zpod/booted-once`,
+written when the launcher first starts). If setup files are found on bootfs
+on any later boot, the first screen is a **Setup files used at this boot**
+notice instead of the menu, one line per file, for example:
+
+| Line | Meaning |
+|---|---|
+| `userconf.txt: pi is now paul, password set` + `sudo now asks for that password` | late `userconf.txt` after a key-only first boot: applied (issue #24 fix) |
+| `userconf.txt: password set for paul` | same, user already had that name |
+| `userconf.txt ignored: login already set up` | the user was set up normally already; the file is **left on bootfs** (delete it) |
+| `userconf.txt: invalid, renamed failed_userconf.txt` | bad format; fix and rename back |
+| `zpod-ssh.pub: 1 new SSH key(s) for paul` | keys added (the file is then removed) |
+| `zpod-ssh.pub: no valid public key, ignored` / `PRIVATE key, ignored (delete it!)` | nothing installed |
+| `zpod-wifi.txt: Wi-Fi network added` | imported and wiped (the SSID and password are never shown) |
+| `zpod-wifi.txt: not valid, not imported (deleted)` | SSID/PSK length wrong |
+
+OK dismisses it (the text is kept in `/var/lib/zpod/boot-notice.last`).
+Details: `journalctl -b -u zpod-firstuser -u zpod-wifi-import`. The first boot
+itself never shows the notice.
+
 ## Storage layout (M5 images)
 
-M5 images have three partitions: boot (512 MiB FAT, the volume **bootfs**
+M5 and M6 images have three partitions: boot (512 MiB FAT, the volume **bootfs**
 where the files above go), a fixed-size root, and **`/data`**, which grows to
 fill the card at first boot (up to 2 TiB). Music, playlists and app settings
 live on `/data`; the paths you use (`/srv/zpod/media/music`) are unchanged.
+M6 adds `/data/books` (book catalog), `/data/inbox` (drop box uploads) and
+`/data/zpod/battery.log` (battery history).
 The first-boot files (`userconf.txt`, `zpod-ssh.pub`, `zpod-user.txt`,
 `zpod-wifi.txt`, `zpod-usb.txt`) work exactly as above. See
 [STORAGE.md](STORAGE.md).
 
 ## Status on the device
 
-Settings > Battery & about shows `login paul`, or `NOT SET UP` while the first
+Settings > About (M6; "Battery & about" before) shows `login paul`, or `NOT SET UP` while the first
 user is still unconfigured; Settings > Diagnostics > Storage & build shows the
 same on its **Login** row.

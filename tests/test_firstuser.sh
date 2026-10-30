@@ -14,6 +14,8 @@ usermod -s /bin/bash "$new"; [ -z "${2:-}" ] || echo "$new:$2" | chpasswd -e; rm
 U
 chmod +x $T/userconf
 export ZPOD_BOOT_DIR=$B ZPOD_RENAME_CONF=$T/sshd/rename_user.conf ZPOD_USERCONF=$T/userconf ZPOD_SUDOERS=$T/sudoers
+# M6 boot notice: off until "booted once" exists
+export ZPOD_BOOTED_ONCE=$T/booted-once ZPOD_NOTICE=$T/run/boot-notice
 reset() { userdel -r paul 2>/dev/null || true; userdel -r pi 2>/dev/null || true; groupdel pi 2>/dev/null || true
   useradd -u 1000 -m -s /usr/sbin/nologin pi; passwd -l pi >/dev/null; touch $ZPOD_RENAME_CONF; rm -f $B/* $T/sudoers; }
 K1="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyOnlyForTestsAAAAAAAAAAAAAAAAAA paul@M1"
@@ -67,4 +69,21 @@ getent passwd pi >/dev/null && ! getent passwd paul >/dev/null && test -e $B/use
 reset; echo "$K1" > $B/zpod-ssh.pub; bash $S >/dev/null
 echo 'Paul' > $B/userconf.txt; bash $S >/dev/null
 test -e $B/failed_userconf.txt -a ! -e $B/userconf.txt -a -e $T/sudoers && getent passwd pi >/dev/null || fail "9: invalid late userconf"
-echo "test_firstuser: all 10 cases passed"
+test ! -e $ZPOD_NOTICE || fail "notice written before the first boot finished"
+# 10. M6 notices: key-only first boot (no notice), later boots report late files
+reset; rm -f $ZPOD_NOTICE $ZPOD_BOOTED_ONCE; echo "$K1" > $B/zpod-ssh.pub; bash $S >/dev/null
+test ! -e $ZPOD_NOTICE || fail "10: first boot must not show a notice"
+touch $ZPOD_BOOTED_ONCE
+echo 'paul:$6$salt$latehash' > $B/userconf.txt; echo "$K2" > $B/zpod-ssh.pub; bash $S >/dev/null
+grep -qx 'userconf.txt: pi is now paul, password set' $ZPOD_NOTICE || fail "10: rename notice"
+grep -qx 'sudo now asks for that password' $ZPOD_NOTICE || fail "10: sudo notice"
+grep -qx 'zpod-ssh.pub: 1 new SSH key(s) for paul' $ZPOD_NOTICE || fail "10: key notice"
+! grep -q 'latehash' $ZPOD_NOTICE || fail "10: hash leaked into the notice"
+# 11. normally set-up user + stray userconf.txt: reported as ignored, left in place
+reset; rm -f $ZPOD_RENAME_CONF $ZPOD_NOTICE; usermod -s /bin/bash pi; echo 'paul:$6$salt$x' > $B/userconf.txt; bash $S >/dev/null
+grep -qx 'userconf.txt ignored: login already set up' $ZPOD_NOTICE && test -e $B/userconf.txt || fail "11: ignored notice"
+# 12. late invalid userconf.txt after key-only: notice names the failed_ file
+reset; rm -f $ZPOD_NOTICE; echo "$K1" > $B/zpod-ssh.pub; bash $S >/dev/null; rm -f $ZPOD_NOTICE
+echo 'Paul' > $B/userconf.txt; bash $S >/dev/null
+grep -qx 'userconf.txt: invalid, renamed failed_userconf.txt' $ZPOD_NOTICE || fail "12: invalid notice"
+echo "test_firstuser: all 13 cases passed"

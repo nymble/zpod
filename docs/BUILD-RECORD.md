@@ -1,4 +1,47 @@
-# BUILD-RECORD: ZPOD M5 pi0w — `v0.6.0-m5-rc1` (pre-release)
+# BUILD-RECORD: ZPOD M6 pi0w — `v0.9.0-m6-rc1` (pre-release)
+
+**Status:** Built and verified offline 2026-10-30; **not yet run on hardware** — see [TEST-M6.md](./TEST-M6.md).
+**Date:** 2026-10-30 (pi-gen 15:41–15:56 PT, export + xz ~16:03 PT). Tag `v0.9.0-m6-rc1`
+(`v0.7.0-br-poc1` and `v0.8.0-br-m6-fastboot-test1` belong to the Buildroot line).
+
+### Build host
+
+Stellas-Mac, colima profile `zpod` (6 CPU / 10 GiB), privileged `debian:trixie` container
+`zpod-m6-pigen`, pi-gen `59b67461533c2eef3564bc48eb3ce5c16e5c62ee`, `ZPOD_VERSION=0.9.0-m6-rc1`,
+same flow as M5 plus `stage2/08-zpod-m6`, then
+`IMG_DATE=2026-10-30 scripts/export-image-offset.sh … zpod-pi0w-v0.9.0-m6-rc1`. Repo commit `56192e7`.
+Rust: `cargo zigbuild` for `arm-unknown-linux-musleabihf` (shipped), all eight binaries
+`Tag_CPU_arch v6`; compile check for `arm-unknown-linux-gnueabihf` (launcher, battery, drop: v6);
+`cargo test --workspace` 138 passed; `tests/test_firstuser.sh` 13 cases passed.
+
+Build-host note: inside the `zpod` VM the default route (user-mode `eth0`) could not reach the
+Raspberry Pi mirrors over IPv4 (debootstrap hung); a temporary `default via 192.168.64.1 dev col0
+metric 50` route in the VM fixed it (not persistent; `zpod-br` untouched).
+
+## Artifacts
+
+| File | Bytes | SHA-256 |
+|---|---|---|
+| 2026-10-30-zpod-pi0w-v0.9.0-m6-rc1.img.xz | 444002000 (423 MiB) | 50eb0896388137547c1b8e2ea25a6e090e1398e2b9629f311430e6449cc66e8f |
+| 2026-10-30-zpod-pi0w-v0.9.0-m6-rc1.img | 4034920448 (3.76 GiB) | 03bea52c611a619740dbfa7206c47e569a51ac4f0b37ece4049bb9fcd8a9b0c4 |
+
+Same 3-partition layout as M5. `xz -t` OK.
+
+## Offline verification
+
+`scripts/verify-m2-image.sh`: **199 passed, 0 failed** (M5 had 145; new M6 checks: battery
+service, drop box/OPDS off by default and without token, boot notices, no hotspot profile or
+booted-once marker, no PSK in any profile, boot trims, still-enabled SSH/USB/first-boot/data units,
+qemu-chroot runs of the late `zpod-wifi.txt` notice and `zpod-battery --once`).
+Boot time: QEMU estimate only, see [BOOT-TIME.md](./BOOT-TIME.md).
+
+## Published
+
+| Release | https://github.com/nymble/zpod/releases/tag/v0.9.0-m6-rc1 |
+
+---
+
+## Previous: ZPOD M5 pi0w — `v0.6.0-m5-rc1` (pre-release)
 
 **Status:** Built and verified offline 2026-10-29; **not yet run on hardware** — see [TEST-M5.md](./TEST-M5.md).
 **Date:** 2026-10-29 (pi-gen stages 08:27–08:45 PT; export + xz finished ~08:52 PT)

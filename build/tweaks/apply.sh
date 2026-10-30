@@ -76,4 +76,19 @@ install -m 755 "$SCRIPT_DIR/stage2-07-zpod-m5/01-run.sh" "$M5/01-run.sh"
 cp -a "$REPO_ROOT/apps/system" "$M5/files/system"
 echo "M5 substep stage2/07-zpod-m5 applied (/data units, rsync share off, trims)"
 
-echo "applied ZPOD M1.1 + M2 + M4 + M5 tweaks to $PI_GEN"
+# M6: stage2/08-zpod-m6 = zpod-battery (Rust logger/guard), drop box + OPDS
+# (off by default), boot-time trims. Needs apps/dist (zpod-battery).
+M6="$PI_GEN/stage2/08-zpod-m6"
+rm -rf "$M6"
+if [[ -x "$REPO_ROOT/apps/dist/core/usr/lib/zpod/bin/zpod-battery" ]]; then
+  install -d "$M6/files"
+  install -m 755 "$SCRIPT_DIR/stage2-08-zpod-m6/01-run.sh" "$M6/01-run.sh"
+  cp -a "$REPO_ROOT/apps/system" "$M6/files/system"
+  cp -a "$REPO_ROOT/apps/dist" "$M6/files/dist"
+  echo "M6 substep stage2/08-zpod-m6 applied (battery, drop box/OPDS off, boot trims)"
+else
+  echo "error: apps/dist has no zpod-battery: run apps/tools/build-arm.sh first" >&2
+  exit 1
+fi
+
+echo "applied ZPOD M1.1 + M2 + M4 + M5 + M6 tweaks to $PI_GEN"
