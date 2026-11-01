@@ -1,5 +1,6 @@
 #!/bin/sh
-# Render the M6 screenshots with the headless simulator (any Linux host).
+# Render the M6 (test2 menu layout) screenshots with the headless simulator.
+# The test3 layout (Tools > Wi-Fi ...) is tools/test3-sim.sh.
 #   tools/m6-sim.sh -> /tmp/zpod-sim/out/*.png
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd); cd "$here"

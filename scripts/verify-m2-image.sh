@@ -60,7 +60,7 @@ for k in "$R"/lib/modules/*-rpi-v6 "$R"/lib/modules/*-rpi-v7; do
   kv=$(basename "$k")
   chk "dkms module for $kv" bash -c "ls '$k'/updates/dkms/aoide-zpod-dac.ko*"
 done
-chk "dkms source /usr/src/aoide-zpod-dac-1.0.0" test -f "$R/usr/src/aoide-zpod-dac-1.0.0/dkms.conf"
+chk "dkms source /usr/src/aoide-zpod-dac-1.0.x" bash -c "ls '$R'/usr/src/aoide-zpod-dac-1.0.*/dkms.conf"
 M4=0; [[ -x "$R/usr/lib/zpod/bin/zpod-launcher" ]] && M4=1
 UI=zpod-ui; [[ $M4 = 1 ]] && UI=zpod-launcher
 for u in $UI zpod-buttons zpod-audio-init rpi-usb-gadget-ics; do

@@ -18,6 +18,11 @@
 //!   library rescan ([`transfer`]), date/RTC, power.
 //! * `zpod-launcher --end-screen poweroff|reboot|off` draws just that frame
 //!   (for BusyBox shutdown scripts).
+//! * test3: Top = apps, Tools >, Settings >, Power >. Tools = Wi-Fi (one
+//!   screen: status card, Off/Client/Hotspot, networks, saved, hotspot
+//!   devices and password, Wi-Fi tools), Bluetooth, USB, Battery, File
+//!   transfer. Play/Pause toggles music on the top menu only; elsewhere it
+//!   only pauses music that is playing.
 //! * M6: Battery page (history from zpod-battery), About split from it,
 //!   Wi-Fi tools (signal meter, channels, saved networks, hotspot), Drop box
 //!   and Book catalog switches ([`server`]), and a first-screen notice when
@@ -31,6 +36,7 @@ mod ring;
 mod server;
 mod tools;
 mod transfer;
+mod usb;
 mod wifitools;
 
 use std::path::PathBuf;
@@ -138,6 +144,8 @@ struct Launcher {
     gauge: sys::Gauge,
     toast: Option<(String, Instant)>,
     tone: Option<Child>,
+    /// test tone stops itself at this time (no `timeout` binary needed)
+    tone_until: Option<Instant>,
     redraw: bool,
     app_user: Option<proc::AppUser>,
     wifi: sys::WifiInfo,
@@ -156,6 +164,8 @@ struct Launcher {
     srv: server::State,
     srv_at: Instant,
     notice: Vec<String>,
+    usb: usb::Info,
+    usb_at: Instant,
 }
 
 /// First-boot setup files applied on a later boot (written by
@@ -209,6 +219,7 @@ impl Launcher {
             gauge: sys::Gauge::default(),
             toast: None,
             tone: None,
+            tone_until: None,
             redraw: true,
             app_user,
             wifi: sys::WifiInfo::default(),
@@ -226,6 +237,8 @@ impl Launcher {
             srv: server::State::default(),
             srv_at: Instant::now(),
             notice: Vec::new(),
+            usb: usb::Info::default(),
+            usb_at: Instant::now(),
         };
         l.rescan(true);
         l.notice = std::fs::read_to_string(notice_path())
@@ -295,6 +308,10 @@ impl Launcher {
             Page::WifiScan => (self.tools.wifi.items.len(), (LIST_H / APPS_ROW) as usize),
             Page::BtScan => (self.tools.bt.items.len(), (LIST_H / APPS_ROW) as usize),
             Page::WifiSaved => (self.wt.saved.len(), (LIST_H / APPS_ROW) as usize),
+            Page::Wifi => (if self.wt.status.is_some() { menu::wifi_rows(self.wt.mode()).len() } else { 0 }, 4),
+            Page::WifiMode => (3, 5),
+            Page::HotspotDevices => (self.wt.status.as_ref().map(|s| s.clients.len()).unwrap_or(0), (LIST_H / APPS_ROW) as usize),
+            Page::WifiDevices => (self.wt.neighbours.len() + self.tools.wifi.items.len(), ((LIST_H - 16) / APPS_ROW) as usize),
             _ => (0, 1),
         }
     }
@@ -309,7 +326,7 @@ impl Launcher {
             return;
         }
         let title = match page {
-            Page::WifiScan if !self.tools.wifi.items.is_empty() => format!("Wi-Fi ({})", self.tools.wifi.items.len()),
+            Page::WifiScan if !self.tools.wifi.items.is_empty() => format!("Networks ({})", self.tools.wifi.items.len()),
             Page::BtScan if !self.tools.bt.items.is_empty() => format!("Bluetooth ({})", self.tools.bt.items.len()),
             Page::ScanDetail => self.tools.detail_title.clone(),
             _ => menu::title(page).to_string(),
@@ -427,11 +444,25 @@ impl Launcher {
             },
             Page::WifiSignal => pages::draw_meter(fb, &self.wt),
             Page::WifiChannels => {
-                let chans = wifi::congestion(&self.tools.wifi.items);
-                let conn = self.tools.wifi.items.iter().find(|n| n.associated).map(|n| n.channel);
                 let age = self.tools.wifi.age_text();
-                pages::draw_channels(fb, &chans, conn, self.tools.wifi.busy.is_some(), &age, self.tools.wifi.items.len());
+                pages::draw_chan_util(fb, &self.tools.wifi.items, self.tools.wifi.busy.is_some(), &age);
             }
+            Page::WifiDevices => {
+                let ls = *self.menus.list();
+                pages::draw_addresses(fb, &self.wt.neighbours, &self.tools.wifi.items, &ls, self.tools.wifi.busy.is_some());
+            }
+            Page::WifiMode => {
+                let ls = *self.menus.list();
+                pages::draw_mode(fb, self.wt.mode(), &ls, self.wt.job.as_ref().map(|j| j.what.as_str()));
+            }
+            Page::HotspotDevices => {
+                let ls = *self.menus.list();
+                let empty = Vec::new();
+                let peers = self.wt.status.as_ref().map(|s| &s.clients).unwrap_or(&empty);
+                let ssid = self.wt.hotspot.as_ref().map(|h| h.ssid.clone()).unwrap_or_else(|| "the ZPOD hotspot".into());
+                pages::draw_peers(fb, peers, &ssid, &ls);
+            }
+            Page::Usb => pages::draw_usb(fb, &self.usb),
             Page::WifiSaved => {
                 let ls = *self.menus.list();
                 let w = &self.wt;
@@ -452,11 +483,16 @@ impl Launcher {
                 if let Some(j) = &w.job {
                     widgets::toast(fb, &j.what);
                 }
-                widgets::hints(fb, &[("OK", "switch to"), ("Sq", "refresh"), ("Lt/X", "back")]);
+                if let Some((i, _)) = w.forget_armed {
+                    if let Some(n) = w.saved.get(i) {
+                        widgets::toast(fb, &format!("Tri again: forget {}?", text::fit(Font::Body, &n.name, 90)));
+                    }
+                }
+                widgets::hints(fb, &[("OK", "details"), ("Tri", "forget"), ("Sq", "refresh"), ("Lt/X", "back")]);
             }
             Page::Hotspot => {
                 let home = self.wt.home_ssid.clone().or_else(|| self.wifi.ssid.clone());
-                pages::draw_hotspot(fb, self.wt.hotspot.as_ref(), self.wt.job.as_ref().map(|j| j.what.as_str()), home.as_deref(), &self.srv);
+                pages::draw_hotspot(fb, self.wt.hotspot.as_ref(), self.wt.job.as_ref().map(|j| j.what.as_str()), home.as_deref(), &self.srv, self.wt.reveal);
             }
             Page::Server(opds) => {
                 let hs = self.wt.hotspot.as_ref().is_some_and(|h| h.active);
@@ -487,22 +523,9 @@ impl Launcher {
                 widgets::hints(fb, &[("Lt/X", "back"), ("Home", "top")]);
             }
             Page::Wifi => {
-                let _ = fb.fill_solid(&area, BG);
-                let w = &self.wifi;
-                let rows = [
-                    ("SSID", w.ssid.clone().unwrap_or_else(|| "--".into())),
-                    ("Signal", w.signal.as_ref().map(|s| format!("{s}%")).unwrap_or_else(|| "--".into())),
-                    ("IP", w.ip.clone().unwrap_or_else(|| "--".into())),
-                    ("MAC", w.mac.clone().unwrap_or_else(|| "--".into())),
-                    ("Pwr save", w.powersave.clone().unwrap_or_else(|| "?".into())),
-                    ("usb0", sys::ipv4("usb0").unwrap_or_else(|| "--".into())),
-                ];
-                for (i, (k, v)) in rows.iter().enumerate() {
-                    let y = LIST_Y + 8 + i as i32 * 30;
-                    text::draw(fb, Font::Small, k, 12, y + 4, DIM);
-                    text::draw_fit(fb, Font::BodyBold, v, 96, y, 216, FG);
-                }
-                widgets::hints(fb, &[("OK", "refresh"), ("Lt/X", "back"), ("Home", "top")]);
+                let ls = *self.menus.list();
+                let rows = menu::wifi_rows(self.wt.mode());
+                pages::draw_wifi(fb, &self.wt, &rows, &ls, self.wt.saved.len(), self.wt.job.as_ref().map(|j| j.what.as_str()));
             }
             Page::Transfer => draw_transfer(fb, &self.xfer),
             Page::WifiScan => {
@@ -535,7 +558,7 @@ impl Launcher {
                 }
                 let sort = format!("sort: {}", t.wifi_sort.label());
                 let age = t.wifi.age_text();
-                widgets::hints(fb, &[("OK", "details"), ("Sq", if t.wifi.busy.is_some() { "scanning" } else { "rescan" }), ("Tri", &sort), ("", &age)]);
+                widgets::hints(fb, &[("OK", "details/join"), ("Sq", if t.wifi.busy.is_some() { "scanning" } else { "rescan" }), ("Tri", &sort), ("", &age)]);
             }
             Page::BtScan => {
                 let t = &self.tools;
@@ -827,6 +850,14 @@ impl Launcher {
                 self.redraw = true;
                 return None;
             }
+            (Page::WifiSaved, Nav::Other(Key::Triangle)) => {
+                let sel = self.menus.list().sel;
+                if let Some(m) = self.wt.forget(sel) {
+                    self.toast(m, 1500);
+                }
+                self.redraw = true;
+                return None;
+            }
             (Page::Hotspot, Nav::Other(Key::Triangle)) => {
                 self.wt.new_password();
                 self.redraw = true;
@@ -864,22 +895,40 @@ impl Launcher {
             Effect::Tone => Some(Action::Tone),
             Effect::BacklightTest => Some(Action::Backlight),
             Effect::CycleSpi => Some(Action::CycleSpi),
-            Effect::RefreshWifi => {
-                self.wifi = sys::wifi_info();
+            Effect::PauseIfPlaying => {
+                self.pause_if_playing();
                 None
             }
             Effect::Activate(p) => {
                 match p {
-                    Page::WifiSaved => {
+                    Page::Wifi => {
                         let sel = self.menus.list().sel;
-                        if let Some(m) = self.wt.connect(sel) {
-                            self.toast(m, 1200);
+                        if let Some(r) = menu::wifi_rows(self.wt.mode()).get(sel).copied() {
+                            if let Effect::Opened(p) = self.menus.open_wifi_row(r) {
+                                self.opened(p);
+                            }
                         }
                     }
-                    Page::Hotspot => {
+                    Page::WifiMode => {
+                        let m = wifi::Mode::ALL[self.menus.list().sel.min(2)];
                         let best = (!self.tools.wifi.items.is_empty()).then(|| wifi::best_channel(&wifi::congestion(&self.tools.wifi.items)));
-                        self.wt.toggle_hotspot(best);
+                        match self.wt.set_mode(m, best) {
+                            Some(msg) => self.toast(msg, 1500),
+                            None => self.menus.back(), // card shows "working..." then the new mode
+                        }
                     }
+                    Page::WifiSignal => {
+                        if let Some(m) = self.wt.join() {
+                            self.toast(m, 2200);
+                        }
+                    }
+                    Page::Hotspot => self.wt.reveal = !self.wt.reveal,
+                    Page::HotspotDevices => self.wt.refresh_status(true),
+                    Page::WifiDevices | Page::WifiChannels => {
+                        self.wt.neighbours = wifi::neighbours();
+                        self.tools.wifi.start(tools::wifi_job);
+                    }
+                    Page::Usb => self.refresh_usb(),
                     Page::Server(opds) => match server::toggle(opds) {
                         Ok(st) => {
                             let on = if opds { st.opds } else { st.dropbox };
@@ -905,53 +954,143 @@ impl Launcher {
                 None
             }
             Effect::Opened(p) => {
-                match p {
-                    Page::Wifi => self.wifi = sys::wifi_info(),
-                    Page::Battery => self.load_battery(),
-                    Page::WifiSignal => {
-                        let sel = self.menus.list().sel;
-                        let t = self.tools.wifi.items.get(sel).filter(|n| !n.associated).map(|n| wifitools::Target { bssid: n.bssid.clone(), ssid: n.ssid.clone(), channel: n.channel });
-                        self.wt.open_meter(t);
-                    }
-                    Page::WifiChannels => self.tools.wifi.start_if_stale(tools::wifi_job),
-                    Page::WifiSaved => self.wt.refresh_saved(),
-                    Page::Hotspot => {
-                        self.wt.refresh_hotspot();
-                        self.wifi = sys::wifi_info();
-                        self.refresh_server();
-                    }
-                    Page::Server(_) => {
-                        self.wt.refresh_hotspot();
-                        self.refresh_server();
-                    }
-                    Page::Apps => self.rescan(true),
-                    Page::DateTime => self.time_edit = TimeEdit::new(sys::now_local()),
-                    Page::ButtonTest => self.buttons = ButtonTest::default(),
-                    Page::Transfer => self.refresh_transfer(),
-                    Page::WifiScan => self.tools.wifi.start_if_stale(tools::wifi_job),
-                    Page::BtScan => self.tools.bt.start_if_stale(tools::bt_job),
-                    Page::ScanDetail => {
-                        let sel = self.menus.list().sel;
-                        let parent = self.menus.stack.len().checked_sub(2).map(|i| self.menus.stack[i].0);
-                        let ok = match parent {
-                            Some(Page::BtScan) => self.tools.bt_detail(sel),
-                            _ => self.tools.wifi_detail(sel),
-                        };
-                        if !ok {
-                            self.menus.back();
-                        }
-                    }
-                    _ => {}
-                }
+                self.opened(p);
                 None
             }
             Effect::Power(reboot) => Some(Action::Power(if reboot { StopKind::Reboot } else { StopKind::Poweroff })),
         }
     }
 
-    fn toggle_tone(&mut self) {
+    /// Entered page `p`: load what it shows.
+    fn opened(&mut self, p: Page) {
+        match p {
+            Page::Wifi => {
+                self.wt.refresh_status(true);
+                self.wt.refresh_saved();
+            }
+            Page::WifiMode => {
+                let cur = self.wt.mode();
+                self.menus.list_mut().sel = wifi::Mode::ALL.iter().position(|m| *m == cur).unwrap_or(1);
+            }
+            Page::HotspotDevices => self.wt.refresh_status(true),
+            Page::WifiDevices => {
+                self.wt.neighbours = wifi::neighbours();
+                self.tools.wifi.start_if_stale(tools::wifi_job);
+            }
+            Page::Usb => self.refresh_usb(),
+            Page::Battery => self.load_battery(),
+            Page::WifiSignal => self.open_details(),
+            Page::WifiChannels => self.tools.wifi.start_if_stale(tools::wifi_job),
+            Page::WifiSaved => self.wt.refresh_saved(),
+            Page::Hotspot => {
+                self.wt.reveal = false;
+                self.wt.refresh_hotspot();
+                self.wifi = sys::wifi_info();
+                self.refresh_server();
+            }
+            Page::Server(_) => {
+                self.wt.refresh_hotspot();
+                self.refresh_server();
+            }
+            Page::Apps => self.rescan(true),
+            Page::DateTime => self.time_edit = TimeEdit::new(sys::now_local()),
+            Page::ButtonTest => self.buttons = ButtonTest::default(),
+            Page::Transfer => self.refresh_transfer(),
+            Page::WifiScan => self.tools.wifi.start_if_stale(tools::wifi_job),
+            Page::BtScan => self.tools.bt.start_if_stale(tools::bt_job),
+            Page::ScanDetail => {
+                let sel = self.menus.list().sel;
+                let parent = self.menus.stack.len().checked_sub(2).map(|i| self.menus.stack[i].0);
+                let ok = match parent {
+                    Some(Page::BtScan) => self.tools.bt_detail(sel),
+                    _ => self.tools.wifi_detail(sel),
+                };
+                if !ok {
+                    self.menus.back();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Network details (meter) for the scan row / saved network under the
+    /// cursor of the page below, or the connected network.
+    fn open_details(&mut self) {
+        let sel = self.menus.list().sel;
+        let parent = self.menus.stack.len().checked_sub(2).map(|i| self.menus.stack[i].0);
+        let saved_uuid = |ssid: &str, w: &wifitools::WifiTools| w.saved.iter().find(|s| s.name == ssid).map(|s| s.uuid.clone());
+        let (target, detail) = match parent {
+            Some(Page::WifiScan) => match self.tools.wifi.items.get(sel) {
+                Some(n) => (
+                    (!n.associated).then(|| wifitools::Target { bssid: n.bssid.clone(), ssid: n.ssid.clone(), channel: n.channel }),
+                    wifitools::NetDetail { ssid: n.ssid.clone(), security: n.security.clone(), saved_uuid: saved_uuid(&n.ssid, &self.wt), connected: n.associated },
+                ),
+                None => (None, wifitools::NetDetail::default()),
+            },
+            Some(Page::WifiSaved) => match self.wt.saved.get(sel) {
+                Some(s) => {
+                    let sec = self.tools.wifi.items.iter().find(|n| n.ssid == s.name).map(|n| n.security.clone()).unwrap_or_default();
+                    (
+                        (!s.active).then(|| wifitools::Target { bssid: String::new(), ssid: s.name.clone(), channel: 0 }),
+                        wifitools::NetDetail { ssid: s.name.clone(), security: sec, saved_uuid: Some(s.uuid.clone()), connected: s.active },
+                    )
+                }
+                None => (None, wifitools::NetDetail::default()),
+            },
+            _ => (None, wifitools::NetDetail { connected: true, ..Default::default() }),
+        };
+        self.wt.detail = detail;
+        self.wt.open_meter(target);
+    }
+
+    fn refresh_usb(&mut self) {
+        self.usb = usb::gather();
+        self.usb_at = Instant::now();
+        self.redraw = true;
+    }
+
+    /// Play/Pause away from the top menu: pause music that is playing,
+    /// otherwise do nothing (test2: Play in Tools said "Nothing queued").
+    fn pause_if_playing(&mut self) {
+        if self.tone.is_some() {
+            self.stop_tone();
+            return;
+        }
+        let playing = if sys::sim() { std::env::var("ZPOD_SIM_PLAY").as_deref() == Ok("play") } else { sys::mpd_play_state() == PlayState::Playing };
+        if playing {
+            let (st, msg) = sys::mpd_toggle();
+            if st != PlayState::Unknown {
+                self.p.status.set_play(st);
+            }
+            self.toast(msg, 1000);
+        }
+    }
+
+    fn stop_tone(&mut self) {
         if let Some(mut c) = self.tone.take() {
             proc::stop_child(&mut c, Duration::from_millis(300));
+        }
+        self.tone_until = None;
+    }
+
+    /// Stop the test tone after 10 s (own deadline; the Buildroot image had
+    /// no `timeout` applet in test2).
+    fn tone_tick(&mut self) {
+        if self.tone_until.is_some_and(|t| Instant::now() >= t) {
+            self.stop_tone();
+            self.redraw = true;
+        } else if let Some(c) = self.tone.as_mut() {
+            if let Ok(Some(_)) = c.try_wait() {
+                self.tone = None;
+                self.tone_until = None;
+                self.redraw = true;
+            }
+        }
+    }
+
+    fn toggle_tone(&mut self) {
+        if self.tone.is_some() {
+            self.stop_tone();
             self.toast("Tone stopped", 1500);
             return;
         }
@@ -960,8 +1099,8 @@ impl Launcher {
             let _ = c.simple("pause 1");
             self.p.status.set_play(PlayState::Paused);
         }
-        let mut cmd = std::process::Command::new("timeout");
-        cmd.args(["10", "speaker-test", "-D", "default", "-t", "sine", "-f", "440", "-c", "2"])
+        let mut cmd = std::process::Command::new("speaker-test");
+        cmd.args(["-D", "default", "-t", "sine", "-f", "440", "-c", "2"])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
         use std::os::unix::process::CommandExt;
@@ -969,6 +1108,7 @@ impl Launcher {
         match if sys::sim() { Err(std::io::Error::other("sim")) } else { cmd.spawn() } {
             Ok(c) => {
                 self.tone = Some(c);
+                self.tone_until = Some(Instant::now() + Duration::from_secs(10));
                 self.toast("Tone 440 Hz (OK again = stop)", 1500);
             }
             Err(_) if sys::sim() => self.toast("Tone 440 Hz", 1500),
@@ -1400,7 +1540,12 @@ fn main() {
                 status_redraw_at = Instant::now() + Duration::from_secs(1);
             }
         }
+        l.tone_tick();
+        if l.wt.poll_status() {
+            l.redraw = true;
+        }
         if let Some(msg) = l.wt.poll_job() {
+            l.p.status.net_changed();
             l.toast(msg, 2200);
             l.wifi = sys::wifi_info();
             l.refresh_server();
@@ -1408,6 +1553,12 @@ fn main() {
         let page = l.menus.page();
         if page == Page::WifiSignal && l.wt.meter_tick() {
             l.redraw = true;
+        }
+        if matches!(page, Page::Wifi | Page::WifiMode | Page::HotspotDevices) && !l.wt.busy() {
+            l.wt.refresh_status(false); // every 5 s, on a thread
+        }
+        if page == Page::Usb && l.usb_at.elapsed() >= Duration::from_secs(3) {
+            l.refresh_usb();
         }
         if page == Page::Battery && l.batt_at.elapsed() >= Duration::from_secs(20) {
             l.load_battery();
@@ -1419,7 +1570,7 @@ fn main() {
         if page == Page::Transfer && l.xfer_at.elapsed() >= Duration::from_secs(if l.xfer.updating { 1 } else { 3 }) {
             l.refresh_transfer();
         }
-        if matches!(page, Page::WifiScan | Page::BtScan | Page::WifiChannels) && l.tools.busy() && Instant::now() >= status_redraw_at {
+        if matches!(page, Page::WifiScan | Page::BtScan | Page::WifiChannels | Page::WifiDevices) && l.tools.busy() && Instant::now() >= status_redraw_at {
             l.redraw = true; // "N s ago" / "scanning" hint
             status_redraw_at = Instant::now() + Duration::from_secs(1);
         }

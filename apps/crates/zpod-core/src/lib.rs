@@ -58,6 +58,31 @@ pub enum PlayState {
     Paused,
 }
 
+/// Wi-Fi mode as the status bar shows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum WifiMode {
+    /// not determined yet (draws like the old on/off icon from `wifi`)
+    #[default]
+    Unknown,
+    /// radio off / interface down
+    Off,
+    /// client: `bars` 0..=4 from the link signal, `connected` = has an IPv4
+    Client { bars: u8, connected: bool },
+    /// ZPOD is the access point; `clients` = associated stations
+    Hotspot { clients: u8 },
+}
+
+/// Signal bars 0..=4 from dBm (same thresholds as the Tools lists).
+pub fn wifi_bars(dbm: i32) -> u8 {
+    match dbm {
+        d if d >= -55 => 4,
+        d if d >= -65 => 3,
+        d if d >= -75 => 2,
+        d if d >= -85 => 1,
+        _ => 0,
+    }
+}
+
 /// Everything the status bar shows. Filled in by the platform layer.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct StatusInfo {
@@ -65,6 +90,7 @@ pub struct StatusInfo {
     pub battery_pct: Option<f32>,
     pub charging: bool,
     pub wifi: bool,
+    pub wifi_mode: WifiMode,
     pub usb: bool,
     pub volume_pct: Option<u8>,
     pub play: PlayState,

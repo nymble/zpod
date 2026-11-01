@@ -10,6 +10,12 @@
 //! wlan0 MAC>`, WPA2-PSK (RSN/CCMP) with a passphrase generated on the
 //! device from /dev/urandom, IPv4 shared 10.42.0.1/24 (DHCP for clients),
 //! 2.4 GHz on the least busy of channels 1/6/11 from the last scan.
+//!
+//! test3: one Wi-Fi mode (Off / Client / Hotspot) switched explicitly with
+//! [`set_mode`]; joining an open network, deleting a saved one, the hotspot's
+//! connected devices (station dump + DHCP leases + ARP). Everything goes
+//! through `nmcli`, which is NetworkManager on Pi OS and a shim on the
+//! Buildroot image (wpa_supplicant / hostapd + udhcpd / iw).
 
 use std::path::PathBuf;
 
@@ -72,6 +78,24 @@ pub fn saved_networks() -> Result<Vec<Saved>, String> {
         ]);
     }
     run(&["nmcli", "-t", "-f", "NAME,UUID,TYPE,AUTOCONNECT,ACTIVE", "connection", "show"], 10).map(|t| parse_saved(&t))
+}
+
+/// Forget a saved network (`nmcli connection delete uuid U`).
+pub fn delete_saved(uuid: &str) -> Result<(), String> {
+    if sim() {
+        return Ok(());
+    }
+    run(&["nmcli", "connection", "delete", "uuid", uuid], 15).map(|_| ())
+}
+
+/// Join an open (no password) network seen in a scan; NetworkManager (or the
+/// shim) saves it. Networks with a password are added with zpod-wifi.txt.
+pub fn join_open(ssid: &str) -> Result<(), String> {
+    if sim() {
+        set_sim_hotspot(false);
+        return Ok(());
+    }
+    run(&["nmcli", "--wait", "40", "device", "wifi", "connect", ssid, "ifname", "wlan0"], 45).map(|_| ())
 }
 
 /// Switch to a saved network (also turns the hotspot off). Blocks up to 45 s.
@@ -270,7 +294,7 @@ fn set_sim_hotspot(on: bool) {
 /// The hotspot profile (if created) and whether it is up.
 pub fn hotspot() -> Option<Hotspot> {
     if sim() {
-        return Some(Hotspot { ssid: "ZPOD-0001".into(), psk: "k7mq-p3xa-9rtw-e4hn".into(), channel: 1, active: sim_hotspot_on(), clients: sim_hotspot_on() as u32 });
+        return Some(Hotspot { ssid: "ZPOD-0001".into(), psk: "k7mq-p3xa-9rtw-e4hn".into(), channel: 1, active: sim_hotspot_on(), clients: if sim_hotspot_on() { 2 } else { 0 } });
     }
     let mut h = parse_keyfile(&std::fs::read_to_string(keyfile_path()).ok()?)?;
     h.active = run(&["nmcli", "-t", "-f", "NAME", "connection", "show", "--active"], 5).map(|t| t.lines().any(|l| l == HOTSPOT_ID)).unwrap_or(false);
@@ -338,6 +362,223 @@ pub fn hotspot_new_passphrase() -> Result<Hotspot, String> {
     Ok(hotspot().unwrap_or(h))
 }
 
+// -------------------------------------------------------------------- mode
+
+/// The one Wi-Fi mode the UI shows and switches (the Zero W radio is either
+/// a client or an access point, never both).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Mode {
+    /// radio off (`nmcli radio wifi off`)
+    Off,
+    /// joins saved networks
+    #[default]
+    Client,
+    /// ZPOD is the access point
+    Hotspot,
+}
+
+impl Mode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Mode::Off => "Off",
+            Mode::Client => "Client",
+            Mode::Hotspot => "Hotspot",
+        }
+    }
+    pub const ALL: [Mode; 3] = [Mode::Off, Mode::Client, Mode::Hotspot];
+}
+
+fn sim_mode_path() -> PathBuf {
+    PathBuf::from(std::env::var_os("ZPOD_SIM").unwrap_or_else(|| "/tmp".into())).join(".sim-wifi-off")
+}
+
+/// `nmcli radio wifi` -> "enabled" / "disabled".
+pub fn radio_on() -> bool {
+    if sim() {
+        return !sim_mode_path().exists() && std::env::var("ZPOD_SIM_WIFI_MODE").as_deref() != Ok("off");
+    }
+    run(&["nmcli", "radio", "wifi"], 5).map(|t| !t.trim().starts_with("disabled")).unwrap_or(true)
+}
+
+/// Current mode (one nmcli call, plus one for the hotspot when the radio is on).
+pub fn mode() -> Mode {
+    if !radio_on() {
+        return Mode::Off;
+    }
+    if sim() {
+        return if sim_hotspot_on() || std::env::var("ZPOD_SIM_WIFI_MODE").as_deref() == Ok("hotspot") { Mode::Hotspot } else { Mode::Client };
+    }
+    let active = run(&["nmcli", "-t", "-f", "NAME", "connection", "show", "--active"], 5).unwrap_or_default();
+    if active.lines().any(|l| l == HOTSPOT_ID) {
+        Mode::Hotspot
+    } else {
+        Mode::Client
+    }
+}
+
+/// Switch mode. Off: hotspot down, radio off (no wpa_supplicant/hostapd
+/// left running). Client: radio on, hotspot down, rejoin saved networks.
+/// Hotspot: radio on, then the hotspot (profile made on first use).
+pub fn set_mode(m: Mode, channel: Option<u32>) -> Result<String, String> {
+    if sim() {
+        match m {
+            Mode::Off => {
+                set_sim_hotspot(false);
+                let _ = std::fs::write(sim_mode_path(), "1");
+            }
+            Mode::Client => {
+                set_sim_hotspot(false);
+                let _ = std::fs::remove_file(sim_mode_path());
+            }
+            Mode::Hotspot => {
+                let _ = std::fs::remove_file(sim_mode_path());
+                set_sim_hotspot(true);
+            }
+        }
+        return Ok(format!("Wi-Fi: {}", m.label()));
+    }
+    match m {
+        Mode::Off => {
+            let _ = run(&["nmcli", "connection", "down", HOTSPOT_ID], 15);
+            run(&["nmcli", "radio", "wifi", "off"], 15)?;
+            Ok("Wi-Fi off".into())
+        }
+        Mode::Client => {
+            run(&["nmcli", "radio", "wifi", "on"], 15)?;
+            let _ = run(&["nmcli", "connection", "down", HOTSPOT_ID], 15);
+            let _ = run(&["nmcli", "device", "connect", "wlan0"], 30);
+            Ok(match link() {
+                Some(l) => format!("Connected to {}", l.ssid),
+                None => "Client: looking for saved networks".into(),
+            })
+        }
+        Mode::Hotspot => {
+            run(&["nmcli", "radio", "wifi", "on"], 15)?;
+            hotspot_on(channel).map(|h| format!("Hotspot {} on", h.ssid))
+        }
+    }
+}
+
+/// A device on the hotspot (or a neighbour on the LAN).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Peer {
+    pub mac: String,
+    pub ip: Option<String>,
+    pub name: Option<String>,
+    pub signal_dbm: Option<i32>,
+    pub connected_s: Option<u64>,
+}
+
+/// `iw dev wlan0 station dump` -> (MAC, signal, connected time).
+pub fn parse_stations(text: &str) -> Vec<Peer> {
+    let mut v: Vec<Peer> = Vec::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if let Some(r) = t.strip_prefix("Station ") {
+            v.push(Peer { mac: r.split_whitespace().next().unwrap_or("").to_lowercase(), ..Default::default() });
+        } else if let Some(p) = v.last_mut() {
+            if let Some(r) = t.strip_prefix("signal:") {
+                p.signal_dbm = r.split_whitespace().next().and_then(|x| x.parse().ok());
+            } else if let Some(r) = t.strip_prefix("connected time:") {
+                p.connected_s = r.split_whitespace().next().and_then(|x| x.parse().ok());
+            }
+        }
+    }
+    v
+}
+
+/// /proc/net/arp rows for `ifname`: (ip, mac). Incomplete entries are skipped.
+pub fn parse_arp(text: &str, ifname: &str) -> Vec<(String, String)> {
+    text.lines()
+        .skip(1)
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split_whitespace().collect();
+            (f.len() >= 6 && f[5] == ifname && f[3] != "00:00:00:00:00:00" && f[2] != "0x0").then(|| (f[0].to_string(), f[3].to_lowercase()))
+        })
+        .collect()
+}
+
+/// DHCP leases as text: dnsmasq (`expiry mac ip host id`, Pi OS / NM shared)
+/// or BusyBox `dumpleases` (`Mac Address IP Address Host Name Expires in`).
+/// -> (mac, ip, hostname).
+pub fn parse_leases(text: &str) -> Vec<(String, String, Option<String>)> {
+    text.lines()
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split_whitespace().collect();
+            if f.len() < 3 {
+                return None;
+            }
+            let is_mac = |s: &str| s.len() == 17 && s.matches(':').count() == 5;
+            let host = |s: Option<&&str>| s.filter(|h| **h != "*" && !h.is_empty()).map(|h| h.to_string());
+            if is_mac(f[1]) && f[0].chars().all(|c| c.is_ascii_digit()) {
+                Some((f[1].to_lowercase(), f[2].to_string(), host(f.get(3))))
+            } else if is_mac(f[0]) && f[1].contains('.') {
+                // dumpleases: host may be missing when the client sent none
+                let h = if f.len() >= 4 { f.get(2) } else { None };
+                Some((f[0].to_lowercase(), f[1].to_string(), host(h)))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn lease_text() -> String {
+    let mut t = String::new();
+    for f in ["/var/lib/NetworkManager/dnsmasq-wlan0.leases", "/var/lib/misc/dnsmasq.leases"] {
+        if let Ok(x) = std::fs::read_to_string(f) {
+            t.push_str(&x);
+        }
+    }
+    // Buildroot hotspot (binary lease file; BusyBox dumpleases prints it)
+    let lf = "/run/zpod/udhcpd.wlan0.leases";
+    if std::path::Path::new(lf).exists() {
+        if let Ok(x) = run(&["dumpleases", "-f", lf], 3) {
+            t.push_str(&x);
+        }
+    }
+    t
+}
+
+/// Devices on the hotspot: associated stations, with IP and name from the
+/// DHCP leases / ARP table when known.
+pub fn hotspot_clients() -> Vec<Peer> {
+    if sim() {
+        if !sim_hotspot_on() {
+            return Vec::new();
+        }
+        return vec![
+            Peer { mac: "3a:1c:9e:00:00:21".into(), ip: Some("10.42.0.23".into()), name: Some("Pauls-iPad".into()), signal_dbm: Some(-41), connected_s: Some(312) },
+            Peer { mac: "f2:6d:00:00:00:35".into(), ip: Some("10.42.0.57".into()), name: None, signal_dbm: Some(-63), connected_s: Some(48) },
+        ];
+    }
+    let mut v = run(&["iw", "dev", "wlan0", "station", "dump"], 4).map(|t| parse_stations(&t)).unwrap_or_default();
+    let leases = parse_leases(&lease_text());
+    let arp = parse_arp(&std::fs::read_to_string("/proc/net/arp").unwrap_or_default(), "wlan0");
+    for p in &mut v {
+        if let Some((_, ip, h)) = leases.iter().find(|(m, _, _)| *m == p.mac) {
+            p.ip = Some(ip.clone());
+            p.name = h.clone();
+        } else if let Some((ip, _)) = arp.iter().find(|(_, m)| *m == p.mac) {
+            p.ip = Some(ip.clone());
+        }
+    }
+    v
+}
+
+/// LAN neighbours seen on wlan0 (ARP), for Wi-Fi tools > Devices.
+pub fn neighbours() -> Vec<(String, String)> {
+    if sim() {
+        return vec![("192.168.1.1".into(), "e0:63:da:00:00:01".into()), ("192.168.1.23".into(), "3a:1c:9e:00:00:21".into()), ("192.168.1.40".into(), "b0:be:76:00:00:44".into())];
+    }
+    parse_arp(&std::fs::read_to_string("/proc/net/arp").unwrap_or_default(), "wlan0")
+}
+
+/// Change the hotspot password to a new random one (alias kept for the UI).
+pub fn hotspot_change_password() -> Result<Hotspot, String> {
+    hotspot_new_passphrase()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,6 +617,28 @@ mod tests {
         assert!(c[5].load > c[10].load && c[10].load > c[0].load);
         assert_eq!(best_channel(&c), 1);
         assert_eq!(best_channel(&congestion(&[])), 1);
+    }
+
+    #[test]
+    fn stations_leases_arp() {
+        let st = "Station 3a:1c:9e:00:00:21 (on wlan0)\n\tinactive time:\t30 ms\n\tsignal:  \t-41 [-41] dBm\n\tconnected time:\t312 seconds\nStation F2:6D:00:00:00:35 (on wlan0)\n\tsignal:  \t-63 dBm\n";
+        let v = parse_stations(st);
+        assert_eq!(v.len(), 2);
+        assert_eq!((v[0].mac.as_str(), v[0].signal_dbm, v[0].connected_s), ("3a:1c:9e:00:00:21", Some(-41), Some(312)));
+        assert_eq!(v[1].mac, "f2:6d:00:00:00:35");
+        let dnsmasq = "1767312000 3a:1c:9e:00:00:21 10.42.0.23 Pauls-iPad 01:3a:1c\n1767312000 f2:6d:00:00:00:35 10.42.0.57 * *\n";
+        let l = parse_leases(dnsmasq);
+        assert_eq!(l[0], ("3a:1c:9e:00:00:21".into(), "10.42.0.23".into(), Some("Pauls-iPad".into())));
+        assert_eq!(l[1].2, None);
+        let dl = "Mac Address       IP Address      Host Name           Expires in\n3a:1c:9e:00:00:21 10.42.0.23      Pauls-iPad          0:59:12\nf2:6d:00:00:00:35 10.42.0.57                          0:58:40\n";
+        let l = parse_leases(dl);
+        assert_eq!(l.len(), 2);
+        assert_eq!(l[0].2.as_deref(), Some("Pauls-iPad"));
+        assert_eq!(l[1].2, None);
+        let arp = "IP address       HW type     Flags       HW address            Mask     Device\n10.42.0.23       0x1         0x2         3a:1c:9e:00:00:21     *        wlan0\n10.12.194.2      0x1         0x2         aa:bb:cc:00:00:01     *        usb0\n10.42.0.99       0x1         0x0         00:00:00:00:00:00     *        wlan0\n";
+        assert_eq!(parse_arp(arp, "wlan0"), vec![("10.42.0.23".to_string(), "3a:1c:9e:00:00:21".to_string())]);
+        assert_eq!(parse_arp(arp, "usb0").len(), 1);
+        assert_eq!(Mode::ALL.map(|m| m.label()), ["Off", "Client", "Hotspot"]);
     }
 
     #[test]

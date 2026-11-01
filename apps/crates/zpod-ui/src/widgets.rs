@@ -143,7 +143,9 @@ pub fn progress_bar<D: Canvas>(d: &mut D, x: i32, y: i32, w: u32, h: u32, frac: 
 
 /// Centered overlay box with one line of large text.
 pub fn toast<D: Canvas>(d: &mut D, msg: &str) {
-    let w = (text::width(Font::Large, msg) + 40).clamp(120, 300);
+    // long messages drop to the body font and are fitted (never overflow)
+    let font = if text::width(Font::Large, msg) <= 260 { Font::Large } else { Font::BodyBold };
+    let w = (text::width(font, msg) + 40).clamp(120, 300);
     let x = (320 - w) / 2;
     let r = rect(x, 96, w as u32, 48);
     let _ = RoundedRectangle::with_equal_corners(r, Size::new(8, 8))
@@ -152,7 +154,9 @@ pub fn toast<D: Canvas>(d: &mut D, msg: &str) {
     let _ = RoundedRectangle::with_equal_corners(r, Size::new(8, 8))
         .into_styled(PrimitiveStyle::with_stroke(ACCENT, 2))
         .draw(d);
-    text::draw_aligned(d, Font::Large, msg, 160, 110, text::Align::Center, ACCENT);
+    let fitted = text::fit(font, msg, 284);
+    let y = if font == Font::Large { 110 } else { 113 };
+    text::draw_aligned(d, font, &fitted, 160, y, text::Align::Center, ACCENT);
 }
 
 /// Toast area (to restore what was under it).
