@@ -1352,7 +1352,7 @@ fn draw_transfer(fb: &mut zpod_ui::Framebuffer, x: &transfer::Info) {
     let web = if x.drop_on {
         format!("http://{}:{DROP_PORT}/  (drop box)", x.usb.clone().or(x.wlan.clone()).unwrap_or_else(|| "<ip>".into()))
     } else {
-        "drop box off (Tools > Drop box)".into()
+        "drop box off (Wi-Fi tools > Drop box)".into()
     };
     kv(fb, &mut y, "Browser", &web, if x.drop_on { FG } else { DIM });
     let rs = match x.rsync {
