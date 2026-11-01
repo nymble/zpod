@@ -6,6 +6,8 @@
 # hwclock -w once synchronised). No NetworkManager: /usr/bin/nmcli is a shim.
 CONF=/data/etc/wpa_supplicant.conf
 start() {
+	# Wi-Fi > Mode > Off (nmcli radio wifi off) survives a reboot
+	[ -e "${ZPOD_WIFI_OFF:-/data/etc/zpod/wifi-off}" ] && { { echo "Wi-Fi off (Mode > Off): not started" >>/run/zpod/wifi.log; } 2>/dev/null; return 0; }
 	(
 		# zpod-wifi.txt on the boot partition -> $CONF (first boot or later)
 		/usr/lib/zpod/zpod-wifi-import-br

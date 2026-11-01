@@ -1,8 +1,8 @@
-# Buildroot fast-boot image (M6 test2)
+# Buildroot fast-boot image (M6 test3)
 
-**Status: test image, built and booted in QEMU, not yet booted on hardware (2026-10-30).**
+**Status: test3 built and booted in QEMU (2026-11-01); test2 booted on hardware (Paul, 2026-11-01), findings fixed in test3.**
 Tracking issue: [#22](https://github.com/nymble/zpod/issues/22). Branch: `buildroot`, draft PR [#23](https://github.com/nymble/zpod/pull/23).
-Prereleases: [`v0.9.0-br-m6-fastboot-test2`](https://github.com/nymble/zpod/releases/tag/v0.9.0-br-m6-fastboot-test2) (M6 apps, core 0.9.0, this document), [`v0.8.0-br-m6-fastboot-test1`](https://github.com/nymble/zpod/releases/tag/v0.8.0-br-m6-fastboot-test1) (M6 platform work, M5 apps), [`v0.7.0-br-poc1`](https://github.com/nymble/zpod/releases/tag/v0.7.0-br-poc1) (first PoC).
+Prereleases: [`v0.9.0-br-m6-fastboot-test3`](https://github.com/nymble/zpod/releases/tag/v0.9.0-br-m6-fastboot-test3) (test2 hardware fixes, Tools / Wi-Fi restructure, this document), [`v0.9.0-br-m6-fastboot-test2`](https://github.com/nymble/zpod/releases/tag/v0.9.0-br-m6-fastboot-test2) (M6 apps, core 0.9.0), [`v0.8.0-br-m6-fastboot-test1`](https://github.com/nymble/zpod/releases/tag/v0.8.0-br-m6-fastboot-test1) (M6 platform work, M5 apps), [`v0.7.0-br-poc1`](https://github.com/nymble/zpod/releases/tag/v0.7.0-br-poc1) (first PoC).
 
 This is the second OS track for the ZPOD: a Buildroot image with BusyBox
 init, a read-only squashfs root and a writable `/data` partition, running the
@@ -71,7 +71,7 @@ both VMs. `--network-address` (vz NAT, `network.address: true` and
 | `board/zpod/post-build.sh` | read-only root plumbing: `/opt/zpod/apps → /data/zpod/apps`, `/var/lib/{mpd,zpod,alsa,seedrng,dbus,bluetooth} → /data/var/*`, `/root/.ssh → /data/etc/ssh`, `/etc/dropbear → /data/etc/dropbear`, sudoers, btmgmt, rsyncd.conf, mdev rules, `/etc/NetworkManager/system-connections → /data/...` (hotspot keyfile), `/etc/zpod-release` (`ZPOD_VERSION` = image release, `ZPOD_CORE_VERSION` = apps) |
 | `board/zpod/post-fakeroot.sh` | accounts on `/data`: `/etc/{passwd,group,shadow}` → `/data/etc/*` (base copies in `/usr/share/zpod/etc-base`), root password locked |
 | `board/zpod/post-image.sh`, `genimage.cfg.in` | pre-installs the bundled apps into the data partition and assembles `sdcard.img` |
-| `tests/` | `test_firstuser_br.sh` (31 cases, incl. the boot notice), `test_shims_br.sh` (18: nmcli scan/saved/connect/hotspot, data grow), `qemu-boot.sh` (QEMU smoke test; `late`, `drop-on` steps) |
+| `tests/` | `test_firstuser_br.sh` (31 cases, incl. the boot notice), `test_shims_br.sh` (31: nmcli scan/saved/connect/hotspot, test3 radio off/on, join open, forget, S40 off flag, data grow), `qemu-boot.sh` (QEMU smoke test; `late`, `drop-on` steps) |
 
 ### Partition layout (MBR)
 
@@ -180,6 +180,16 @@ applied in the background as before.
 
 Logs: `/data/log/firstuser.log`, `/data/log/data-grow.log`, `/run/zpod/*.log`.
 
+## test3 changes (from the test2 hardware run, 2026-11-01)
+
+| test2 finding | test3 |
+|---|---|
+| Every Tools scan failed: BusyBox had no `timeout` | `CONFIG_TIMEOUT=y` in `board/zpod/busybox.fragment`, **and** `zpod-hal` `scan::run()` falls back to its own limit (spawn in a process group, kill at the deadline) when `timeout` is not on PATH; the 440 Hz tone no longer uses `timeout` |
+| Bluetooth scanner empty (`bluetoothctl` saw ~20 devices) | empty `btmgmt find` = failure → `bluetoothctl power on` + `--timeout N scan on`; parser strips ANSI/readline/CR and reads coloured `[CHG] Device … RSSI` lines; `bluetoothctl devices` merged in |
+| Play on a Tools screen: "Nothing queued" | Play toggles music on the top menu only; elsewhere it only pauses music that is playing |
+| Red Play LED on with nothing playing | `aoide-zpod-dac` 1.0.1: PCM5122 GPIO4 (amp enable / LED) left low at card init; on only while a PCM stream is open. See `drivers/aoide-zpod-dac/README.md`. Not confirmed on hardware |
+| Hotspot works, but then what? Mode names unclear | one **Tools > Wi-Fi** screen: status card + Mode (Off / Client / Hotspot), networks (join open, details + meter), saved (forget), hotspot devices + password, Wi-Fi tools (channel curves, devices & addresses, drop box, books); status bar shows the mode; **Tools > USB** landing page; Battery and File transfer under Tools. See `docs/ui/BUTTONS-AND-MENUS.md` |
+
 ## Wi-Fi without NetworkManager (M6 Wi-Fi tools)
 
 `S40wifi` always starts wpa_supplicant on wlan0 (also with no network
@@ -193,6 +203,10 @@ they make, so **no app code differs from Pi OS**:
 | Signal meter | `iw dev wlan0 link` | iw (unchanged) |
 | Channels | `iw dev wlan0 scan`; fallback `nmcli device wifi rescan/list` | iw; shim → `wpa_cli scan` / `scan_results` |
 | Saved networks | `nmcli -t -f NAME,UUID,TYPE,AUTOCONNECT,ACTIVE connection show`, `nmcli --wait 40 connection up uuid U` | shim: the `network={}` blocks of `/data/etc/wpa_supplicant.conf` (UUID `wpa-<id>`, active = `wpa_cli status`); connect = `wpa_cli select_network`, wait for COMPLETED, `enable_network all`, DHCP renew (udhcpc) |
+| Mode Off / Client (test3) | `nmcli radio wifi`, `nmcli radio wifi off`, `nmcli radio wifi on` | shim: off = hotspot down, `S40wifi stop` (wpa_supplicant, udhcpc, ntpd), wlan0 flushed and DOWN, flag `/data/etc/zpod/wifi-off` (S40wifi skips Wi-Fi at boot while it exists); on = flag removed, client started (rejoins saved networks). Query prints `enabled`/`disabled` |
+| Join open network (test3) | `nmcli --wait 40 device wifi connect <ssid> ifname wlan0` | shim: a saved SSID is selected; a new one is appended to the conf as `ssid=<hex>` + `key_mgmt=NONE`, `wpa_cli reconfigure`, then the same select/DHCP path as connect |
+| Forget (test3) | `nmcli connection delete uuid wpa-<id>` | shim: removes that `network={}` block (conf stays 0600), `wpa_cli reconfigure` |
+| Hotspot devices (test3) | `iw dev wlan0 station dump`, DHCP leases, `/proc/net/arp` | `dumpleases -f /run/zpod/udhcpd.wlan0.leases` (Pi OS: dnsmasq leases) |
 | Hotspot | keyfile `/etc/NetworkManager/system-connections/zpod-hotspot.nmconnection` (→ `/data`, 0700), `nmcli connection up/down zpod-hotspot`, `--active`, `iw dev wlan0 station dump` | shim: stops the client (`S40wifi stop`), writes `/run/zpod/hostapd.conf` (0600; WPA2-PSK CCMP, 2.4 GHz, the keyfile's SSID/passphrase/channel), `hostapd -B`, 10.42.0.1/24, BusyBox `udhcpd` (10.42.0.10–99, own pidfile). Down: stops both and restarts the client. No NAT (as on Pi OS the hotspot is for the drop box / OPDS / SSH) |
 
 Differences from Pi OS: networks can be added only from `zpod-wifi.txt` (or
@@ -209,7 +223,7 @@ are untested on hardware**.
 | Wi-Fi tools | nmcli shim + hostapd (above) | hardware test needed |
 | Drop box + OPDS catalog | `zpod-drop` (port 8080, uid/gid 1000), **off by default**; Tools switches → `systemctl enable --now zpod-drop.socket` → shim → flag `/data/etc/zpod/drop.enabled` + `S60zpod-drop`; `/etc/zpod` is `/data/etc/zpod` bind-mounted so `drop.conf` is writable (image files refreshed each boot, `drop.conf` kept); `/data/books`, `/data/inbox` (uid 1000, 0775) | QEMU: off by default, and on after `drop-on` |
 | Boot-time setup-files notice | `zpod-firstuser-br` / `zpod-wifi-import-br` write `/run/zpod/boot-notice` once `/var/lib/zpod/booted-once` exists; first-boot files are applied in sysinit before the launcher | QEMU: verified (`late` step) |
-| Version / About split | `/etc/zpod-release`: `ZPOD_VERSION=v0.9.0-br-m6-fastboot-test2`, `ZPOD_IMAGE`, `ZPOD_GIT` (7-hex), `ZPOD_CORE_VERSION=0.9.0`; `/etc/zpod/core-version` 0.9.0 | |
+| Version / About split | `/etc/zpod-release`: `ZPOD_VERSION=v0.9.0-br-m6-fastboot-test3`, `ZPOD_IMAGE`, `ZPOD_GIT` (7-hex), `ZPOD_CORE_VERSION=0.9.0`; `/etc/zpod/core-version` 0.9.0 | |
 
 ## Bluetooth and the UART (GPIO14)
 

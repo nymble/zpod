@@ -12,8 +12,8 @@ cat > $T/wpa_cli <<'W'
 #!/bin/sh
 for a; do last=$a; done
 case "$last" in
-status) printf 'bssid=e0:63:da:00:00:01\nssid=HomeNet\nid=0\nwpa_state=COMPLETED\n' ;;
-ping) echo PONG ;;
+status) printf 'bssid=e0:63:da:00:00:01\nssid=HomeNet\nid=%s\nwpa_state=COMPLETED\n' "$(cat "$FAKE_ID" 2>/dev/null || echo 0)" ;;
+ping) [ -e "$FAKE_DOWN" ] || echo PONG ;;
 select_network|enable_network) echo OK ;;
 all) echo OK ;;
 scan) echo OK ;;
@@ -42,8 +42,8 @@ network={
 C
 for b in udhcpc ntpd udhcpd ip; do printf '#!/bin/sh\nexit 0\n' > $T/$b; chmod +x $T/$b; done
 printf '#!/bin/sh\nexit 1\n' > $T/pidof; chmod +x $T/pidof
-printf '#!/bin/sh\necho "S40 $*" >> %s/s40.log\n' $T > $T/S40; chmod +x $T/S40
-export ZPOD_WPA_CONF=$T/wpa.conf ZPOD_NM_CONN_DIR=$T/nm ZPOD_RUN=$T/run ZPOD_S40=$T/S40
+printf '#!/bin/sh\necho "S40 $*" >> %s/s40.log\n[ "$1" = start ] && rm -f %s/down\nexit 0\n' $T $T > $T/S40; chmod +x $T/S40
+export ZPOD_WPA_CONF=$T/wpa.conf ZPOD_NM_CONN_DIR=$T/nm ZPOD_RUN=$T/run ZPOD_S40=$T/S40 ZPOD_WIFI_OFF=$T/etc/wifi-off FAKE_ID=$T/curid FAKE_DOWN=$T/down
 N="env PATH=$T:$PATH sh $OV/usr/bin/nmcli"
 out=$($N -t -f NAME,UUID,TYPE,AUTOCONNECT,ACTIVE connection show)
 ok "nmcli saved: current network" "printf '%s\n' \"\$out\" | grep -qx 'HomeNet:wpa-0:802-11-wireless:yes:yes'"
@@ -67,6 +67,28 @@ ok "hostapd.conf is 0600" "ls -l $T/run/hostapd.conf | grep -q '^-rw-------'"
 ok "client stopped for hotspot" "grep -q 'S40 stop' $T/s40.log"
 ok "hotspot listed active" "$N -t -f NAME connection show --active | grep -qx zpod-hotspot"
 ok "hotspot down" "$N connection down zpod-hotspot >/dev/null && [ ! -e $T/run/hostapd.pid ]"
+# test3: radio off/on (Wi-Fi > Mode), join an open network, forget
+ok "radio query: enabled" "[ \"\$($N radio wifi)\" = enabled ]"
+$N connection up zpod-hotspot >/dev/null; : > $T/s40.log
+ok "radio off: no hostapd/udhcpd/client, flag set" "$N radio wifi off && [ ! -e $T/run/hostapd.pid ] && [ ! -e $T/run/udhcpd.wlan0.pid ] && grep -q 'S40 stop' $T/s40.log && [ -e $T/etc/wifi-off ]"
+ok "radio query: disabled" "[ \"\$($N radio wifi)\" = disabled ]"
+ok "hotspot not listed after off" "! $N -t -f NAME connection show --active | grep -qx zpod-hotspot"
+: > $T/s40.log; : > $T/down
+ok "radio on: flag gone, client started" "$N radio wifi on && [ ! -e $T/etc/wifi-off ] && grep -q 'S40 start' $T/s40.log"
+echo 2 > $T/curid
+ok "join open network (new)" "$N --wait 1 device wifi connect 'Cafe Free' ifname wlan0 >/dev/null"
+ok "open network saved as hex + key_mgmt=NONE" "grep -qx '	ssid=436166652046726565' $T/wpa.conf && [ \$(grep -c '^network=' $T/wpa.conf) = 3 ]"
+echo 1 > $T/curid
+ok "join saved SSID selects it (no new block)" "$N --wait 1 device wifi connect 'Coffee:Shop' >/dev/null && [ \$(grep -c '^network=' $T/wpa.conf) = 3 ]"
+echo 0 > $T/curid
+ok "forget wpa-1" "$N connection delete uuid wpa-1 >/dev/null && ! grep -q 436f666665653a53686f70 $T/wpa.conf && [ \$(grep -c '^network=' $T/wpa.conf) = 2 ]"
+ok "forget kept the others" "$N -t -f NAME,UUID,TYPE,AUTOCONNECT,ACTIVE connection show | grep -qx 'Cafe Free:wpa-1:802-11-wireless:yes:no'"
+ok "forget unknown fails" "! $N connection delete uuid wpa-9 2>/dev/null"
+ok "conf stays 0600" "ls -l $T/wpa.conf | grep -q '^-rw-------'"
+mkdir -p $T/etc; : > $T/etc/wifi-off
+printf '#!/bin/sh\ntouch %s/modprobe-ran\n' $T > $T/modprobe; chmod +x $T/modprobe
+PATH=$T:$PATH ZPOD_WIFI_OFF=$T/etc/wifi-off sh $OV/etc/init.d/S40wifi start; sleep 0.5
+ok "S40wifi start skips Wi-Fi when off" "[ ! -e $T/modprobe-ran ]"
 # zpod-data-grow dry run: 32 GB card, p4 = 256 MiB at sector 1310720
 S=$T/sys; mkdir -p $S/mmcblk0p4
 echo 62521344 > $S/size; echo 1310720 > $S/mmcblk0p4/start; echo 524288 > $S/mmcblk0p4/size
