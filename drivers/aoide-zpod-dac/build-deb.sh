@@ -8,7 +8,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="${1:?usage: $0 <outdir>}"
 NAME=aoide-zpod-dac
-VER=1.0.0
+VER=1.0.1
 DEBREV=1
 STAGE="$(mktemp -d)"
 chmod 755 "$STAGE"
