@@ -162,17 +162,83 @@ pub fn sort_wifi(v: &mut [WifiNet], by: WifiSort) {
     }
 }
 
+/// True if an executable `name` is on PATH (cached per name for the process).
+pub fn on_path(name: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).any(|d| std::fs::metadata(d.join(name)).map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)))
+        .unwrap_or(false)
+}
+
+fn have_timeout() -> bool {
+    static T: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *T.get_or_init(|| on_path("timeout"))
+}
+
+/// Run `cmd` with a time limit; stdout on success, stderr (or the status)
+/// on failure. Uses coreutils/BusyBox `timeout` when it is on PATH, else its
+/// own limit (spawn, poll, kill): the Buildroot BusyBox had no `timeout`
+/// applet in test2, which made every Tools scan fail with ENOENT.
 pub(crate) fn run(cmd: &[&str], timeout_s: u32) -> Result<String, String> {
-    let mut c = Command::new("timeout");
-    c.arg(timeout_s.to_string()).args(cmd).stdin(Stdio::null());
-    let o = c.output().map_err(|e| format!("{}: {e}", cmd[0]))?;
-    let out = String::from_utf8_lossy(&o.stdout).into_owned();
-    if o.status.success() {
-        Ok(out)
-    } else {
-        let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
-        Err(if err.is_empty() { format!("{} failed ({})", cmd[0], o.status) } else { err })
+    if have_timeout() {
+        let mut c = Command::new("timeout");
+        c.arg(timeout_s.to_string()).args(cmd).stdin(Stdio::null());
+        let o = c.output().map_err(|e| format!("{}: {e}", cmd[0]))?;
+        return finish(cmd[0], o.status, &o.stdout, &o.stderr);
     }
+    run_own_timeout(cmd, Duration::from_secs(timeout_s as u64))
+}
+
+fn finish(name: &str, st: std::process::ExitStatus, out: &[u8], err: &[u8]) -> Result<String, String> {
+    if st.success() {
+        Ok(String::from_utf8_lossy(out).into_owned())
+    } else {
+        let e = String::from_utf8_lossy(err).trim().to_string();
+        Err(if e.is_empty() { format!("{name} failed ({st})") } else { e })
+    }
+}
+
+/// The fallback: spawn, read both pipes on threads, kill after `limit`
+/// (exit status then reads "signal: 9", like `timeout -s KILL`).
+pub fn run_own_timeout(cmd: &[&str], limit: Duration) -> Result<String, String> {
+    use std::io::Read;
+    use std::os::unix::process::CommandExt;
+    let mut child = Command::new(cmd[0])
+        .args(&cmd[1..])
+        .process_group(0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("{}: {e}", cmd[0]))?;
+    let mut so = child.stdout.take().unwrap();
+    let mut se = child.stderr.take().unwrap();
+    let to = std::thread::spawn(move || {
+        let mut v = Vec::new();
+        let _ = so.read_to_end(&mut v);
+        v
+    });
+    let te = std::thread::spawn(move || {
+        let mut v = Vec::new();
+        let _ = se.read_to_end(&mut v);
+        v
+    });
+    let deadline = std::time::Instant::now() + limit;
+    let st = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break st,
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                // the whole group, so a grandchild cannot keep the pipes open
+                unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
+                let _ = child.kill();
+                break child.wait().map_err(|e| e.to_string())?;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(e) => return Err(e.to_string()),
+        }
+    };
+    let (out, err) = (to.join().unwrap_or_default(), te.join().unwrap_or_default());
+    finish(cmd[0], st, &out, &err)
 }
 
 fn sim_wifi() -> Vec<WifiNet> {
@@ -300,33 +366,45 @@ pub fn parse_btmgmt_find(text: &str) -> Vec<BtDev> {
     out
 }
 
-/// Parse `bluetoothctl` scan output (`[NEW] Device AA:.. Name`,
-/// `[CHG] Device AA:.. RSSI: 0xffffffb5 (-75)` or `RSSI: -75`).
+/// Strip ANSI colour sequences, readline markers (\x01/\x02) and other
+/// control characters that bluetoothctl prints even when piped.
+pub fn strip_ansi(raw: &str) -> String {
+    let mut l = String::with_capacity(raw.len());
+    let mut esc = false;
+    for ch in raw.chars() {
+        match (esc, ch) {
+            (false, '\u{1b}') => esc = true,
+            (true, c) if c.is_ascii_alphabetic() => esc = false,
+            (true, _) => {}
+            (false, c) if (c as u32) < 0x20 && c != '\t' => {}
+            (false, c) => l.push(c),
+        }
+    }
+    l
+}
+
+/// Parse `bluetoothctl` output: scan events (`[NEW] Device AA:.. Name`,
+/// `[CHG] Device AA:.. RSSI: 0xffffffb5 (-75)` or `RSSI: -75`, `Name:`,
+/// `Alias:`), with or without ANSI colours and a `[bluetooth]#` prompt in
+/// front, and the plain `bluetoothctl devices` listing (`Device AA:.. Name`).
+/// `[DEL]` lines are ignored (a device that went away is still worth listing).
 pub fn parse_bluetoothctl(text: &str) -> Vec<BtDev> {
     let mut out = Vec::new();
     for raw in text.lines() {
-        // strip ANSI colour codes bluetoothctl prints even when piped
-        let mut l = String::with_capacity(raw.len());
-        let mut esc = false;
-        for ch in raw.chars() {
-            match (esc, ch) {
-                (false, '\u{1b}') => esc = true,
-                (true, c) if c.is_ascii_alphabetic() => esc = false,
-                (true, _) => {}
-                (false, c) => l.push(c),
-            }
-        }
+        let l = strip_ansi(raw);
         let Some(i) = l.find("Device ") else { continue };
+        let head = &l[..i];
+        if head.contains("Controller") || head.contains("[DEL]") {
+            continue;
+        }
         let rest = &l[i + 7..];
         let addr: String = rest.chars().take(17).collect::<String>().to_uppercase();
-        if addr.len() != 17 || addr.matches(':').count() != 5 {
+        if addr.len() != 17 || addr.matches(':').count() != 5 || !addr.chars().all(|c| c == ':' || c.is_ascii_hexdigit()) {
             continue;
         }
         let tail = rest[17..].trim();
-        if l.contains("[NEW]") {
-            let name = if tail.replace('-', ":").eq_ignore_ascii_case(&addr) { String::new() } else { tail.to_string() };
-            merge(&mut out, BtDev { addr, name, ..Default::default() });
-        } else if let Some(r) = tail.strip_prefix("RSSI:") {
+        let is_event = head.contains("[CHG]") || head.contains("[NEW]");
+        if let Some(r) = tail.strip_prefix("RSSI:") {
             let v = r.trim();
             let n = match v.find('(') {
                 Some(p) => v[p + 1..].trim_end_matches(')').trim().parse().ok(),
@@ -334,10 +412,27 @@ pub fn parse_bluetoothctl(text: &str) -> Vec<BtDev> {
             };
             merge(&mut out, BtDev { addr, rssi: n, ..Default::default() });
         } else if let Some(n) = tail.strip_prefix("Name:").or_else(|| tail.strip_prefix("Alias:")) {
-            merge(&mut out, BtDev { addr, name: n.trim().to_string(), ..Default::default() });
+            let n = n.trim();
+            let name = if n.replace('-', ":").eq_ignore_ascii_case(&addr) { String::new() } else { n.to_string() };
+            merge(&mut out, BtDev { addr, name, ..Default::default() });
+        } else if head.contains("[NEW]") || !is_event {
+            // "[NEW] Device <mac> <name>" or the `devices` listing
+            if tail.contains(':') && tail.split_whitespace().next().is_some_and(|w| w.ends_with(':')) {
+                // "[CHG] Device <mac> ManufacturerData Key: ..." style property line
+                continue;
+            }
+            let name = if tail.replace('-', ":").eq_ignore_ascii_case(&addr) { String::new() } else { tail.to_string() };
+            merge(&mut out, BtDev { addr, name, ..Default::default() });
         }
     }
     out
+}
+
+/// Merge `extra` into `base` (names/RSSI filled in, new devices appended).
+pub fn merge_bt(base: &mut Vec<BtDev>, extra: Vec<BtDev>) {
+    for d in extra {
+        merge(base, d);
+    }
 }
 
 pub fn sort_bt(v: &mut [BtDev], by_name: bool) {
@@ -387,30 +482,35 @@ pub fn bt_scan(secs: u32) -> Result<(Vec<BtDev>, &'static str), String> {
     }
     let was_on = run(&["btmgmt", "info"], 5).map(|t| t.lines().any(|l| l.contains("current settings") && l.contains("powered"))).unwrap_or(false);
     let _ = run(&["btmgmt", "power", "on"], 5);
-    // btmgmt find: BR/EDR inquiry and LE scan interleaved (about 10 s), then exits
-    let mut res = match run(&["btmgmt", "find"], secs + 4) {
-        Ok(t) => {
-            let v = parse_btmgmt_find(&t);
-            Ok((v, "btmgmt find"))
-        }
-        // btmgmt missing, refused or hung: try bluetoothctl over D-Bus
-        Err(_) => {
-            let t = run(&["bluetoothctl", "--timeout", &secs.to_string(), "scan", "on"], secs + 4).unwrap_or_default();
-            let v = parse_bluetoothctl(&t);
-            if v.is_empty() && t.contains("NotReady") {
-                Err("Bluetooth not ready (blocked or powered off)".into())
-            } else {
-                Ok((v, "bluetoothctl"))
-            }
-        }
-    };
-    if !was_on {
+    // 1. btmgmt find: BR/EDR inquiry and LE scan interleaved (about 10 s).
+    //    Without a tty some btmgmt builds print nothing and exit 0, so an
+    //    empty result counts as a failure, not as "no devices".
+    let mut found: Vec<BtDev> = Vec::new();
+    let mut note = "btmgmt find";
+    if let Ok(t) = run(&["btmgmt", "find"], secs + 4) {
+        found = parse_btmgmt_find(&t);
+    }
+    let mut not_ready = false;
+    if found.is_empty() {
+        // 2. bluetoothctl over D-Bus: scan for `secs`, then the device list
+        //    (names BlueZ resolved during the scan)
+        note = "bluetoothctl";
+        let _ = run(&["bluetoothctl", "power", "on"], 5);
+        let t = run(&["bluetoothctl", "--timeout", &secs.to_string(), "scan", "on"], secs + 4).unwrap_or_default();
+        not_ready = t.contains("NotReady") || t.contains("org.bluez.Error.NotReady");
+        found = parse_bluetoothctl(&t);
+    }
+    if let Ok(t) = run(&["bluetoothctl", "devices"], 5) {
+        merge_bt(&mut found, parse_bluetoothctl(&t));
+    }
+    if !was_on && note == "btmgmt find" {
         let _ = run(&["btmgmt", "power", "off"], 5);
     }
-    if let Ok((v, _)) = res.as_mut() {
-        v.retain(|d| !d.addr.is_empty());
+    found.retain(|d| !d.addr.is_empty());
+    if found.is_empty() && not_ready {
+        return Err("Bluetooth not ready (blocked or powered off)".into());
     }
-    res
+    Ok((found, note))
 }
 
 #[cfg(test)]
@@ -510,5 +610,40 @@ hci0 type 7 discovering off\n";
         assert_eq!(v.len(), 2);
         assert_eq!((v[0].name.as_str(), v[0].rssi), ("Foo Phone", Some(-75)));
         assert_eq!((v[1].name.as_str(), v[1].rssi), ("Tag", Some(-90)));
+    }
+
+    #[test]
+    fn bluetoothctl_hardware_capture() {
+        // as captured on the ZPOD (test2): coloured [CHG]/[NEW], prompt in
+        // front, readline markers, property lines, and `devices` afterwards
+        let t = "\u{1}\u{1b}[0;94m\u{2}[bluetooth]\u{1}\u{1b}[0m\u{2}# \u{1b}[0;93m[CHG]\u{1b}[0m Device 6C:4A:85:1F:22:10 RSSI: 0xffffffd3 (-45)\r\n\
+\u{1b}[0;92m[NEW]\u{1b}[0m Device 45:3B:0A:77:01:9C 45-3B-0A-77-01-9C\n\
+\u{1b}[0;93m[CHG]\u{1b}[0m Device 45:3B:0A:77:01:9C RSSI: -83\n\
+\u{1b}[0;93m[CHG]\u{1b}[0m Device 45:3B:0A:77:01:9C ManufacturerData Key: 0x004c\n\
+\u{1b}[0;93m[CHG]\u{1b}[0m Device 45:3B:0A:77:01:9C TxPower: 12\n\
+\u{1b}[0;91m[DEL]\u{1b}[0m Device 11:22:33:44:55:66 Gone\n\
+[CHG] Controller B8:27:EB:CB:E7:CD Discovering: no\n";
+        let mut v = parse_bluetoothctl(t);
+        assert_eq!(v.len(), 2, "{v:?}");
+        assert_eq!((v[0].addr.as_str(), v[0].rssi), ("6C:4A:85:1F:22:10", Some(-45)));
+        assert_eq!((v[1].name.as_str(), v[1].rssi), ("", Some(-83)));
+        let devs = "Device 6C:4A:85:1F:22:10 Paul's iPad\nDevice 45:3B:0A:77:01:9C 45-3B-0A-77-01-9C\nDevice F4:4E:FD:00:00:03 Speaker\n";
+        merge_bt(&mut v, parse_bluetoothctl(devs));
+        assert_eq!(v.len(), 3);
+        assert_eq!((v[0].name.as_str(), v[0].rssi), ("Paul's iPad", Some(-45)));
+        assert_eq!(v[1].name, "");
+        assert_eq!((v[2].name.as_str(), v[2].rssi), ("Speaker", None));
+    }
+
+    #[test]
+    fn own_timeout_kills_and_reports() {
+        let t = std::time::Instant::now();
+        let r = run_own_timeout(&["sleep", "5"], Duration::from_millis(300));
+        assert!(r.is_err());
+        assert!(t.elapsed() < Duration::from_secs(3));
+        assert_eq!(run_own_timeout(&["echo", "hi"], Duration::from_secs(3)).unwrap(), "hi\n");
+        assert!(run_own_timeout(&["/nonexistent-zpod"], Duration::from_secs(1)).unwrap_err().contains("nonexistent"));
+        assert!(on_path("sh"));
+        assert!(!on_path("zpod-no-such-tool"));
     }
 }

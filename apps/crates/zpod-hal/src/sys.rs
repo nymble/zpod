@@ -3,7 +3,7 @@
 use std::ffi::CStr;
 use std::time::{Duration, Instant};
 
-use zpod_core::{DateTime, PlayState, StatusInfo};
+use zpod_core::{DateTime, PlayState, StatusInfo, WifiMode};
 use zpod_drivers::max17048::Max17048;
 
 pub const CARD: &str = "sndrpiaoidezpod";
@@ -266,6 +266,11 @@ impl StatusSource {
         }
     }
 
+    /// Force a network (Wi-Fi mode / USB) re-read on the next poll.
+    pub fn net_changed(&mut self) {
+        self.net_at = None;
+    }
+
     /// Force a volume re-read on the next poll (after a volume key).
     pub fn volume_changed(&mut self) {
         self.vol_at = None;
@@ -291,7 +296,9 @@ impl StatusSource {
             self.info.charging = b.map(|x| x.2).unwrap_or(false);
         }
         if due(&mut self.net_at, Duration::from_secs(5)) {
-            self.info.wifi = ipv4("wlan0").is_some();
+            let ip = ipv4("wlan0");
+            self.info.wifi = ip.is_some();
+            self.info.wifi_mode = wifi_mode_now(ip.as_deref());
             self.info.usb = ipv4("usb0").is_some();
         }
         if due(&mut self.vol_at, Duration::from_secs(10)) {
@@ -302,6 +309,58 @@ impl StatusSource {
         }
         self.info.clone()
     }
+}
+
+/// `/proc/net/wireless` -> signal level (dBm) of `ifname`.
+pub fn parse_proc_wireless(text: &str, ifname: &str) -> Option<i32> {
+    let l = text.lines().find(|l| l.trim_start().starts_with(&format!("{ifname}:")))?;
+    let f: Vec<&str> = l.split_whitespace().collect();
+    let v: f32 = f.get(3)?.trim_end_matches('.').parse().ok()?;
+    (v < 0.0 && v > -120.0).then_some(v as i32)
+}
+
+/// A wlan rfkill switch is soft- or hard-blocked (`nmcli radio wifi off` on
+/// Pi OS soft-blocks it).
+fn wlan_rfkill_blocked() -> bool {
+    let Ok(rd) = std::fs::read_dir("/sys/class/rfkill") else { return false };
+    rd.flatten().any(|e| {
+        let p = e.path();
+        let r = |f: &str| std::fs::read_to_string(p.join(f)).unwrap_or_default();
+        r("type").trim() == "wlan" && (r("soft").trim() == "1" || r("hard").trim() == "1")
+    })
+}
+
+/// Status-bar Wi-Fi mode from cheap sources: interface flags, the hotspot
+/// address (10.42.0.1 on both images), /proc/net/wireless; one
+/// `iw station dump` in hotspot mode, one `iw link` if /proc has no level.
+pub fn wifi_mode_now(ip: Option<&str>) -> WifiMode {
+    if sim() {
+        return match crate::wifi::mode() {
+            crate::wifi::Mode::Off => WifiMode::Off,
+            crate::wifi::Mode::Hotspot => WifiMode::Hotspot { clients: crate::wifi::hotspot_clients().len() as u8 },
+            crate::wifi::Mode::Client => WifiMode::Client {
+                bars: zpod_core::wifi_bars(env_f32("ZPOD_SIM_WIFI_DBM").unwrap_or(-58.0) as i32),
+                connected: ip.is_some(),
+            },
+        };
+    }
+    let flags = std::fs::read_to_string("/sys/class/net/wlan0/flags").ok();
+    let up = flags.as_deref().and_then(|f| u32::from_str_radix(f.trim().trim_start_matches("0x"), 16).ok()).map(|f| f & 1 == 1);
+    if up != Some(true) || wlan_rfkill_blocked() || std::path::Path::new("/data/etc/zpod/wifi-off").exists() {
+        return WifiMode::Off;
+    }
+    if ip == Some(crate::wifi::HOTSPOT_IP) {
+        let n = crate::scan::run(&["iw", "dev", "wlan0", "station", "dump"], 3)
+            .map(|t| t.lines().filter(|l| l.starts_with("Station ")).count())
+            .unwrap_or(0);
+        return WifiMode::Hotspot { clients: n.min(255) as u8 };
+    }
+    if ip.is_none() {
+        return WifiMode::Client { bars: 0, connected: false };
+    }
+    let dbm = parse_proc_wireless(&std::fs::read_to_string("/proc/net/wireless").unwrap_or_default(), "wlan0")
+        .or_else(|| crate::wifi::link().map(|l| l.signal_dbm).filter(|d| *d > -127));
+    WifiMode::Client { bars: dbm.map(zpod_core::wifi_bars).unwrap_or(2), connected: true }
 }
 
 /// Global Play/Pause: toggle MPD. Returns a short message for a toast.
@@ -393,6 +452,14 @@ pub fn mpd_play_state() -> PlayState {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn proc_wireless() {
+        let t = "Inter-| sta-|   Quality        |   Discarded packets\n face | tus | link level noise |  nwid  crypt\n wlan0: 0000   54.  -56.  -256        0      0\n";
+        assert_eq!(super::parse_proc_wireless(t, "wlan0"), Some(-56));
+        assert_eq!(super::parse_proc_wireless(t, "usb0"), None);
+        assert_eq!(super::parse_proc_wireless(" wlan0: 0000    0.    0.  -256 0 0\n", "wlan0"), None);
+    }
+
     use super::*;
     #[test]
     fn amixer_parse() {
