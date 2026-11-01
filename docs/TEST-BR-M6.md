@@ -13,6 +13,10 @@ over SSH. Design and background: [BUILDROOT.md](./BUILDROOT.md).
 
 1. Raspberry Pi Imager → "Use custom" → `2026-11-01-zpod-pi0w-v0.9.0-br-m6-fastboot-test3.img.xz`
    (in `~/Downloads`) → the spare card. No Imager customisation (it is ignored).
+   Check it first: `Mac$ shasum -a 256 ~/Downloads/2026-11-01-zpod-pi0w-v0.9.0-br-m6-fastboot-test3.img.xz`
+   = `7170ec785c19264c638297845a76d9ded94b9b4f179550eacd0ac929b010e90e`
+   (87,597,068 bytes; the uncompressed `.img` is
+   `432974ae23ce90735581e03222409b798da9c0c80c53c24ad00fc194fb91c250`, 872,415,744 bytes).
 2. Re-insert the card: it mounts as **`/Volumes/ZPODBOOT`**. Put the
    first-boot files on it:
 
