@@ -96,6 +96,8 @@ What install guarantees:
 5. Pokes `/run/zpod/apps-changed`. The launcher re-scans when it is back on
    its home screen.
 
+Full format spec and proposed v1 (format version, resources, data policy, signing, export/backup): [APP-BUNDLE.md](./APP-BUNDLE.md).
+
 Not done yet (follow-up): package **signatures** (e.g. minisign/ed25519 key
 in `/etc/zpod/trusted-keys`). Today anyone with sudo can install anything,
 the same as with `scp` + `sudo`.
