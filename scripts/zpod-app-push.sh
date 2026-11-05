@@ -1,7 +1,8 @@
 #!/bin/sh
 # Install or update ZPOD app packages (.zpa) from a Mac over USB (or Wi-Fi).
 #   scripts/zpod-app-push.sh [-H host] [-u user] [--restart] app-1.2.0.zpa [more.zpa...]
-#   -H host     default $ZPOD_HOST or 10.12.194.1 (USB link)
+#   -H|--host h default $ZPOD_HOST, else ~/.zpod-host / USB 10.12.194.1 /
+#               zpod.local / zpod, first that answers (scripts/zpod-ssh.sh)
 #   -u user     default $ZPOD_USER or root (Buildroot). Pi OS: -u pi (sudo asks
 #               for the password; nothing is stored)
 #   --restart   then show the (last) app on the screen: restart it if it runs,
@@ -16,16 +17,17 @@ here=$(cd "$(dirname "$0")" && pwd)
 RESTART=""
 while [ $# -gt 0 ]; do
 	case "$1" in
-	-H) ZPOD_HOST=$2; shift 2 ;;
+	-H|--host) ZPOD_HOST=$2; shift 2 ;;
+	--host=*) ZPOD_HOST=${1#--host=}; shift ;;
 	-u) ZPOD_USER=$2; shift 2 ;;
 	--restart) RESTART=1; shift ;;
 	--force) shift ;; # always forced (kept for old command lines)
-	-h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+	-h|--help) sed -n '2,14p' "$0"; exit 0 ;;
 	-*) echo "unknown option $1" >&2; exit 2 ;;
 	*) break ;;
 	esac
 done
-[ $# -ge 1 ] || { sed -n '2,13p' "$0"; exit 2; }
+[ $# -ge 1 ] || { sed -n '2,14p' "$0"; exit 2; }
 for p in "$@"; do [ -f "$p" ] || { echo "$p: no such file" >&2; exit 1; }; done
 
 S=$(zpod_sudo)

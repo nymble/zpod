@@ -1,5 +1,5 @@
 #!/bin/sh
-# ZPOD app dev loop from the Mac, over the USB cable, no reflash
+# ZPOD app dev loop from the Mac, over the USB cable or Wi-Fi, no reflash
 # (docs/DEV-LOOP.md):
 #   scripts/zpod-dev <id>           build apps/packages/<id> for ARMv6, pack a .zpa,
 #                                   push + install it, restart it on the screen,
@@ -7,7 +7,11 @@
 #   scripts/zpod-dev --core         build + push zpod-launcher and zpod-app to
 #                                   /data/zpod/core/bin and switch to them
 #   scripts/zpod-dev --logs <id>    only follow the log
-# Options: -H host, -u user (see zpod-app-push.sh), --no-logs, --build-only.
+#   scripts/zpod-dev --save-host [addr]  save the device's Wi-Fi address (asked
+#                                   over the current link, e.g. USB) in ~/.zpod-host;
+#                                   later runs use it when it answers
+#   scripts/zpod-dev --which-host   print the address the scripts would use
+# Options: -H|--host host, -u user (see zpod-app-push.sh), --no-logs, --build-only.
 # Build: in the colima container (ZPOD_DOCKER_CONTEXT=colima-zpod-br,
 # ZPOD_CONTAINER=zpod-br, repo mounted at ZPOD_CONTAINER_REPO=/src/zpod),
 # or on this host with ZPOD_BUILD=local (needs the musl target + cargo-zigbuild).
@@ -22,17 +26,21 @@ BUILD=${ZPOD_BUILD:-container}
 LOGS=1; ONLY_BUILD=""; MODE=app
 while [ $# -gt 0 ]; do
 	case "$1" in
-	-H) ZPOD_HOST=$2; shift 2 ;;
+	-H|--host) ZPOD_HOST=$2; shift 2 ;;
+	--host=*) ZPOD_HOST=${1#--host=}; shift ;;
+	--save-host) MODE=savehost; shift ;;
+	--which-host) MODE=which; shift ;;
 	-u) ZPOD_USER=$2; shift 2 ;;
 	--no-logs) LOGS=""; shift ;;
 	--build-only) ONLY_BUILD=1; shift ;;
 	--core) MODE=core; shift ;;
 	--logs) MODE=logs; shift ;;
-	-h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+	-h|--help) sed -n '2,20p' "$0"; exit 0 ;;
 	-*) echo "unknown option $1" >&2; exit 2 ;;
 	*) break ;;
 	esac
 done
+zpod_resolve_host
 export ZPOD_HOST ZPOD_USER
 S=$(zpod_sudo)
 T0=$(perl -MTime::HiRes=time -e 'printf "%.3f", time')
@@ -78,8 +86,19 @@ build() {
 }
 
 case "$MODE" in
+which)
+	echo "$ZPOD_HOST"
+	;;
+savehost)
+	ip=${1:-}
+	[ -n "$ip" ] || ip=$(zpod_wifi_ip)
+	[ -n "$ip" ] || { echo "the device ($ZPOD_HOST) has no Wi-Fi address (wlan0 not joined?)" >&2; exit 1; }
+	ZPOD_HOST=$ip zpod_port_open "$ip" || { echo "$ip: ssh port does not answer from this Mac" >&2; exit 1; }
+	printf '%s\n' "$ip" > "$ZPOD_HOST_FILE"
+	echo "saved $ip in $ZPOD_HOST_FILE (first use asks to trust its host key)"
+	;;
 logs)
-	[ $# -eq 1 ] || { sed -n '2,15p' "$0"; exit 2; }
+	[ $# -eq 1 ] || { sed -n '2,20p' "$0"; exit 2; }
 	follow_logs "$1"
 	;;
 core)
@@ -105,7 +124,7 @@ core)
 	lap "core overlay applied"
 	;;
 app)
-	[ $# -eq 1 ] || { sed -n '2,15p' "$0"; exit 2; }
+	[ $# -eq 1 ] || { sed -n '2,20p' "$0"; exit 2; }
 	id=$1
 	[ -f "$repo/apps/packages/$id/manifest.toml" ] || { echo "no apps/packages/$id/manifest.toml" >&2; exit 1; }
 	rm -f "$repo/apps/dist/dev/$id"-*.zpa
