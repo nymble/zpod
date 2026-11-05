@@ -1,0 +1,19 @@
+wait 300
+add mouse Logitech USB Optical Mouse
+add keyboard Apple Keyboard
+# chooser + start: 2.1 s
+wait 2400
+move 30 -10
+move 30 -40
+move 24 -24
+wait 400
+move 40 0
+wait 300
+wheel 2
+wait 500
+click right
+wait 1300
+key esc
+wait 300
+remove mouse
+remove keyboard
