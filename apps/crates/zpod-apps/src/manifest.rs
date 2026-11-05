@@ -42,6 +42,16 @@ pub struct AppSection {
     /// Informational: target the binaries were built for.
     #[serde(default)]
     pub arch: Option<String>,
+    /// "app" (default: home screen) or "tool" (listed under Tools, e.g. GPS).
+    /// Needs a zpod-app / launcher from 2026-11-05 or later.
+    #[serde(default)]
+    pub category: Option<String>,
+}
+
+impl AppSection {
+    pub fn is_tool(&self) -> bool {
+        self.category.as_deref() == Some("tool")
+    }
 }
 
 fn default_order() -> i32 {
@@ -93,6 +103,11 @@ impl Manifest {
         if let Some(i) = &a.icon {
             if !safe_rel(i) {
                 return Err(format!("bad icon path '{i}'"));
+            }
+        }
+        if let Some(c) = &a.category {
+            if c != "app" && c != "tool" {
+                return Err(format!("category must be \"app\" or \"tool\", not '{c}'"));
             }
         }
         Ok(())

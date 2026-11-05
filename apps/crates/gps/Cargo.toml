@@ -1,0 +1,19 @@
+[package]
+name = "zpod-gps"
+description = "ZPOD GPS tool: serial NMEA receiver (GlobalSat ND-105C, PL2303 067b:2303, 4800 8N1) status, coordinates and satellite SNR"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "gps"
+path = "src/main.rs"
+
+[dependencies]
+zpod-nmea.workspace = true
+zpod-input.workspace = true
+zpod-core.workspace = true
+zpod-ui.workspace = true
+zpod-hal.workspace = true
+embedded-graphics.workspace = true
+libc.workspace = true

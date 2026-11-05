@@ -1,0 +1,8 @@
+[package]
+name = "zpod-nmea"
+description = "NMEA 0183 parser (GGA/RMC/GSA/GSV, checksums) and GPS receiver state machine for ZPOD tools; pure Rust, no I/O"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]

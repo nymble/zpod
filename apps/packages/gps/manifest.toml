@@ -1,0 +1,11 @@
+[app]
+id = "gps"
+name = "GPS"
+version = "0.1.0"
+exec = "bin/gps"
+icon = "icon.png"
+description = "USB GPS status: fix, coordinates, satellites (ND-105C)"
+min_core = "0.5.0"
+order = 60
+category = "tool"
+arch = "arm-unknown-linux-musleabihf"
