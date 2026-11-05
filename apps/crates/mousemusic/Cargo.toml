@@ -14,5 +14,6 @@ zpod-music-core.workspace = true
 zpod-core.workspace = true
 zpod-ui.workspace = true
 zpod-hal.workspace = true
+zpod-input.workspace = true
 embedded-graphics.workspace = true
 libc.workspace = true

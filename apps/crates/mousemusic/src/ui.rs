@@ -95,7 +95,63 @@ pub fn draw_splash(fb: &mut Framebuffer, st: &StatusInfo) {
     text::draw_aligned(fb, Font::Tiny, "any key continues", 160, 214, Align::Center, DIM);
 }
 
+/// What the input chooser shows (after the splash).
+pub struct Chooser<'a> {
+    /// 0 = buttons, 1 = USB, 2 = Bluetooth (always disabled for now)
+    pub sel: usize,
+    /// USB row subtitle: found device / plug one in / needs host mode
+    pub usb_line: &'a str,
+    pub usb_found: bool,
+    /// seconds until the highlighted choice starts by itself
+    pub countdown: Option<u32>,
+}
+
+pub fn draw_choose(fb: &mut Framebuffer, st: &StatusInfo, c: &Chooser) {
+    fill(fb, 0, 0, 320, 240, BG);
+    draw_status_bar(fb, "Mouse Music", st);
+    text::draw(fb, Font::Title, "Play with", 14, 28, FG);
+    let rows: [(&str, &str, bool); 3] = [
+        ("ZPOD buttons", "D-pad and face buttons, always on", true),
+        ("USB mouse + keyboard", c.usb_line, true),
+        ("Bluetooth mouse + keyboard", "Not built yet", false),
+    ];
+    let mut y = 52;
+    for (i, (title, sub, enabled)) in rows.iter().enumerate() {
+        let sel = i == c.sel;
+        let h = 50;
+        rrect(fb, 10, y, 300, h, 8, if sel { PANEL2 } else { PANEL });
+        if sel {
+            rstroke(fb, 10, y, 300, h, 8, ACCENT, 2);
+        }
+        let tc = if !enabled { FAINT } else if sel { WHITE } else { FG };
+        text::draw(fb, Font::BodyBold, title, 24, y + 9, tc);
+        let sc = if !enabled {
+            FAINT
+        } else if i == 1 && c.usb_found {
+            zpod_ui::theme::OK
+        } else {
+            DIM
+        };
+        text::draw_fit(fb, Font::Small, sub, 24, y + 29, 256, sc);
+        if !enabled {
+            let pw = text::width(Font::Tiny, "later") + 10;
+            rrect(fb, 296 - pw, y + 10, pw as u32, 14, 4, FAINT);
+            text::draw(fb, Font::Tiny, "later", 301 - pw, y + 13, BG);
+        } else if i == 1 && c.usb_found {
+            dot(fb, 288, y + 25, 10, zpod_ui::theme::OK);
+        }
+        y += h as i32 + 6;
+    }
+    let cd = c.countdown.map(|s| format!("starts in {s} s")).unwrap_or_default();
+    widgets::hints(fb, &[("Up/Dn", "choose"), ("OK", "start"), ("", &cd)]);
+}
+
 pub fn draw_play(fb: &mut Framebuffer, st: &StatusInfo, perf: &PerfState, trail: &[(i32, i32)]) {
+    draw_play_input(fb, st, perf, trail, ("INPUT", "Buttons", DIM));
+}
+
+/// `input` = (label, value, colour) for the side panel's last row.
+pub fn draw_play_input(fb: &mut Framebuffer, st: &StatusInfo, perf: &PerfState, trail: &[(i32, i32)], input: (&str, &str, Rgb565)) {
     fill(fb, 0, 0, 320, 240, BG);
     draw_status_bar(fb, "Mouse Music", st);
 
@@ -155,7 +211,7 @@ pub fn draw_play(fb: &mut Framebuffer, st: &StatusInfo, perf: &PerfState, trail:
     draw_side_row(fb, px, &mut y, "PATTERN", &pat, FG);
     let ts = tempo_str(perf.tempo_bpm);
     draw_side_row(fb, px, &mut y, "TEMPO", &ts, FG);
-    draw_side_row(fb, px, &mut y, "AUTO", "Off", DIM);
+    draw_side_row(fb, px, &mut y, input.0, input.1, input.2);
 
     let vy = 172;
     fill(fb, px, vy - 4, 110, 1, FAINT);
@@ -209,8 +265,11 @@ fn tempo_str(bpm: u32) -> String {
     format!("{bpm} BPM")
 }
 
-pub fn draw_help(fb: &mut Framebuffer, st: &StatusInfo, perf: &PerfState, trail: &[(i32, i32)]) {
+pub fn draw_help(fb: &mut Framebuffer, st: &StatusInfo, perf: &PerfState, trail: &[(i32, i32)], usb: bool) {
     draw_play(fb, st, perf, trail);
+    if usb {
+        return draw_help_usb(fb);
+    }
     darken(fb, 0, 20, 320, 240, 1, 3);
     let (x, y, w, h) = (10, 26, 300, 208);
     rrect(fb, x, y, w, h, 10, PANEL);
@@ -242,6 +301,36 @@ pub fn draw_help(fb: &mut Framebuffer, st: &StatusInfo, perf: &PerfState, trail:
         yy += 15;
     }
     let _ = (PANEL2, Mapper::default());
+}
+
+fn draw_help_usb(fb: &mut Framebuffer) {
+    darken(fb, 0, 20, 320, 240, 1, 3);
+    let (x, y, w, h) = (10, 26, 300, 208);
+    rrect(fb, x, y, w, h, 10, PANEL);
+    rstroke(fb, x, y, w, h, 10, ACCENT, 2);
+    text::draw(fb, Font::Title, "Mouse + keyboard", x + 12, y + 8, ACCENT);
+    text::draw_aligned(fb, Font::Tiny, "Esc / any key closes", x + w as i32 - 12, y + 12, Align::Right, DIM);
+    let rows: [(&str, &str); 11] = [
+        ("Move", "play the grid (24 counts = 1 step)"),
+        ("Left btn", "start / stop"),
+        ("Right btn", "this help"),
+        ("Wheel", "tempo +/- 4"),
+        ("Arrows", "move one step"),
+        ("Enter / P", "pattern on / off"),
+        ("Space", "start / stop"),
+        ("1 - 6", "harmony mode;  Tab = next"),
+        ("V", "voicing"),
+        ("- / =", "transpose;  [ / ] tempo"),
+        ("Buttons", "still work; Home exits"),
+    ];
+    let mut yy = y + 28;
+    for (k, a) in rows {
+        let pw = text::width(Font::Tiny, k) + 6;
+        rrect(fb, x + 70 - pw, yy + 1, pw as u32, 12, 3, FAINT);
+        text::draw(fb, Font::Tiny, k, x + 73 - pw, yy + 3, WHITE);
+        text::draw(fb, Font::Small, a, x + 78, yy + 1, FG);
+        yy += 15;
+    }
 }
 
 pub fn draw_toast(fb: &mut Framebuffer, msg: &str) {
