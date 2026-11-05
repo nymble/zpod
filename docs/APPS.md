@@ -39,6 +39,9 @@ icon = "icon.png"        # optional
 description = "Falling blocks: SRS, hold, ghost, high scores"
 min_core = "0.5.0"       # oldest ZPOD core (/etc/zpod/core-version) it supports
 order = 30               # optional menu position (lower first, then by name)
+category = "tool"        # optional: "app" (default, top menu) or "tool" (end of Tools,
+                         # e.g. GPS). Needs core 0.9.0 from after test3 (older zpod-app
+                         # rejects unknown keys); on test3 run scripts/zpod-dev --core
 arch = "arm-unknown-linux-musleabihf"   # informational
 ```
 

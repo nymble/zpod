@@ -17,7 +17,7 @@ describes it, but there was no standalone spec, and these are not defined at all
 | Area | Today | Gap |
 |---|---|---|
 | Format version | none in the archive or manifest | a new key breaks old cores (`deny_unknown_fields` rejects it) with no way to say "this is format 1" |
-| Manifest | `[app]` only: id, name, version, exec, args, icon, description, min_core, order, arch (`manifest.rs`) | no app kind, no resource needs, no data policy, no author/licence/homepage |
+| Manifest | `[app]` only: id, name, version, exec, args, icon, description, min_core, order, arch, category (`app`/`tool`, added after test3) (`manifest.rs`) | no app kind, no resource needs, no data policy, no author/licence/homepage |
 | Arch | `arch` is informational; installer checks every ELF is 32-bit ARM, ARMv6-compatible (`elf.rs`) | no multi-arch bundles (Zero W armv6 vs Zero 2 W armv7/aarch64, desktop sim) |
 | Permissions / resources | none; every app runs as `zpod` with groups spi, gpio, i2c, input, audio, video (`launcher/src/proc.rs`, APPS.md) | any app can drive SPI, GPIO, I2C; no declared need for audio, network, USB host, radio |
 | Data dir | convention: `$ZPOD_DATA_DIR/<id>` (`zpod-hal/src/lib.rs` `data_dir`), `/data/zpod/appdata` on Buildroot | not in the manifest; `zpod-app remove` leaves it behind; no backup/export; no migration on upgrade |

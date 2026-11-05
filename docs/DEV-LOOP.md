@@ -41,10 +41,47 @@ zpod-app logs [-f] [-n 50] clock # /data/zpod/logs/clock.log
 zpod-app remove --purge devtest  # uninstall and delete /data/zpod/appdata/devtest and its logs
 ```
 
-Options for both scripts: `-H host` (default `$ZPOD_HOST` or `10.12.194.1`),
+Options for both scripts: `-H host` / `--host=host` (see "Over Wi-Fi"),
 `-u user` (default `$ZPOD_USER` or `root`). With a non-root user (Pi OS:
 `-u pi`) every device command runs with `sudo`, which may ask for the
 password in the terminal; nothing is stored.
+
+## Over Wi-Fi (no cable; needed in USB host mode)
+
+The ZPOD must be a Wi-Fi client (Tools > Wi-Fi > Mode: Client). Save its
+Wi-Fi address once, asked over the current link (USB):
+
+```zsh
+scripts/zpod-dev --save-host          # -> ~/.zpod-host (or: --save-host 192.168.1.x)
+```
+
+```zsh
+scripts/zpod-dev --which-host         # what the scripts will use now
+```
+
+Without `-H` / `ZPOD_HOST` the scripts try, in order, the saved address,
+the USB address `10.12.194.1`, `zpod.local` and `zpod` (router DNS; the
+Buildroot image has no mDNS), and use the first one whose SSH port
+answers (1 s each); they print `zpod: using <addr>` when it is not USB.
+`-H addr` or `ZPOD_HOST=addr` skips the probing. SSH to the device is
+root with a key only (see [USB-HOST.md](./USB-HOST.md#security)).
+
+Measured 2026-11-05 on test3 at home (Mac mini M4, 2.4 GHz, Zero W
+BCM43430), same commands as above:
+
+| | Wi-Fi | USB |
+|---|---|---|
+| ping (avg) | 12.8 ms | 1.3 ms |
+| first SSH connection / reused | 1.1 s / 0.05 s | 0.3 s / 0.04 s |
+| 4 MiB over SSH | 5.8 s (~0.7 MB/s) | 0.75 s (~5.3 MB/s) |
+| `zpod-dev --no-logs clock`, nothing changed | 1.6-1.9 s (push+restart 1.3-1.5 s) | 0.8-1.5 s (push+restart 0.5-1.2 s) |
+| `zpod-dev --no-logs clock`, one-line change | **3.8-5.8 s** | 3.7-4.3 s |
+| `zpod-dev --core` (launcher + zpod-app) | ~15 s | ~10 s |
+| `zpod-app logs -n 3 clock` | 0.08 s (reused connection) | |
+
+After a reboot, the Wi-Fi client and SSH come back on their own (test3:
+SSH port on Wi-Fi answered 29 s after `reboot`); the `/data` core overlay
+on test3 does not, so run `scripts/zpod-dev --core` again.
 
 ## Measured (2026-11-05, Mac mini M4, colima `zpod-br`, Zero W over USB)
 
