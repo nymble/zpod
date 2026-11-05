@@ -21,7 +21,8 @@ done
 [ $fail = 0 ] || exit 1
 for b in zpod-launcher zpod-bootsplash zpod-drop zpod-battery zpod-app; do cp "$R/$b" dist/core/usr/lib/zpod/bin/; done
 host_app=target/release/zpod-app
-[ -x "$host_app" ] || nice -n 10 cargo build --release -p zpod-apps
+# always (incremental): a stale host zpod-app rejects newer manifest fields
+nice -n 10 cargo build --release -p zpod-apps
 for a in music clock tetris mousemusic gps; do
   mkdir -p "dist/stage/$a/bin"
   cp "packages/$a/manifest.toml" "packages/$a/icon.png" "dist/stage/$a/"
