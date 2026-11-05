@@ -1,0 +1,10 @@
+[app]
+id = "mousemusic"
+name = "Mouse Music"
+version = "0.1.0"
+exec = "bin/mousemusic"
+icon = "icon.png"
+description = "Music Mouse-style generative performance (Laurie Spiegel)"
+min_core = "0.5.0"
+order = 40
+arch = "arm-unknown-linux-musleabihf"

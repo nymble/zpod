@@ -71,6 +71,7 @@ KEY_LONG_MAX_S = 1.200       # long-press actions (documented for apps)
 NAV_REPEAT_DELAY_S = 0.400
 NAV_REPEAT_S = 0.120
 VOL_STATE = "/run/zpod/volume"
+BUTTONS_MODE = "/run/zpod/buttons.mode"  # apps write "fast-arrows" to skip D-pad centre wait
 
 GPLEV0 = 0x34
 GPPUD = 0x94
@@ -228,6 +229,23 @@ class Debounced:
         return False
 
 
+
+def buttons_mode():
+    """Per-app input mode (empty = default).
+    `fast-arrows`: emit D-pad directions immediately; do not detect centre (OK).
+    Cleared by the app on exit. Apps run as user zpod, so we also accept
+    /tmp/zpod-buttons.mode (and keep /run/zpod/buttons.mode world-writable).
+    """
+    for path in (BUTTONS_MODE, "/tmp/zpod-buttons.mode"):
+        try:
+            with open(path) as f:
+                s = f.read().strip()
+            if s:
+                return s.split()[0]
+        except OSError:
+            continue
+    return ""
+
 def main():
     pins, keys, codes, center_name, center_code, opts = load_config()
     debounce = opts["debounce_ms"] / 1000.0
@@ -242,6 +260,14 @@ def main():
     if vol is None:
         vol = vcap
     vw.publish(vol, False)
+    # App-writable mode switch (user zpod cannot create files in /run/zpod).
+    try:
+        os.makedirs(os.path.dirname(BUTTONS_MODE), exist_ok=True)
+        if not os.path.exists(BUTTONS_MODE):
+            open(BUTTONS_MODE, "w").close()
+        os.chmod(BUTTONS_MODE, 0o666)
+    except OSError as err:
+        log(f"buttons.mode prepare: {err}")
 
     gm = GpioMem()
     set_pullups(gm, pins.values())
@@ -253,7 +279,7 @@ def main():
     # below so held volume keys step steadily and D-pad repeat is uniform.
     log("uinput 'zpod-buttons' ready: " +
         ", ".join(f"{n}=GPIO{pins[n]}->{keys[n]}" for n in pins) +
-        f", center=GPIO4+17+22+23->{center_name}")
+        f", center=GPIO4+17+22+23->{center_name}; mode file {BUTTONS_MODE}")
 
     def emit(code, val):
         ui.write(e.EV_KEY, code, val)
@@ -339,6 +365,10 @@ def main():
         if raw_any:
             last_raw_any = now
         deb_none = not any(deb[n].state for n in DPAD) and not raw_any
+        fast = buttons_mode() == "fast-arrows"
+        # In fast-arrows mode the app owns OK via Circle; skip the 50 ms centre
+        # wait so directions land immediately (Music Mouse / generative music).
+        use_window = 0.0 if fast else window
 
         if mode == "idle":
             if raw_any:
@@ -347,10 +377,10 @@ def main():
                 seen.clear()
         elif mode == "pending":
             seen.update(n for n in DPAD if deb[n].state)
-            if raw_all:
+            if raw_all and not fast:
                 emit(center_code, 1)
                 mode = "center"
-            elif now - pending_since >= window:
+            elif now - pending_since >= use_window:
                 held = [n for n in DPAD if deb[n].state or raw[n]]
                 if held:
                     mode = "dir"
@@ -371,7 +401,7 @@ def main():
                 emit(center_code, 0)
                 mode = "idle"
         elif mode == "dir":
-            if raw_all:
+            if raw_all and not fast:
                 for n in list(dir_down):
                     emit(codes[n], 0)
                 dir_down.clear()

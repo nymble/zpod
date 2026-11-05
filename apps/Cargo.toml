@@ -29,6 +29,7 @@ zpod-ui = { path = "crates/zpod-ui" }
 zpod-mpd = { path = "crates/zpod-mpd" }
 zpod-apps = { path = "crates/zpod-apps" }
 tetris-core = { path = "crates/tetris-core" }
+zpod-music-core = { path = "crates/zpod-music-core" }
 
 [profile.release]
 opt-level = "s"

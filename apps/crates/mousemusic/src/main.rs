@@ -1,0 +1,399 @@
+//! Mouse Music for ZPOD — Music Mouse-style generative performance.
+//!
+//! Phase 1: splash, Play grid (4 harmonized voices), help overlay, one SUB
+//! patch, MPD exclusive audio, fast D-pad arrows, `--bench`.
+//!
+//! Buttons (fast-arrows mode; Circle acts as OK):
+//!   Lt/Rt lower voices · Up/Dn upper · Cir pattern (hold = menu soon)
+//!   Tri mode / Tri+pad transpose|voicing · Sq tempo · X help
+//!   Play start/stop · Home exit (fade, MPD output on, stay paused)
+
+mod ui;
+
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
+
+use zpod_core::{Event, Key, KeyState, StatusInfo};
+use zpod_hal::Platform;
+use zpod_music_core::{
+    bench_cpu, AudioRuntime, FastArrowsGuard, Pattern, PerfState, SharedPerf, Voicing, AXIS_STEPS,
+};
+
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static STOP: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn on_sigterm(_: libc::c_int) {
+    STOP.store(true, Ordering::SeqCst);
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Screen {
+    Splash,
+    Play,
+    Help,
+}
+
+struct Hold {
+    tri: Option<Instant>,
+    sq: Option<Instant>,
+    cir: Option<Instant>,
+    shifted: bool,
+}
+
+impl Hold {
+    fn new() -> Self {
+        Self {
+            tri: None,
+            sq: None,
+            cir: None,
+            shifted: false,
+        }
+    }
+}
+
+fn main() {
+    let mut args = std::env::args().skip(1);
+    if let Some(a) = args.next() {
+        if a == "--bench" {
+            let voices: usize = args
+                .next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(4);
+            let secs: f32 = args
+                .next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(2.0);
+            let r = bench_cpu(secs, voices);
+            println!("{}", r.report());
+            return;
+        }
+        if a == "--help" || a == "-h" {
+            eprintln!("mousemusic [--bench [voices] [seconds]]");
+            return;
+        }
+    }
+
+    let mut p = match Platform::open() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("mousemusic: cannot open display: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    unsafe {
+        libc::signal(libc::SIGTERM, on_sigterm as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGINT, on_sigterm as *const () as libc::sighandler_t);
+    }
+    let _fast = FastArrowsGuard::acquire();
+
+    let shared = SharedPerf::new(PerfState::default());
+    let audio = match AudioRuntime::start(shared.clone_handle()) {
+        Ok(a) => {
+            eprintln!(
+                "mousemusic: audio started (xruns will be logged; period 256 @ 44.1 kHz)"
+            );
+            Some(a)
+        }
+        Err(e) => {
+            eprintln!("mousemusic: audio not available: {e}");
+            None
+        }
+    };
+
+    let mut screen = Screen::Splash;
+    #[allow(unused_assignments)]
+    let mut status = StatusInfo::default();
+    let mut trail: VecDeque<(i32, i32)> = VecDeque::new();
+    trail.push_back((7, 7));
+    let mut hold = Hold::new();
+    let mut dirty = true;
+    let mut toast: Option<(String, Instant)> = None;
+    let mut last_chord_draw = Instant::now();
+
+    // Initial splash
+    {
+        let st = p.status.poll();
+        ui::draw_splash(&mut p.fb, &st);
+        status = st;
+        p.flush();
+    }
+
+    let exit_code = loop {
+        let st = p.status.poll();
+        if st != status {
+            status = st;
+            dirty = true;
+        }
+
+        // periodic redraw for arp dots / notes
+        if screen == Screen::Play && last_chord_draw.elapsed() > Duration::from_millis(80) {
+            dirty = true;
+            last_chord_draw = Instant::now();
+        }
+        if let Some((_, t)) = &toast {
+            if t.elapsed() > Duration::from_millis(1200) {
+                toast = None;
+                dirty = true;
+            }
+        }
+
+        if dirty {
+            let perf = shared.0.lock().unwrap().clone();
+            match screen {
+                Screen::Splash => ui::draw_splash(&mut p.fb, &status),
+                Screen::Play => {
+                    let t: Vec<_> = trail.iter().copied().collect();
+                    ui::draw_play(&mut p.fb, &status, &perf, &t);
+                }
+                Screen::Help => {
+                    let t: Vec<_> = trail.iter().copied().collect();
+                    ui::draw_help(&mut p.fb, &status, &perf, &t);
+                }
+            }
+            if let Some((msg, _)) = &toast {
+                ui::draw_toast(&mut p.fb, msg);
+            }
+            p.flush();
+            dirty = false;
+        }
+
+        let timeout = if screen == Screen::Play {
+            Duration::from_millis(40)
+        } else {
+            Duration::from_millis(200)
+        };
+        if STOP.load(Ordering::Relaxed) {
+            break 0;
+        }
+        let Some(ev) = p.next_event(Some(timeout)) else {
+            continue;
+        };
+
+        // Volume keys: informational only (zpod-buttons already applied).
+        if matches!(ev.key, Key::VolUp | Key::VolDown) {
+            dirty = true;
+            continue;
+        }
+
+        if ev.key == Key::Home && ev.state == KeyState::Press {
+            break 0;
+        }
+
+        match screen {
+            Screen::Splash => {
+                if ev.is_down() {
+                    screen = Screen::Play;
+                    dirty = true;
+                }
+            }
+            Screen::Help => {
+                if ev.is_down() {
+                    screen = Screen::Play;
+                    dirty = true;
+                }
+            }
+            Screen::Play => {
+                if handle_play(
+                    &ev,
+                    &shared,
+                    &mut hold,
+                    &mut trail,
+                    &mut screen,
+                    &mut toast,
+                ) {
+                    dirty = true;
+                }
+            }
+        }
+    };
+
+    // Fade and restore MPD (stay paused).
+    {
+        if let Ok(mut st) = shared.0.lock() {
+            st.exit = true;
+            st.fade = 1.0;
+        }
+    }
+    if let Some(a) = audio {
+        // give fade a moment inside the audio thread
+        std::thread::sleep(Duration::from_millis(80));
+        a.shutdown();
+    }
+    drop(_fast);
+    eprintln!("mousemusic: exit {exit_code}");
+    std::process::exit(exit_code);
+}
+
+fn handle_play(
+    ev: &Event,
+    shared: &SharedPerf,
+    hold: &mut Hold,
+    trail: &mut VecDeque<(i32, i32)>,
+    screen: &mut Screen,
+    toast: &mut Option<(String, Instant)>,
+) -> bool {
+    let mut dirty = false;
+    let press = ev.state == KeyState::Press;
+    let release = ev.state == KeyState::Release;
+    let repeat = ev.state == KeyState::Repeat;
+    let down = press || repeat;
+
+    // Modifier holds
+    match (ev.key, press, release) {
+        (Key::Triangle, true, _) => {
+            hold.tri = Some(Instant::now());
+            hold.shifted = false;
+        }
+        (Key::Triangle, _, true) => {
+            if let Some(t0) = hold.tri.take() {
+                if !hold.shifted && t0.elapsed() < Duration::from_millis(450) {
+                    let mut st = shared.0.lock().unwrap();
+                    st.mapper.mode = st.mapper.mode.next();
+                    st.chord = st.mapper.chord(st.x, st.y);
+                    dirty = true;
+                }
+            }
+            hold.shifted = false;
+        }
+        (Key::Square, true, _) => {
+            hold.sq = Some(Instant::now());
+            hold.shifted = false;
+        }
+        (Key::Square, _, true) => {
+            if let Some(t0) = hold.sq.take() {
+                if !hold.shifted && t0.elapsed() < Duration::from_millis(450) {
+                    // tap Square: tempo nudge +4 as a quick action when no pad
+                    let mut st = shared.0.lock().unwrap();
+                    st.tempo_bpm = (st.tempo_bpm + 4).min(200);
+                    dirty = true;
+                }
+            }
+            hold.shifted = false;
+        }
+        (Key::Circle, true, _) => {
+            hold.cir = Some(Instant::now());
+            hold.shifted = false;
+        }
+        (Key::Circle, _, true) => {
+            if let Some(t0) = hold.cir.take() {
+                if !hold.shifted {
+                    if t0.elapsed() >= Duration::from_millis(450) {
+                        *toast = Some(("Menu coming soon".into(), Instant::now()));
+                        dirty = true;
+                    } else {
+                        let mut st = shared.0.lock().unwrap();
+                        st.pattern = st.pattern.toggle();
+                        dirty = true;
+                    }
+                }
+            }
+            hold.shifted = false;
+        }
+        _ => {}
+    }
+
+    // Shift-chords while Tri/Sq held
+    if down {
+        if hold.tri.is_some() {
+            match ev.key {
+                Key::Up => {
+                    let mut st = shared.0.lock().unwrap();
+                    st.mapper.transpose = (st.mapper.transpose + 1).clamp(-12, 12);
+                    st.chord = st.mapper.chord(st.x, st.y);
+                    hold.shifted = true;
+                    dirty = true;
+                }
+                Key::Down => {
+                    let mut st = shared.0.lock().unwrap();
+                    st.mapper.transpose = (st.mapper.transpose - 1).clamp(-12, 12);
+                    st.chord = st.mapper.chord(st.x, st.y);
+                    hold.shifted = true;
+                    dirty = true;
+                }
+                Key::Left => {
+                    let mut st = shared.0.lock().unwrap();
+                    st.mapper.voicing = st.mapper.voicing.prev();
+                    st.chord = st.mapper.chord(st.x, st.y);
+                    hold.shifted = true;
+                    dirty = true;
+                }
+                Key::Right => {
+                    let mut st = shared.0.lock().unwrap();
+                    st.mapper.voicing = st.mapper.voicing.next();
+                    st.chord = st.mapper.chord(st.x, st.y);
+                    hold.shifted = true;
+                    dirty = true;
+                }
+                _ => {}
+            }
+            if hold.shifted {
+                return dirty;
+            }
+        }
+        if hold.sq.is_some() {
+            match ev.key {
+                Key::Up => {
+                    let mut st = shared.0.lock().unwrap();
+                    st.tempo_bpm = (st.tempo_bpm + 4).min(200);
+                    hold.shifted = true;
+                    dirty = true;
+                    return dirty;
+                }
+                Key::Down => {
+                    let mut st = shared.0.lock().unwrap();
+                    st.tempo_bpm = st.tempo_bpm.saturating_sub(4).max(40);
+                    hold.shifted = true;
+                    dirty = true;
+                    return dirty;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if down {
+        match ev.key {
+            Key::Left | Key::Right | Key::Up | Key::Down => {
+                let mut st = shared.0.lock().unwrap();
+                match ev.key {
+                    Key::Left => st.x = (st.x - 1).max(0),
+                    Key::Right => st.x = (st.x + 1).min(AXIS_STEPS - 1),
+                    Key::Down => st.y = (st.y - 1).max(0),
+                    Key::Up => st.y = (st.y + 1).min(AXIS_STEPS - 1),
+                    _ => {}
+                }
+                st.chord = st.mapper.chord(st.x, st.y);
+                let pos = (st.x, st.y);
+                drop(st);
+                if trail.back().copied() != Some(pos) {
+                    trail.push_back(pos);
+                    while trail.len() > 24 {
+                        trail.pop_front();
+                    }
+                }
+                dirty = true;
+            }
+            Key::Cross if press => {
+                *screen = Screen::Help;
+                dirty = true;
+            }
+            Key::PlayPause if press => {
+                let mut st = shared.0.lock().unwrap();
+                st.sounding = !st.sounding;
+                dirty = true;
+            }
+            Key::Ok if press => {
+                // Centre still works if buttons service emits it; treat as pattern too.
+                let mut st = shared.0.lock().unwrap();
+                st.pattern = st.pattern.toggle();
+                dirty = true;
+            }
+            _ => {}
+        }
+    }
+    let _ = Pattern::Off;
+    let _ = Voicing::Parallel;
+    dirty
+}

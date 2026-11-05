@@ -1,0 +1,12 @@
+[package]
+name = "mousemusic-mock"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+zpod-ui = { path = "../../crates/zpod-ui" }
+zpod-core = { path = "../../crates/zpod-core" }
+embedded-graphics = "0.8.1"
+png = "0.18"
+[workspace]

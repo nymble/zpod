@@ -93,10 +93,12 @@ core)
 	esac
 	d=$repo/apps/dist/dev/core
 	cp "$repo/buildroot/board/zpod/rootfs-overlay/usr/sbin/zpod-core-overlay" "$d/zpod-core-overlay"
-	(cd "$d" && COPYFILE_DISABLE=1 tar --format ustar -cf - zpod-launcher zpod-app zpod-core-overlay) | zpod_ssh "$(zpod_target)" "$ZPOD_RPATH
+	cp "$repo/overlay/usr/lib/zpod/zpod_buttons.py" "$d/zpod_buttons.py"
+	(cd "$d" && COPYFILE_DISABLE=1 tar --format ustar -cf - zpod-launcher zpod-app zpod-core-overlay zpod_buttons.py) | zpod_ssh "$(zpod_target)" "$ZPOD_RPATH
 		set -e; ${S}mkdir -p /data/zpod/core/bin /tmp/zpod-core.\$\$ && cd /tmp/zpod-core.\$\$ && ${S}tar -xf -
 		for b in zpod-launcher zpod-app; do ${S}cp \$b /data/zpod/core/bin/.\$b.new && ${S}chmod 755 /data/zpod/core/bin/.\$b.new && ${S}mv /data/zpod/core/bin/.\$b.new /data/zpod/core/bin/\$b; done
 		${S}cp zpod-core-overlay /data/zpod/core/zpod-core-overlay; ${S}chmod 755 /data/zpod/core/zpod-core-overlay
+		${S}cp zpod_buttons.py /data/zpod/core/zpod_buttons.py; ${S}chmod 755 /data/zpod/core/zpod_buttons.py
 		cd / && rm -rf /tmp/zpod-core.\$\$
 		${S}sh /data/zpod/core/zpod-core-overlay apply --restart
 		zpod-app status"
