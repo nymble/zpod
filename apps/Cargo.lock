@@ -586,6 +586,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "zpod-gps"
+version = "0.1.0"
+dependencies = [
+ "embedded-graphics",
+ "libc",
+ "zpod-core",
+ "zpod-hal",
+ "zpod-input",
+ "zpod-nmea",
+ "zpod-ui",
+]
+
+[[package]]
 name = "zpod-hal"
 version = "0.9.0"
 dependencies = [
@@ -603,6 +616,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "zpod-input"
+version = "0.9.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "zpod-launcher"
 version = "0.9.0"
 dependencies = [
@@ -612,6 +632,7 @@ dependencies = [
  "zpod-apps",
  "zpod-core",
  "zpod-hal",
+ "zpod-input",
  "zpod-mpd",
  "zpod-ui",
 ]
@@ -624,6 +645,7 @@ dependencies = [
  "libc",
  "zpod-core",
  "zpod-hal",
+ "zpod-input",
  "zpod-music-core",
  "zpod-ui",
 ]
@@ -652,6 +674,10 @@ dependencies = [
  "libc",
  "zpod-mpd",
 ]
+
+[[package]]
+name = "zpod-nmea"
+version = "0.9.0"
 
 [[package]]
 name = "zpod-panel"
