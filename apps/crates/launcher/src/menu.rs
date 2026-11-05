@@ -74,6 +74,8 @@ pub enum Page {
     WifiDevices,
     /// saved networks: OK = details, Tri twice = forget
     WifiSaved,
+    /// type the password of a secured network on a USB keyboard, then join
+    WifiPassword,
     /// hotspot name + password (OK = show/hide, Tri = new password)
     Hotspot,
     /// devices connected to the hotspot
@@ -119,10 +121,26 @@ pub enum Effect {
     Power(bool),
 }
 
-pub fn items(m: MenuId, n_apps: usize) -> Vec<Item> {
+/// Installed apps as the menus see them: `Item::App(0..regular)` on the
+/// home screen, `Item::App(regular..total)` (category = "tool") at the end
+/// of Tools. The launcher keeps its app list sorted that way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Apps {
+    pub regular: usize,
+    pub total: usize,
+}
+
+impl From<usize> for Apps {
+    fn from(n: usize) -> Apps {
+        Apps { regular: n, total: n }
+    }
+}
+
+pub fn items(m: MenuId, apps: impl Into<Apps>) -> Vec<Item> {
+    let apps: Apps = apps.into();
     match m {
         MenuId::Top => {
-            let mut v: Vec<Item> = (0..n_apps).map(Item::App).collect();
+            let mut v: Vec<Item> = (0..apps.regular).map(Item::App).collect();
             v.extend([Item::Menu(MenuId::Tools), Item::Menu(MenuId::Settings), Item::Menu(MenuId::Power)]);
             v
         }
@@ -135,7 +153,11 @@ pub fn items(m: MenuId, n_apps: usize) -> Vec<Item> {
         ],
         MenuId::Display => vec![Item::BacklightTest, Item::SpiSpeed],
         MenuId::Diagnostics => vec![Item::Status, Item::Storage, Item::ButtonTest, Item::Tone],
-        MenuId::Tools => vec![Item::Wifi, Item::BtScan, Item::Usb, Item::Battery, Item::Transfer],
+        MenuId::Tools => {
+            let mut v = vec![Item::Wifi, Item::BtScan, Item::Usb, Item::Battery, Item::Transfer];
+            v.extend((apps.regular..apps.total).map(Item::App));
+            v
+        }
         MenuId::WifiTools => vec![Item::WifiChannels, Item::WifiDevices, Item::DropBox, Item::Opds],
         MenuId::Power => vec![Item::Reboot, Item::Shutdown],
     }
@@ -191,6 +213,7 @@ pub fn title(p: Page) -> &'static str {
         Page::WifiChannels => "Channel use",
         Page::WifiDevices => "Devices",
         Page::WifiSaved => "Saved networks",
+        Page::WifiPassword => "Join network",
         Page::Hotspot => "Hotspot",
         Page::HotspotDevices => "Connected",
         Page::Usb => "USB",
@@ -303,7 +326,7 @@ impl Menus {
 
     /// The item under the cursor, if the current page is a menu.
     #[allow(dead_code)]
-    pub fn selected(&self, n_apps: usize) -> Option<Item> {
+    pub fn selected(&self, n_apps: impl Into<Apps> + Copy) -> Option<Item> {
         match self.page() {
             Page::Menu(m) => items(m, n_apps).get(self.list().sel).copied(),
             _ => None,
@@ -313,7 +336,7 @@ impl Menus {
     /// Conventional handling for menus and simple pages. Pages with their
     /// own bindings (DateTime editor, ButtonTest) are handled by the caller.
     /// `rows` = (number of rows on this page, rows visible).
-    pub fn handle(&mut self, nav: Nav, n_apps: usize, rows: (usize, usize)) -> Effect {
+    pub fn handle(&mut self, nav: Nav, n_apps: impl Into<Apps> + Copy, rows: (usize, usize)) -> Effect {
         match nav {
             Nav::Home => {
                 self.home();
@@ -555,6 +578,9 @@ mod tests {
     fn test3_top_and_tools_layout() {
         assert_eq!(items(MenuId::Top, 1), vec![Item::App(0), Item::Menu(MenuId::Tools), Item::Menu(MenuId::Settings), Item::Menu(MenuId::Power)]);
         assert_eq!(items(MenuId::Tools, 0), vec![Item::Wifi, Item::BtScan, Item::Usb, Item::Battery, Item::Transfer]);
+        let tools = Apps { regular: 1, total: 2 };
+        assert_eq!(items(MenuId::Top, tools), vec![Item::App(0), Item::Menu(MenuId::Tools), Item::Menu(MenuId::Settings), Item::Menu(MenuId::Power)]);
+        assert_eq!(items(MenuId::Tools, tools).last(), Some(&Item::App(1)), "tool apps at the end of Tools");
         assert_eq!(items(MenuId::WifiTools, 0), vec![Item::WifiChannels, Item::WifiDevices, Item::DropBox, Item::Opds]);
         assert!(items(MenuId::Settings, 0).contains(&Item::About));
         assert_eq!(label(Item::Wifi).0, "Wi-Fi");

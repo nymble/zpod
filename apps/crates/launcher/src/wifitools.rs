@@ -107,6 +107,8 @@ pub struct WifiTools {
     pub forget_armed: Option<(usize, Instant)>,
     /// Wi-Fi tools > Devices: LAN neighbours (ip, mac)
     pub neighbours: Vec<(String, String)>,
+    /// join() wants a typed password for `detail` (opens Page::WifiPassword)
+    pub want_password: bool,
 }
 
 fn meter_job() -> crate::tools::ScanResult<WifiNet> {
@@ -244,7 +246,28 @@ impl WifiTools {
             self.job = Some(Job::start(format!("Joining {name}..."), move || wifi::join_open(&name).map(|_| format!("Joined {name} (open)"))));
             return None;
         }
-        Some(format!("{} needs a password: add it with zpod-wifi.txt", d.security))
+        // secured, not saved: type the password (USB keyboard) on the next page
+        self.want_password = true;
+        None
+    }
+
+    /// Password page: join `ssid` with `pass` (moved in, wiped after use).
+    pub fn join_password(&mut self, ssid: String, pass: String) -> Option<String> {
+        if self.job.is_some() {
+            return Some("Busy, wait...".into());
+        }
+        let what = format!("Joining {ssid}...");
+        self.job = Some(Job::start(what, move || {
+            let mut pass = pass;
+            let r = zpod_hal::wifijoin::join_with_password(&ssid, &pass);
+            // overwrite the passphrase before the String is freed
+            let n = pass.len();
+            pass.clear();
+            pass.extend(std::iter::repeat_n('\0', n));
+            drop(pass);
+            r
+        }));
+        None
     }
 
     /// Saved list Tri: first press arms, second (same row, within 4 s) forgets.
@@ -312,7 +335,8 @@ mod tests {
     #[test]
     fn join_rules() {
         let mut w = WifiTools { detail: NetDetail { ssid: "Cafe".into(), security: "WPA2".into(), saved_uuid: None, connected: false }, ..Default::default() };
-        assert!(w.join().unwrap().contains("zpod-wifi.txt"));
+        assert_eq!(w.join(), None, "secured + unsaved: ask for the password");
+        assert!(w.want_password);
         assert!(w.job.is_none());
         w.detail.connected = true;
         assert_eq!(w.join().as_deref(), Some("Already connected"));

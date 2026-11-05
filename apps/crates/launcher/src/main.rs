@@ -136,6 +136,22 @@ const ALL_KEYS: [(Key, &str); 13] = [
     (Key::VolDown, "Vol-"),
 ];
 
+/// Join network > password page state (keyboard reader lives only here).
+pub struct PwEntry {
+    pub ssid: String,
+    pub field: zpod_ui::textfield::TextField,
+    pub hid: zpod_input::HidInput,
+    pub role: zpod_input::UsbRole,
+    /// (ok, message) from the last attempt / validation
+    pub note: Option<(bool, String)>,
+}
+
+impl PwEntry {
+    fn new(ssid: String) -> Self {
+        PwEntry { ssid, field: zpod_ui::textfield::TextField::wifi_password(), hid: zpod_input::HidInput::spawn(), role: zpod_input::role::usb_role(), note: None }
+    }
+}
+
 struct Launcher {
     p: Platform,
     menus: Menus,
@@ -164,6 +180,7 @@ struct Launcher {
     ringer: Option<ring::Ringer>,
     alarm_checked: Instant,
     wt: wifitools::WifiTools,
+    pw: Option<PwEntry>,
     batt: Option<pages::BattView>,
     batt_at: Instant,
     srv: server::State,
@@ -241,6 +258,7 @@ impl Launcher {
             ringer: None,
             alarm_checked: Instant::now() - Duration::from_secs(5),
             wt: wifitools::WifiTools::default(),
+            pw: None,
             batt: None,
             batt_at: Instant::now(),
             srv: server::State::default(),
@@ -295,18 +313,93 @@ impl Launcher {
             return;
         }
         self.apps_stamp = stamp;
-        let (apps, broken) = zpod_apps::discover(&self.apps_dir);
+        let (mut apps, broken) = zpod_apps::discover(&self.apps_dir);
         for (id, why) in &broken {
             eprintln!("launcher: skipping app '{id}': {why}");
         }
+        // home-screen apps first, then tools (listed under Tools); stable
+        apps.sort_by_key(|a| a.manifest.app.is_tool());
         self.icons = apps.iter().map(|a| icons::load(a.icon_path().as_deref())).collect();
         self.apps = apps;
         self.broken = broken;
-        let n = menu::items(MenuId::Top, self.apps.len()).len();
+        let n = menu::items(MenuId::Top, self.app_counts()).len();
         if let Some((_, ls)) = self.menus.stack.first_mut() {
             ls.scroll_into_view(n, (LIST_H / HOME_ROW) as usize);
         }
         self.redraw = true;
+    }
+
+    /// Keyboard events on the password page (called from the main loop).
+    fn pw_poll(&mut self) {
+        use zpod_input::{HidEvent, KeyCode};
+        use zpod_ui::textfield::Edit;
+        let mut submit = false;
+        let mut cancel = false;
+        let Some(pw) = self.pw.as_mut() else { return };
+        while let Some(h) = pw.hid.poll() {
+            self.redraw = true;
+            let HidEvent::Input(e) = h else { continue };
+            let Some(k) = e.key_down() else { continue };
+            if self.wt.job.is_some() {
+                continue; // joining: ignore typing
+            }
+            match k {
+                KeyCode::Enter => submit = true,
+                KeyCode::Esc => cancel = true,
+                KeyCode::Backspace => {
+                    if e.mods.ctrl {
+                        pw.field.apply(Edit::Clear);
+                    } else {
+                        pw.field.apply(Edit::Backspace);
+                    }
+                    pw.note = None;
+                }
+                KeyCode::Tab => {
+                    pw.field.apply(Edit::ToggleReveal);
+                }
+                _ => {
+                    if let Some(c) = e.text {
+                        if pw.field.apply(Edit::Insert(c)) {
+                            pw.note = None;
+                        }
+                    }
+                }
+            }
+        }
+        if cancel {
+            self.pw_close();
+        } else if submit {
+            self.pw_submit();
+        }
+    }
+
+    fn pw_submit(&mut self) {
+        let Some(pw) = self.pw.as_mut() else { return };
+        if self.wt.job.is_some() {
+            return;
+        }
+        if let Err(e) = zpod_hal::wifijoin::check_passphrase(pw.field.as_str()) {
+            pw.note = Some((false, e.to_string()));
+            return;
+        }
+        let pass = pw.field.take();
+        pw.note = None;
+        let ssid = pw.ssid.clone();
+        if let Some(m) = self.wt.join_password(ssid, pass) {
+            self.toast(m, 1500);
+        }
+    }
+
+    fn pw_close(&mut self) {
+        self.pw = None;
+        if self.menus.page() == Page::WifiPassword {
+            self.menus.back();
+        }
+        self.redraw = true;
+    }
+
+    fn app_counts(&self) -> menu::Apps {
+        menu::Apps { regular: self.apps.iter().filter(|a| !a.manifest.app.is_tool()).count(), total: self.apps.len() }
     }
 
     fn toast(&mut self, msg: impl Into<String>, ms: u64) {
@@ -345,10 +438,10 @@ impl Launcher {
             Page::ScanDetail => self.tools.detail_title.clone(),
             _ => menu::title(page).to_string(),
         };
+        let n_apps = self.app_counts();
         let fb = &mut self.p.fb;
         draw_status_bar(fb, &title, &st);
         let area = rect(0, LIST_Y, 320, LIST_H as u32);
-        let n_apps = self.apps.len();
         match page {
             Page::Menu(id) => {
                 let items = menu::items(id, n_apps);
@@ -457,6 +550,10 @@ impl Launcher {
                 }
             },
             Page::WifiSignal => pages::draw_meter(fb, &self.wt),
+            Page::WifiPassword => match &self.pw {
+                Some(pw) => pages::draw_password(fb, pw, self.wt.job.as_ref().map(|j| j.what.as_str())),
+                None => {}
+            },
             Page::WifiChannels => {
                 let age = self.tools.wifi.age_text();
                 pages::draw_chan_util(fb, &self.tools.wifi.items, self.tools.wifi.busy.is_some(), &age);
@@ -796,6 +893,23 @@ impl Launcher {
             }
             return None;
         }
+        if page == Page::WifiPassword && ev.state != KeyState::Release && !matches!(ev.key, Key::Home | Key::VolUp | Key::VolDown | Key::PlayPause) {
+            self.redraw = true;
+            match ev.key {
+                Key::Cross | Key::Left => self.pw_close(),
+                Key::Ok | Key::Circle => self.pw_submit(),
+                Key::Triangle => {
+                    if let Some(pw) = self.pw.as_mut() {
+                        pw.field.apply(zpod_ui::textfield::Edit::ToggleReveal);
+                    }
+                }
+                _ => {}
+            }
+            return None;
+        }
+        if page == Page::WifiPassword && ev.key == Key::Home {
+            self.pw = None; // wipes the field, stops the keyboard reader
+        }
         let nav = classify(&ev)?;
         // SPI trial: OK (or any Enter) keeps the new clock.
         if let Some((_, _)) = self.spi_trial {
@@ -900,7 +1014,7 @@ impl Launcher {
             _ => {}
         }
         let rows = self.rows_for(page);
-        let eff = self.menus.handle(nav, self.apps.len(), rows);
+        let eff = self.menus.handle(nav, self.app_counts(), rows);
         self.redraw = true;
         match eff {
             Effect::None | Effect::Redraw => None,
@@ -934,6 +1048,11 @@ impl Launcher {
                     Page::WifiSignal => {
                         if let Some(m) = self.wt.join() {
                             self.toast(m, 2200);
+                        } else if self.wt.want_password {
+                            self.wt.want_password = false;
+                            self.pw = Some(PwEntry::new(self.wt.detail.ssid.clone()));
+                            self.menus.push(Page::WifiPassword);
+                            self.redraw = true;
                         }
                     }
                     Page::Hotspot => self.wt.reveal = !self.wt.reveal,
@@ -1672,9 +1791,17 @@ fn main() {
         if l.wt.poll_status() {
             l.redraw = true;
         }
+        if l.menus.page() == Page::WifiPassword {
+            l.pw_poll();
+        }
         if let Some(msg) = l.wt.poll_job() {
             l.p.status.net_changed();
-            l.toast(msg, 2200);
+            if let (Page::WifiPassword, Some(pw)) = (l.menus.page(), l.pw.as_mut()) {
+                pw.note = Some((msg.starts_with("Joined"), msg.trim_start_matches("Failed: ").to_string()));
+                l.redraw = true;
+            } else {
+                l.toast(msg, 2200);
+            }
             l.wifi = sys::wifi_info();
             l.refresh_server();
         }
@@ -1732,6 +1859,9 @@ fn main() {
         }
         if l.ctl.is_some() {
             timeout = timeout.min(Duration::from_millis(250)); // control socket latency
+        }
+        if page == Page::WifiPassword {
+            timeout = timeout.min(Duration::from_millis(30)); // keyboard events are polled
         }
         let Some(ev) = l.p.next_event(Some(timeout)) else {
             if l.p.is_sim() && sim_done() {

@@ -13,6 +13,7 @@ path = "src/main.rs"
 zpod-core.workspace = true
 zpod-ui.workspace = true
 zpod-hal.workspace = true
+zpod-input.workspace = true
 zpod-apps.workspace = true
 zpod-mpd.workspace = true
 embedded-graphics.workspace = true
