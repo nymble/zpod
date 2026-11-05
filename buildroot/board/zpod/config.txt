@@ -44,3 +44,8 @@ dtoverlay=i2c-rtc,ds3231
 
 # --- USB OTG port as gadget (CDC-NCM Ethernet, 10.12.194.1/28) ---
 dtoverlay=dwc2,dr_mode=peripheral
+# USB role switch (docs/USB-HOST.md): zpod-usb-role.txt on this partition.
+# Uncommenting "dtparam=dr_mode=host" there makes the port a USB host
+# (keyboard, mouse, GPS) and removes the USB link to the computer; Wi-Fi
+# and SSH stay up. Keep this include right after the dwc2 line.
+include zpod-usb-role.txt

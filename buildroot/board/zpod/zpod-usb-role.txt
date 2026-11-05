@@ -1,0 +1,13 @@
+# ZPOD USB role (read by the Pi firmware via "include" in config.txt).
+#
+# Default: gadget. The micro-USB data port is the link to the computer
+# (USB Ethernet 10.12.194.1, file transfer, SSH over the cable).
+#
+# Host mode: remove the "#" in front of the dtparam line below, save, and
+# boot the ZPOD with a USB OTG adapter / hub on the data port. Keyboards,
+# mice and USB serial GPS receivers (PL2303, CDC-ACM) then work; the USB
+# link to the computer is gone, so use Wi-Fi (ssh root@<Wi-Fi IP>).
+#
+# Back to gadget: put the "#" back (or delete this file) on the computer.
+#
+#dtparam=dr_mode=host

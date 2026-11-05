@@ -1,0 +1,24 @@
+#!/bin/sh
+# zpod-usb-role: show the USB port role (gadget = computer link, host =
+# keyboard / mouse / GPS) and what is plugged in. Switching is a boot-time
+# choice: zpod-usb-role.txt on the boot partition (docs/USB-HOST.md).
+R=$(cat /run/zpod/usb-role 2>/dev/null)
+DT=$(tr -d '\0' 2>/dev/null < /sys/firmware/devicetree/base/soc/usb@7e980000/dr_mode)
+echo "role: ${R:-unknown} (device tree dr_mode=${DT:-?})"
+for f in /boot/firmware/zpod-usb-role.txt /boot/zpod-usb-role.txt; do
+	[ -f "$f" ] || continue
+	if grep -q '^[[:space:]]*dtparam=dr_mode=host' "$f"; then echo "next boot: host ($f)"; else echo "next boot: gadget ($f)"; fi
+	break
+done
+if [ "$R" = host ]; then
+	echo "devices:"
+	for d in /sys/bus/usb/devices/*; do
+		[ -f "$d/idVendor" ] || continue
+		case "$(cat "$d/bDeviceClass" 2>/dev/null)" in 09) continue ;; esac
+		printf '  %s:%s %s %s\n' "$(cat "$d/idVendor")" "$(cat "$d/idProduct")" \
+			"$(cat "$d/manufacturer" 2>/dev/null)" "$(cat "$d/product" 2>/dev/null)"
+	done
+	ls /dev/input/event* /dev/ttyUSB* /dev/ttyACM* 2>/dev/null | sed 's/^/  /'
+else
+	ip -4 -o addr show usb0 2>/dev/null | sed -n 's/.* inet \([0-9.]*\/[0-9]*\).*/usb0: \1/p'
+fi

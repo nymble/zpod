@@ -101,11 +101,21 @@ CONFIG_PRINTK_TIME=y
 # CONFIG_UBIFS_FS is not set
 # CONFIG_CIFS is not set
 # CONFIG_SMB_SERVER is not set
-# The micro-USB data port is a gadget only (dwc2 dr_mode=peripheral): USB host,
-# SCSI (USB storage) and HID become modules (not loaded on the ZPOD)
+# The micro-USB data port is a gadget by default (dwc2 dr_mode=peripheral);
+# USB host mode (zpod-usb-role.txt, docs/USB-HOST.md) uses the same dual-role
+# dwc2. Host-side drivers are modules, loaded by mdev from the modalias only
+# when a device is plugged in host mode: HID keyboards/mice (evdev is built
+# in), hubs (usbcore), USB serial GPS (PL2303, CDC-ACM), USB storage.
 CONFIG_USB=m
 CONFIG_SCSI=m
 CONFIG_HID=m
+CONFIG_USB_DWC2_DUAL_ROLE=y
+CONFIG_USB_HID=m
+CONFIG_HID_GENERIC=m
+CONFIG_USB_SERIAL=m
+CONFIG_USB_SERIAL_PL2303=m
+CONFIG_USB_ACM=m
+CONFIG_USB_STORAGE=m
 # No camera/video/HDMI-DRM (the LCD is driven from userspace over spidev)
 # CONFIG_MEDIA_SUPPORT is not set
 # CONFIG_DRM is not set

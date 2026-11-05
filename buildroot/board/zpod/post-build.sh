@@ -57,6 +57,17 @@ if ! grep -q '^# ZPOD' "$T/etc/mdev.conf" 2>/dev/null; then
 	} > "$T/etc/mdev.conf.new"
 	mv "$T/etc/mdev.conf.new" "$T/etc/mdev.conf"
 fi
+# USB host mode: serial GPS receivers (PL2303 ttyUSB, CDC-ACM ttyACM) for
+# the dialout group (zpod is a member); first match wins in mdev.conf.
+if ! grep -q '^# ZPOD serial' "$T/etc/mdev.conf"; then
+	{
+		echo "# ZPOD serial: USB GPS / serial adapters (USB host mode)"
+		echo 'ttyUSB[0-9]*	root:dialout 660'
+		echo 'ttyACM[0-9]*	root:dialout 660'
+		grep -v '^ttyUSB' "$T/etc/mdev.conf"
+	} > "$T/etc/mdev.conf.new"
+	mv "$T/etc/mdev.conf.new" "$T/etc/mdev.conf"
+fi
 # Build identification (the launcher's About / Storage & build screens)
 REPO="${BR2_EXTERNAL_ZPOD_PATH}/.."
 # M6 version/About split: ZPOD_VERSION = the image release (ZPOD_BR_VERSION,

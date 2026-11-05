@@ -1,8 +1,27 @@
 #!/bin/sh
-# USB OTG Ethernet gadget: CDC-NCM by default (zpod-usb-gadget.sh, shared with
-# the pi-gen image; mode from /boot/firmware/zpod-usb.txt), usb0 = 10.12.194.1/28,
-# BusyBox udhcpd hands 10.12.194.2-14 to the host (no route/DNS). Background.
+# USB OTG port. Gadget (default): Ethernet gadget, CDC-NCM by default
+# (zpod-usb-gadget.sh, shared with the pi-gen image; mode from
+# /boot/firmware/zpod-usb.txt), usb0 = 10.12.194.1/28, BusyBox udhcpd hands
+# 10.12.194.2-14 to the host (no route/DNS). Host (zpod-usb-role.txt on the
+# boot partition, docs/USB-HOST.md): dwc2 only, mdev loads the drivers of
+# whatever is plugged in. The role is in /run/zpod/usb-role. Background.
+DT_ROLE=${ZPOD_DT_USB_ROLE:-/sys/firmware/devicetree/base/soc/usb@7e980000/dr_mode}
+role() {
+	r=$(tr -d '\0' 2>/dev/null < "$DT_ROLE")
+	case "$r" in host) echo host ;; otg) echo otg ;; *) echo gadget ;; esac
+}
 start() {
+	mkdir -p /run/zpod
+	R=$(role)
+	echo "$R" > /run/zpod/usb-role
+	if [ "$R" = host ]; then
+		(
+			modprobe -q dwc2
+			echo "usb: host mode (zpod-usb-role.txt); no USB link to the computer"
+			/usr/sbin/zpod-bootmark usb-host-up
+		) </dev/null >>/run/zpod/usb.log 2>&1 &
+		return 0
+	fi
 	(
 		modprobe -q dwc2; modprobe -q libcomposite
 		/usr/lib/zpod/zpod-usb-gadget.sh start
@@ -15,9 +34,10 @@ start() {
 	) </dev/null >>/run/zpod/usb.log 2>&1 &
 }
 stop() {
+	[ "$(cat /run/zpod/usb-role 2>/dev/null)" = host ] && return 0
 	# only the USB one (a hotspot udhcpd on wlan0 has its own pidfile)
 	[ -f /run/udhcpd.usb0.pid ] && kill "$(cat /run/udhcpd.usb0.pid)" 2>/dev/null
 	/usr/lib/zpod/zpod-usb-gadget.sh stop 2>/dev/null
 }
-case "$1" in start) start ;; stop) stop ;; restart) stop; start ;; esac
+case "$1" in start) start ;; stop) stop ;; restart) stop; start ;; role) role ;; esac
 exit 0

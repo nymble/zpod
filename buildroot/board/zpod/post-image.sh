@@ -8,6 +8,8 @@ GENIMAGE_TMP="${BUILD_DIR}/genimage.tmp"
 
 install -m 0644 "${BOARD_DIR}/config.txt"  "${BINARIES_DIR}/rpi-firmware/config.txt"
 install -m 0644 "${BOARD_DIR}/cmdline.txt" "${BINARIES_DIR}/rpi-firmware/cmdline.txt"
+# USB role switch, included from config.txt (gadget by default; docs/USB-HOST.md)
+install -m 0644 "${BOARD_DIR}/zpod-usb-role.txt" "${BINARIES_DIR}/rpi-firmware/zpod-usb-role.txt"
 
 FILES=()
 for i in "${BINARIES_DIR}"/*.dtb "${BINARIES_DIR}"/rpi-firmware/*; do
