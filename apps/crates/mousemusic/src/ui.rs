@@ -64,7 +64,7 @@ fn darken(fb: &mut Framebuffer, x0: usize, y0: usize, x1: usize, y1: usize, num:
 
 pub fn draw_splash(fb: &mut Framebuffer, st: &StatusInfo) {
     fill(fb, 0, 0, 320, 240, BG);
-    draw_status_bar(fb, "Mouse", st);
+    draw_status_bar(fb, "Mouse Music", st);
     text::draw_aligned(fb, Font::Title, "Mouse Music", 160, 48, Align::Center, ACCENT);
     text::draw_aligned(
         fb,
@@ -97,7 +97,7 @@ pub fn draw_splash(fb: &mut Framebuffer, st: &StatusInfo) {
 
 pub fn draw_play(fb: &mut Framebuffer, st: &StatusInfo, perf: &PerfState, trail: &[(i32, i32)]) {
     fill(fb, 0, 0, 320, 240, BG);
-    draw_status_bar(fb, "Mouse", st);
+    draw_status_bar(fb, "Mouse Music", st);
 
     rrect(fb, GX, GY, GS as u32, GS as u32, 6, GRID_BG);
     for i in 0..AXIS_STEPS {
