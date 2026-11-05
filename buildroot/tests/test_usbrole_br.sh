@@ -28,6 +28,16 @@ ok "zpod-usb-role is executable" "[ -x $B/rootfs-overlay/usr/sbin/zpod-usb-role 
 for k in USB_DWC2_DUAL_ROLE=y USB_HID=m HID_GENERIC=m USB_SERIAL=m USB_SERIAL_PL2303=m USB_ACM=m; do
 	ok "linux.fragment: $k" "grep -qx 'CONFIG_$k' $B/linux.fragment"
 done
+# older /data/etc/group (test3): dialout without zpod; a user-added member stays
+GS=$B/rootfs-overlay/usr/lib/zpod/zpod-group-sync
+printf 'root:x:0:\naudio:x:29:zpod\ndialout:x:18:zpod\ninput:x:103:zpod\n' > $T/base
+printf 'root:x:0:\naudio:x:29:zpod,paul\ndialout:x:18:\ninput:x:103:zpod\n' > $T/data
+sh $GS $T/base $T/data
+ok "group sync: zpod added to dialout" "grep -qx 'dialout:x:18:zpod' $T/data"
+ok "group sync: other members kept" "grep -qx 'audio:x:29:zpod,paul' $T/data"
+sh $GS $T/base $T/data
+ok "group sync: idempotent" "[ \$(grep -c zpod $T/data) = 3 ] && grep -qx 'input:x:103:zpod' $T/data"
+ok "zpod-data-early runs the group sync" "grep -q 'zpod-group-sync' $B/rootfs-overlay/usr/sbin/zpod-data-early"
 rm -rf "$T"
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

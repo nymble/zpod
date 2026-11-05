@@ -33,6 +33,7 @@ for f in passwd group shadow; do
 		done < $BASE/$f
 	fi
 done
+/usr/lib/zpod/zpod-group-sync $BASE/group /data/etc/group || true
 chmod 644 /data/etc/passwd /data/etc/group; chmod 600 /data/etc/shadow
 mkdir -p /data/media/music /data/media/playlists /data/zpod/apps /data/zpod/appdata \
 	/data/etc/dropbear /data/etc/ssh /data/etc/zpod /data/etc/sudoers.d /data/home \
