@@ -146,8 +146,9 @@ v0 (implemented; launcher `main.rs` `launch`, `proc::spawn_app`, `zpod-launcher-
 * Run as user `zpod` (`ZPOD_APP_USER`), own process group, cwd = app dir.
 * Env: `ZPOD_APP_ID`, `ZPOD_APP_DIR`, `ZPOD_CORE_VERSION`, inherited
   `ZPOD_DATA_DIR` (Buildroot: `/data/zpod/appdata`), `HOME`, `USER`, `LOGNAME`.
-* stdout/stderr: inherited from the launcher, i.e. `/run/zpod/launcher.log`
-  on Buildroot (tmpfs, shared with the launcher).
+* stdout/stderr: the app's own log `/data/zpod/logs/<id>.log` (launcher from
+  2026-11-05; rotated to `.log.1` at launch above 256 KiB; `/run/zpod/apps`
+  without `/data/zpod`). Older launchers: inherited, `/run/zpod/launcher.log`.
 * The launcher releases the LCD before exec and re-opens it after exit. Exit 0
   = back to Home; non-zero or signal = toast. Hold Home 3 s = SIGTERM to the
   group, SIGKILL 1.5 s later.
@@ -155,9 +156,9 @@ v0 (implemented; launcher `main.rs` `launch`, `proc::spawn_app`, `zpod-launcher-
 
 [proposed v1]:
 
-* Per-app log `/run/zpod/apps/<id>.log` (ring, 256 KiB), also readable from the
-  web console and `zpod-app logs <id>`.
-* `ZPOD_RUN_MODE=normal|dev`, `ZPOD_TARGET=pi0w|pi02w|sim`, `ZPOD_SOCKET=/run/zpod/launcher.sock`.
+* Per-app log: done (above); still to do: readable from the web console.
+* `ZPOD_RUN_MODE=normal|dev`, `ZPOD_TARGET=pi0w|pi02w|sim`. (`ZPOD_SOCKET`
+  exists, but only for `zpod-app` and tests; apps get no socket access.)
 * Audio: if `requires.audio_out = "exclusive"`, the launcher pauses MPD before
   exec and resumes after (same rule as the test tone today), and the app opens
   ALSA `default`. `shared` needs a dmix device, which does not exist yet
@@ -171,13 +172,13 @@ v0 (implemented; launcher `main.rs` `launch`, `proc::spawn_app`, `zpod-launcher-
 | `zpod-app pack <dir> [out]` | yes | + writes `META/FILES.sha256`; `--sign <key>` |
 | `zpod-app check <zpa>` | yes | + shows `requires`, signature state |
 | `zpod-app install/update [--force] <zpa>` | yes (atomic, staged, lock) | + signature policy, `migrate` hook, `--dev` |
-| `zpod-app remove <id>` | yes; **app data kept** | `--purge` also deletes `$ZPOD_DATA_DIR/<id>` |
+| `zpod-app remove [--purge] <id>` | yes; data kept; **`--purge` (2026-11-05)** also deletes `$ZPOD_DATA_DIR/<id>` and its logs | |
 | `zpod-app list`, `info` | yes | + data size, signer |
 | `zpod-app export <id> [out]` | no | rebuild a `.zpa` from an installed app (move/transfer) |
 | `zpod-app backup <id\|--all> [out]` / `restore <file>` | no | `<id>-data-<date>.tar.gz` of the data dir, with the app version in it |
-| `zpod-app launch/stop/restart <id>` | no | via `/run/zpod/launcher.sock` |
-| `zpod-app logs [-f] <id>` | no | per-app log |
-| `zpod-app dev <dir>` (Mac side, `scripts/zpod-dev`) | no | build, pack, push over USB, `install --dev --force`, `restart`, `logs -f` |
+| `zpod-app launch/stop/restart <id>`, `status` | **yes (2026-11-05)**, via `/run/zpod/launcher.sock` ([DEV-LOOP.md](./DEV-LOOP.md)) | |
+| `zpod-app logs [-f] [-n N] <id>` | **yes (2026-11-05)**, `/data/zpod/logs/<id>.log` | |
+| `scripts/zpod-dev <id>` (Mac side) | **yes (2026-11-05)**: build, pack, push over USB, `install --force`, `restart`, `logs -f` | `--dev` install + badge |
 | `zpod-app new <id> --template art\|music\|tool` | no | starter crate using zpod-hal + zpod-ui |
 
 ## 7. Signing [proposed]

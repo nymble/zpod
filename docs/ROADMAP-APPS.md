@@ -94,7 +94,8 @@ uploads `/data/inbox`. All on p4, so they survive a future A/B system update.
 
 Today: cross-build with `cargo zigbuild` (`apps/tools/build-arm.sh`, builds all
 eight binaries, works on the Mac), `zpod-app pack`, then
-`scripts/zpod-app-push.sh`. Friction found in the code:
+`scripts/zpod-app-push.sh`. Friction found in the code (items 1-4 fixed on
+2026-11-05, see [DEV-LOOP.md](./DEV-LOOP.md); 5 remains):
 
 1. `zpod-app-push.sh` logs in as `pi@` (Pi OS user). On Buildroot the user is
    whatever `userconf.txt` created (or root with key only), so the script needs
@@ -225,6 +226,11 @@ Each is shippable alone; none needs a full reflash after A2.
 1. **A1 dev loop**: launcher control socket, per-app logs, `zpod-app
    launch/restart/logs/remove --purge`, fixed push script, `scripts/zpod-dev`.
    Small, all Rust, and it makes every later app cheap to iterate.
+   **Done 2026-11-05** ([DEV-LOOP.md](./DEV-LOOP.md)): edit-to-screen 3.7-4.3 s
+   on the test3 card over USB, no reflash. On test3 the new launcher and
+   `zpod-app` run from `/data` by bind mount until reboot; the next image applies
+   that overlay at boot. Per-app build: `apps/tools/build-app.sh`. Not done:
+   `--dev` installs with a DEV badge (goes with signing, A3).
 2. **A2 A/B updates**, so test3 is the last reflash (already HANDOFF job 1);
    do the signing key once and reuse it for A3.
 3. **A4 audio contract + first generative music app** together with the Rust

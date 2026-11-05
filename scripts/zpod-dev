@@ -1,0 +1,119 @@
+#!/bin/sh
+# ZPOD app dev loop from the Mac, over the USB cable, no reflash
+# (docs/DEV-LOOP.md):
+#   scripts/zpod-dev <id>           build apps/packages/<id> for ARMv6, pack a .zpa,
+#                                   push + install it, restart it on the screen,
+#                                   then follow its log (Ctrl-C: the app keeps running)
+#   scripts/zpod-dev --core         build + push zpod-launcher and zpod-app to
+#                                   /data/zpod/core/bin and switch to them
+#   scripts/zpod-dev --logs <id>    only follow the log
+# Options: -H host, -u user (see zpod-app-push.sh), --no-logs, --build-only.
+# Build: in the colima container (ZPOD_DOCKER_CONTEXT=colima-zpod-br,
+# ZPOD_CONTAINER=zpod-br, repo mounted at ZPOD_CONTAINER_REPO=/src/zpod),
+# or on this host with ZPOD_BUILD=local (needs the musl target + cargo-zigbuild).
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+repo=$(cd "$here/.." && pwd)
+. "$here/zpod-ssh.sh"
+CTX=${ZPOD_DOCKER_CONTEXT:-colima-zpod-br}
+CT=${ZPOD_CONTAINER:-zpod-br}
+CREPO=${ZPOD_CONTAINER_REPO:-/src/zpod}
+BUILD=${ZPOD_BUILD:-container}
+LOGS=1; ONLY_BUILD=""; MODE=app
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-H) ZPOD_HOST=$2; shift 2 ;;
+	-u) ZPOD_USER=$2; shift 2 ;;
+	--no-logs) LOGS=""; shift ;;
+	--build-only) ONLY_BUILD=1; shift ;;
+	--core) MODE=core; shift ;;
+	--logs) MODE=logs; shift ;;
+	-h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+	-*) echo "unknown option $1" >&2; exit 2 ;;
+	*) break ;;
+	esac
+done
+export ZPOD_HOST ZPOD_USER
+S=$(zpod_sudo)
+T0=$(perl -MTime::HiRes=time -e 'printf "%.3f", time')
+lap() { perl -MTime::HiRes=time -e 'printf "[%5.1f s] %s\n", time - $ARGV[0], $ARGV[1]' "$T0" "$1"; }
+
+follow_logs() {
+	echo "--- logs (Ctrl-C stops following; the app keeps running)"
+	# Own connection (not the shared one): when it closes, the device side
+	# sees its reader go away and "zpod-app logs -f" exits.
+	exec ssh -o ControlPath=none -o ControlMaster=no $(zpod_ssh_opts) -t "$(zpod_target)" "$ZPOD_RPATH ${S}zpod-app logs -f -n 20 $1"
+}
+
+# zpod-app restart that copes with a launcher without the control socket
+# (test3 after a reboot: the /data overlay is not applied at boot).
+ctl_ready() { zpod_ssh "$(zpod_target)" "$ZPOD_RPATH ${S}zpod-app status >/dev/null 2>&1"; }
+ensure_ctl() {
+	ctl_ready && return 0
+	echo "launcher has no control socket; applying the /data core overlay"
+	zpod_ssh "$(zpod_target)" "$ZPOD_RPATH ${S}sh /data/zpod/core/zpod-core-overlay apply --restart" \
+		|| { echo "no /data core overlay on the device: run scripts/zpod-dev --core first" >&2; return 1; }
+}
+
+# build <args for tools/build-app.sh>; prints the produced path(s) relative to apps/
+build() {
+	if [ "$BUILD" = local ]; then
+		(cd "$repo/apps" && sh tools/build-app.sh "$@" >&2)
+	else
+		if ! docker --context "$CTX" exec "$CT" true 2>/dev/null; then
+			echo "starting the build container ($CTX/$CT)" >&2
+			colima status --profile "${CTX#colima-}" >/dev/null 2>&1 || colima start --profile "${CTX#colima-}" >&2
+			docker --context "$CTX" start "$CT" >/dev/null
+		fi
+		# Build in a private copy (/br/apps-dev) so a macOS apps/target is never mixed in;
+		# results come back into apps/dist/dev through the repo mount.
+		docker --context "$CTX" exec "$CT" sh -c "
+			set -e; . \$HOME/.cargo/env
+			mkdir -p /br/apps-dev
+			rsync -a --delete --exclude target --exclude dist $CREPO/apps/ /br/apps-dev/
+			cd /br/apps-dev && rm -rf dist/dev && sh tools/build-app.sh $* dist/dev >&2
+			mkdir -p $CREPO/apps/dist/dev && cp -R dist/dev/. $CREPO/apps/dist/dev/
+		"
+	fi
+}
+
+case "$MODE" in
+logs)
+	[ $# -eq 1 ] || { sed -n '2,15p' "$0"; exit 2; }
+	follow_logs "$1"
+	;;
+core)
+	build --core
+	lap "built zpod-launcher + zpod-app"
+	[ -z "$ONLY_BUILD" ] || exit 0
+	rel=$(zpod_ssh "$(zpod_target)" 'cat /etc/zpod-release 2>/dev/null' || true)
+	case "$rel" in
+	*ZPOD_BUILD=buildroot*) ;;
+	*) echo "--core is for the Buildroot image (read-only root). On Pi OS install the binaries from apps/dist/dev/core into /usr/lib/zpod/bin with sudo and restart zpod-launcher." >&2; exit 1 ;;
+	esac
+	d=$repo/apps/dist/dev/core
+	cp "$repo/buildroot/board/zpod/rootfs-overlay/usr/sbin/zpod-core-overlay" "$d/zpod-core-overlay"
+	(cd "$d" && COPYFILE_DISABLE=1 tar --format ustar -cf - zpod-launcher zpod-app zpod-core-overlay) | zpod_ssh "$(zpod_target)" "$ZPOD_RPATH
+		set -e; ${S}mkdir -p /data/zpod/core/bin /tmp/zpod-core.\$\$ && cd /tmp/zpod-core.\$\$ && ${S}tar -xf -
+		for b in zpod-launcher zpod-app; do ${S}cp \$b /data/zpod/core/bin/.\$b.new && ${S}chmod 755 /data/zpod/core/bin/.\$b.new && ${S}mv /data/zpod/core/bin/.\$b.new /data/zpod/core/bin/\$b; done
+		${S}cp zpod-core-overlay /data/zpod/core/zpod-core-overlay; ${S}chmod 755 /data/zpod/core/zpod-core-overlay
+		cd / && rm -rf /tmp/zpod-core.\$\$
+		${S}sh /data/zpod/core/zpod-core-overlay apply --restart
+		zpod-app status"
+	lap "core overlay applied"
+	;;
+app)
+	[ $# -eq 1 ] || { sed -n '2,15p' "$0"; exit 2; }
+	id=$1
+	[ -f "$repo/apps/packages/$id/manifest.toml" ] || { echo "no apps/packages/$id/manifest.toml" >&2; exit 1; }
+	rm -f "$repo/apps/dist/dev/$id"-*.zpa
+	build "$id"
+	zpa=$(ls "$repo/apps/dist/dev/$id"-*.zpa)
+	lap "built $(basename "$zpa") ($(wc -c < "$zpa" | tr -d ' ') bytes)"
+	[ -z "$ONLY_BUILD" ] || exit 0
+	ensure_ctl
+	sh "$here/zpod-app-push.sh" --restart "$zpa"
+	lap "pushed, installed, restarted $id"
+	[ -z "$LOGS" ] || follow_logs "$id"
+	;;
+esac

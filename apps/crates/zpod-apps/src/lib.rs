@@ -17,7 +17,9 @@
 //! A package (`<id>-<version>.zpa`) is a gzip'd tar of that directory with
 //! `manifest.toml` at the top level.
 
+pub mod ctl;
 pub mod elf;
+pub mod logs;
 pub mod manifest;
 pub mod package;
 

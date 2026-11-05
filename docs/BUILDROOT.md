@@ -297,7 +297,10 @@ Instrumentation on the device:
 - **Not tested on hardware.** The DAC overlay/driver, the panel over spidev,
   the buttons, NCM on macOS, Wi-Fi and Bluetooth are unverified on this image.
 - **RAUC A/B updates: not done** (cut for time). p3 is a stub; updates mean
-  re-flashing. Plan below.
+  re-flashing. Plan below. Exception: `zpod-launcher` and `zpod-app` can be
+  replaced from `/data/zpod/core/bin` by bind mount (`zpod-core-overlay`,
+  applied at boot from the image after test3; by hand / `scripts/zpod-dev`
+  on test3), see [DEV-LOOP.md](./DEV-LOOP.md).
 - **M6 apps:** all present (core 0.9.0, see "M6 apps on this image"); the
   Wi-Fi connect/hotspot backend is a shim and untested on hardware.
 - **Buttons daemon is Python** (start-up costs seconds on a Zero W). Port

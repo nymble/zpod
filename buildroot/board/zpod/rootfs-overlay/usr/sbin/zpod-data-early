@@ -59,6 +59,12 @@ if ! mountpoint -q /etc/zpod; then
 	done
 	mount --bind /data/etc/zpod /etc/zpod
 fi
+# Dev loop: newer launcher / zpod-app pushed to /data/zpod/core/bin (scripts/zpod-dev
+# --core) replace the image's copies by bind mount, before the launcher starts.
+# zpod.nocore on the kernel command line (cmdline.txt) or /data/zpod/core/disabled skips it.
+if [ -d /data/zpod/core/bin ] && ! grep -qw zpod.nocore /proc/cmdline; then
+	/usr/sbin/zpod-core-overlay apply >>/run/zpod/core-overlay.log 2>&1
+fi
 # Setup files added AFTER the first boot: apply them now, before the launcher
 # starts, so its boot notice (M6) can report them. On the very first boot
 # (no booted-once yet; nothing is reported then) they stay in S00zpod-data /

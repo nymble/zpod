@@ -81,9 +81,13 @@ pub fn lookup_user(name: &str) -> Option<AppUser> {
     Some(AppUser { uid: pw.pw_uid, gid: pw.pw_gid, name: name.to_string(), home, groups })
 }
 
-pub fn spawn_app(exec: &Path, args: &[String], dir: &Path, env: &[(String, String)], user: Option<&AppUser>) -> std::io::Result<Child> {
+/// `log`: the app's stdout and stderr (its per-app log); `None` inherits ours.
+pub fn spawn_app(exec: &Path, args: &[String], dir: &Path, env: &[(String, String)], user: Option<&AppUser>, log: Option<&std::fs::File>) -> std::io::Result<Child> {
     let mut c = Command::new(exec);
     c.args(args).current_dir(dir).process_group(0);
+    if let Some(f) = log {
+        c.stdin(std::process::Stdio::null()).stdout(f.try_clone()?).stderr(f.try_clone()?);
+    }
     for (k, v) in env {
         c.env(k, v);
     }
@@ -161,6 +165,13 @@ pub fn stop_kind() -> Option<StopKind> {
     }
 }
 
+/// `echo restart > /run/zpod/stop-kind` before SIGTERM (zpod-core-overlay,
+/// scripts/zpod-dev --core): a new launcher binary takes over at once, so
+/// leave the panel as it is (no blank, no cold re-init).
+pub fn restart_requested() -> bool {
+    std::fs::read_to_string(STOP_KIND).map(|s| s.trim() == "restart").unwrap_or(false)
+}
+
 pub fn power(kind: StopKind) {
     let _ = std::fs::create_dir_all("/run/zpod");
     let word = match kind {
@@ -215,6 +226,10 @@ mod tests {
 pub const BOOT_TIMES: &str = "/run/zpod/boot-times";
 
 pub fn boot_mark(name: &str) {
+    // once per boot: a launcher restarted later (dev loop) must not add marks
+    if std::fs::read_to_string(BOOT_TIMES).is_ok_and(|t| t.lines().any(|l| l.split_whitespace().next() == Some(name))) {
+        return;
+    }
     let up = std::fs::read_to_string("/proc/uptime")
         .ok()
         .and_then(|t| t.split_whitespace().next().map(str::to_string))

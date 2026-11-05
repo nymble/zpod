@@ -16,6 +16,10 @@
 //! * Root-only helpers live here on purpose (the launcher is the privileged
 //!   process): Wi-Fi/Bluetooth scans ([`tools`]), rsync share toggle and
 //!   library rescan ([`transfer`]), date/RTC, power.
+//! * Control socket `/run/zpod/launcher.sock` ([`ctl`], protocol in
+//!   `zpod_apps::ctl`): launch / restart / stop / status from `zpod-app` over
+//!   ssh (dev loop, docs/DEV-LOOP.md). Each app's stdout/stderr goes to its
+//!   own log, `/data/zpod/logs/<id>.log` (`zpod_apps::logs`).
 //! * `zpod-launcher --end-screen poweroff|reboot|off` draws just that frame
 //!   (for BusyBox shutdown scripts).
 //! * test3: Top = apps, Tools >, Settings >, Power >. Tools = Wi-Fi (one
@@ -28,6 +32,7 @@
 //!   and Book catalog switches ([`server`]), and a first-screen notice when
 //!   bootfs setup files were applied after the first boot.
 
+mod ctl;
 mod icons;
 mod menu;
 mod pages;
@@ -166,6 +171,10 @@ struct Launcher {
     notice: Vec<String>,
     usb: usb::Info,
     usb_at: Instant,
+    /// Control socket requests (None: socket not available, e.g. sim).
+    ctl: Option<std::sync::mpsc::Receiver<ctl::Pending>>,
+    /// App to start on the next main-loop turn (control socket / restart).
+    pending_launch: Option<String>,
 }
 
 /// First-boot setup files applied on a later boot (written by
@@ -239,7 +248,12 @@ impl Launcher {
             notice: Vec::new(),
             usb: usb::Info::default(),
             usb_at: Instant::now(),
+            ctl: None,
+            pending_launch: None,
         };
+        if !sys::sim() || std::env::var_os("ZPOD_SOCKET").is_some() {
+            l.ctl = ctl::start(&zpod_apps::ctl::socket_path());
+        }
         l.rescan(true);
         l.notice = std::fs::read_to_string(notice_path())
             .map(|t| t.lines().map(str::trim).filter(|x| !x.is_empty()).map(str::to_string).collect())
@@ -1181,6 +1195,36 @@ impl Launcher {
         }
     }
 
+    // ------------------------------------------------------------- control
+    fn ctl_next(&self) -> Option<ctl::Pending> {
+        self.ctl.as_ref().and_then(|r| r.try_recv().ok())
+    }
+
+    /// Index of an installed app, after a fresh scan (it may just have been pushed).
+    fn app_index(&mut self, id: &str) -> Option<usize> {
+        self.rescan(true);
+        self.apps.iter().position(|a| a.manifest.app.id == id)
+    }
+
+    /// Control requests while no app runs (home screen or a System page).
+    fn ctl_idle(&mut self) {
+        use zpod_apps::ctl::{Request, Status};
+        while let Some(p) = self.ctl_next() {
+            match p.req.clone() {
+                Request::Launch(id) | Request::Restart(Some(id)) => match self.app_index(&id) {
+                    Some(_) => {
+                        self.pending_launch = Some(id.clone());
+                        p.reply(format!("ok launching {id}"));
+                    }
+                    None => p.reply(format!("err {id} is not installed (or BROKEN: zpod-app list)")),
+                },
+                Request::Restart(None) => p.reply("err no app is running (restart <id> starts one)"),
+                Request::Stop(_) | Request::Status => p.reply(Status::Idle.reply()),
+                Request::Version => p.reply(version_reply()),
+            }
+        }
+    }
+
     // ------------------------------------------------------------- launch
     fn launch(&mut self, idx: usize) {
         let app = self.apps[idx].clone();
@@ -1212,9 +1256,28 @@ impl Launcher {
         }
         self.p.release_display();
         eprintln!("launcher: starting {} {} ({})", m.id, m.version, exec.display());
+        // Per-app log (stdout + stderr). The sim keeps inheriting ours unless
+        // ZPOD_LOG_DIR is set.
+        let mut log = if self.p.is_sim() && std::env::var_os("ZPOD_LOG_DIR").is_none() {
+            None
+        } else {
+            match zpod_apps::logs::open_for_launch(&zpod_apps::logs::log_dir(), &m.id) {
+                Ok(f) => Some(f),
+                Err(e) => {
+                    eprintln!("launcher: {} log: {e}", m.id);
+                    None
+                }
+            }
+        };
         let started = Instant::now();
-        let result = proc::spawn_app(&exec, &m.args, &app.dir, &env, self.app_user.as_ref());
+        let result = proc::spawn_app(&exec, &m.args, &app.dir, &env, self.app_user.as_ref(), log.as_ref());
+        if let Some(f) = log.as_mut() {
+            use std::io::Write;
+            let pid = result.as_ref().map(|c| c.id().to_string()).unwrap_or_else(|e| format!("- ({e})"));
+            let _ = writeln!(f, "--- {} start {} {} pid {pid}", log_time(), m.id, m.version);
+        }
         let mut outcome: Option<String> = None;
+        let mut ctl_stopped = false;
         match result {
             Err(e) => outcome = Some(format!("{}: {}", m.name, e.kind())),
             Ok(mut child) => {
@@ -1239,6 +1302,54 @@ impl Launcher {
                     if proc::terminating() {
                         proc::stop_child(&mut child, Duration::from_secs(2));
                         break;
+                    }
+                    if let Some(p) = self.ctl_next() {
+                        use zpod_apps::ctl::{Request, Status};
+                        let running = Status::Running { id: m.id.clone(), pid: child.id(), secs: started.elapsed().as_secs() };
+                        // what to start after stopping this one (None: just stop)
+                        let next: Option<Option<String>> = match p.req.clone() {
+                            Request::Status => {
+                                p.reply(running.reply());
+                                continue;
+                            }
+                            Request::Version => {
+                                p.reply(version_reply());
+                                continue;
+                            }
+                            Request::Stop(Some(x)) if x != m.id => {
+                                p.reply(format!("ok {x} is not running ({} is)", m.id));
+                                continue;
+                            }
+                            Request::Launch(x) if x == m.id => {
+                                p.reply(format!("ok {x} is already running"));
+                                continue;
+                            }
+                            Request::Stop(_) => {
+                                p.reply(format!("ok stopped {}", m.id));
+                                Some(None)
+                            }
+                            Request::Restart(None) => {
+                                p.reply(format!("ok restarting {}", m.id));
+                                Some(Some(m.id.clone()))
+                            }
+                            Request::Restart(Some(x)) | Request::Launch(x) => {
+                                let (list, _) = zpod_apps::discover(&self.apps_dir);
+                                if list.iter().any(|a| a.manifest.app.id == x) {
+                                    p.reply(format!("ok {} {x}", if x == m.id { "restarting" } else { "launching" }));
+                                    Some(Some(x))
+                                } else {
+                                    p.reply(format!("err {x} is not installed (or BROKEN: zpod-app list)"));
+                                    None
+                                }
+                            }
+                        };
+                        if let Some(then) = next {
+                            eprintln!("launcher: control socket: stopping {}", m.id);
+                            proc::stop_child(&mut child, Duration::from_millis(1500));
+                            ctl_stopped = true;
+                            self.pending_launch = then;
+                            break;
+                        }
                     }
                     // In sim mode the child owns the script; don't consume it.
                     let ev = if self.p.is_sim() {
@@ -1274,6 +1385,15 @@ impl Launcher {
             }
         }
         eprintln!("launcher: {} ran {:.1}s", m.id, started.elapsed().as_secs_f32());
+        if let Some(f) = log.as_mut() {
+            use std::io::Write;
+            let how = match (&outcome, ctl_stopped) {
+                (Some(o), _) => o.clone(),
+                (None, true) => "stopped (control socket)".into(),
+                (None, false) => "exited (0)".into(),
+            };
+            let _ = writeln!(f, "--- {} end {}: {how} after {:.1} s", log_time(), m.id, started.elapsed().as_secs_f32());
+        }
         if let Err(e) = self.p.reacquire_display() {
             eprintln!("launcher: cannot re-open display: {e}");
             std::thread::sleep(Duration::from_millis(500));
@@ -1503,6 +1623,14 @@ fn main() {
         if proc::terminating() {
             break;
         }
+        l.ctl_idle();
+        if let Some(id) = l.pending_launch.take() {
+            if let Some(i) = l.app_index(&id) {
+                l.launch(i);
+                continue;
+            }
+            l.toast(format!("{id} is not installed"), 2500);
+        }
         // status bar (cheap: StatusSource rate-limits each source)
         let st = l.p.status.poll();
         if st != l.status {
@@ -1602,6 +1730,9 @@ fn main() {
         if l.tools.busy() || l.wt.busy() || page == Page::WifiSignal {
             timeout = timeout.min(Duration::from_millis(250));
         }
+        if l.ctl.is_some() {
+            timeout = timeout.min(Duration::from_millis(250)); // control socket latency
+        }
         let Some(ev) = l.p.next_event(Some(timeout)) else {
             if l.p.is_sim() && sim_done() {
                 break;
@@ -1637,9 +1768,25 @@ fn main() {
     if let Some(mut r) = l.ringer.take() {
         r.stop();
     }
+    if proc::restart_requested() {
+        // A new launcher binary takes over: keep the panel as it is.
+        eprintln!("zpod-launcher: stopping (restart)");
+        let _ = std::fs::remove_file(zpod_apps::ctl::socket_path());
+        return;
+    }
     let kind = proc::stop_kind();
     eprintln!("zpod-launcher: stopping ({kind:?})");
     end_screen(&mut l.p, kind);
+}
+
+fn version_reply() -> String {
+    format!("ok zpod-launcher {} ctl {}", env!("CARGO_PKG_VERSION"), zpod_apps::ctl::PROTOCOL)
+}
+
+/// Local time for per-app log lines.
+fn log_time() -> String {
+    let t = sys::now_local();
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", t.year, t.month, t.day, t.hour, t.minute, t.second)
 }
 
 /// Apps and the alarm share one data dir. The unit sets ZPOD_DATA_DIR

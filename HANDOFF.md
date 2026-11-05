@@ -41,6 +41,10 @@ Builds run on Paul's Mac (Stellas-Mac), never on a shared/cloud box.
   `zpod-ssh.pub` on the boot partition). Apps run as user `zpod` (uid 1000).
   BusyBox userland, no rsync client on the device: push files with tar over ssh
   (see `scripts/zpod-push-music.sh`).
+- App dev loop (no reflash, ~4 s edit-to-screen): `scripts/zpod-dev <app-id>`;
+  launcher/`zpod-app` updates from `/data`: `scripts/zpod-dev --core`. See
+  `docs/DEV-LOOP.md`. On test3 the `/data` launcher overlay is lost at reboot
+  and re-applied by the next `zpod-dev` run; later images apply it at boot.
 - Partitions: p1 boot FAT 64 MB, p2 system A (squashfs, read-only), p3 system B
   (spare, for A/B updates), p4 `/data` (rest of card, grows on first boot).
 - Wi-Fi: `nmcli` is a shim over wpa_supplicant / hostapd / udhcpd
@@ -70,6 +74,8 @@ Not yet checked on hardware: hotspot device count + status-bar mode icon, Wi-Fi
 Channel use chart, switching back to Client mode.
 
 ## Next jobs, in order
+
+(Done 2026-11-05: app dev loop, ROADMAP-APPS step 1, `docs/DEV-LOOP.md`.)
 
 1. **Non-destructive updates**: A/B system updates (RAUC style) into p2/p3 that
    never touch `/data`, with boot fallback if the new slot fails. Test3 should be

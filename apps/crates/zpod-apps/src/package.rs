@@ -108,6 +108,19 @@ fn extract(pkg: &Path, dest: &Path) -> Result<(), String> {
             return Err(format!("unsupported entry type for {} (symlinks/devices are not allowed)", rel.display()));
         }
     }
+    // Directories made for file entries follow the umask (0077 in a root ssh
+    // session on Buildroot), but apps run as the zpod user: make them 0755.
+    dirs_0755(dest).map_err(|e| e.to_string())
+}
+
+fn dirs_0755(d: &Path) -> io::Result<()> {
+    fs::set_permissions(d, fs::Permissions::from_mode(0o755))?;
+    for e in fs::read_dir(d)? {
+        let e = e?;
+        if e.file_type()?.is_dir() {
+            dirs_0755(&e.path())?;
+        }
+    }
     Ok(())
 }
 
@@ -394,5 +407,23 @@ mod tests {
         let leftovers: Vec<_> = fs::read_dir(&apps).unwrap().flatten().map(|e| e.file_name()).filter(|n| n != ".lock").collect();
         assert!(leftovers.is_empty(), "{leftovers:?}");
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn install_dirs_are_world_readable_under_strict_umask() {
+        let root = tmp("umask");
+        let src = app_src(&root, "1.0.0", "0.5.0");
+        let out = root.join("out");
+        fs::create_dir_all(&out).unwrap();
+        let pkg = pack(&src, &out).unwrap();
+        let apps = root.join("apps");
+        let old = unsafe { libc::umask(0o077) };
+        let r = install(&pkg, &apps, Mode::Install, CORE);
+        unsafe { libc::umask(old) };
+        r.unwrap();
+        for d in [apps.join("hello"), apps.join("hello/bin")] {
+            assert_eq!(fs::metadata(&d).unwrap().permissions().mode() & 0o777, 0o755, "{}", d.display());
+        }
+        let _ = fs::remove_dir_all(&root);
     }
 }

@@ -51,6 +51,9 @@ grant anything.
   video), never as root. Its cwd is the app dir; `HOME=/var/lib/zpod/home`.
   The environment carries `ZPOD_APP_ID`, `ZPOD_APP_DIR` and
   `ZPOD_CORE_VERSION`.
+* stdout and stderr go to the app's own log, `/data/zpod/logs/<id>.log`
+  (`zpod-app logs [-f] <id>`), stdin is `/dev/null` (launcher from
+  2026-11-05 on; older launchers mix app output into `/run/zpod/launcher.log`).
 * It owns the LCD (open `zpod_hal::Platform::open()`: warm init) and reads
   buttons from evdev "zpod-buttons" (no grab). It must **not** apply
   Vol+/Vol-: zpod-buttons already did; redrawing the value is fine.
@@ -73,10 +76,15 @@ sudo zpod-app update  tetris-1.1.0.zpa         # newer version only (--force to 
 zpod-app list
 zpod-app info tetris          # or: zpod-app info file.zpa
 sudo zpod-app remove tetris
+sudo zpod-app remove --purge tetris   # also deletes its data dir and logs
+sudo zpod-app launch|restart|stop tetris; zpod-app status   # via the launcher's control socket
+zpod-app logs -f tetris
 ```
 
-From the Mac: `scripts/zpod-app-push.sh [-H zpod.local] app.zpa`, which
-installs or updates as appropriate. No image rebuild is needed.
+From the Mac: `scripts/zpod-app-push.sh [-H host] [-u user] [--restart] app.zpa`
+(tar over ssh, `zpod-app install --force`; default `root@10.12.194.1`, use
+`-u pi` on Pi OS). No image rebuild is needed. The edit-build-run loop
+(`scripts/zpod-dev <id>`, about 4 s) is in [DEV-LOOP.md](./DEV-LOOP.md).
 
 What install guarantees:
 

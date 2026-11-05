@@ -1,0 +1,83 @@
+#!/bin/sh
+# zpod-core-overlay: run newer core binaries from /data without reflashing.
+#
+#   zpod-core-overlay apply [--restart]   bind-mount /data/zpod/core/bin/<name>
+#                                         over /usr/lib/zpod/bin/<name>
+#   zpod-core-overlay off [--restart]     remove the bind mounts (image binaries)
+#   zpod-core-overlay status
+#   zpod-core-overlay restart-launcher    restart the launcher in place
+#
+# <name> is one of: zpod-launcher zpod-app. The root file system is read-only
+# squashfs; a bind mount over a single file is the one way to swap a binary
+# without a new image. It lasts until reboot. Images after test3 run
+# "apply" at boot from zpod-data-early (skipped with zpod.nocore on the kernel
+# command line or /data/zpod/core/disabled), and zpod-launcher-run removes a
+# launcher overlay that keeps crashing. On test3 run it by hand or let
+# scripts/zpod-dev do it (docs/DEV-LOOP.md).
+CORE=${ZPOD_CORE_DIR:-/data/zpod/core/bin}
+SYS=/usr/lib/zpod/bin
+NAMES="zpod-launcher zpod-app"
+
+mounted() { grep -q " $SYS/$1 " /proc/mounts; }
+
+is_arm_elf() {
+	# ELF magic, 32-bit (1), little-endian (1); machine 40 = ARM (bytes 18-19)
+	[ "$(dd if="$1" bs=1 count=4 2>/dev/null | od -An -c | tr -d ' \n')" = '177ELF' ] || return 1
+	[ "$(dd if="$1" bs=1 skip=18 count=1 2>/dev/null | od -An -tu1 | tr -d ' ')" = 40 ]
+}
+
+restart_launcher() {
+	old=$(pidof zpod-launcher)
+	[ -n "$old" ] || { echo "launcher not running (init starts it)"; return 0; }
+	# the app on the screen (if the old launcher has a control socket) comes back afterwards
+	app=$(/usr/lib/zpod/bin/zpod-app status 2>/dev/null | sed -n 's/^running \([^ ]*\).*/\1/p')
+	mkdir -p /run/zpod
+	echo restart > /run/zpod/stop-kind
+	rm -f /run/zpod/launcher-starts   # a deliberate restart is not a crash (zpod-launcher-run)
+	kill -TERM $old
+	i=0
+	while [ $i -lt 100 ]; do
+		new=$(pidof zpod-launcher)
+		if [ -n "$new" ] && [ "$new" != "$old" ] && [ -S /run/zpod/launcher.sock ]; then
+			echo "launcher restarted (pid $new)"
+			[ -z "$app" ] || /usr/lib/zpod/bin/zpod-app launch "$app"
+			return 0
+		fi
+		sleep 0.1; i=$((i+1))
+	done
+	new=$(pidof zpod-launcher)
+	if [ -n "$new" ] && [ "$new" != "$old" ]; then
+		echo "launcher restarted (pid $new, no control socket)"; return 0
+	fi
+	echo "launcher did not come back within 10 s; see /run/zpod/launcher.log" >&2
+	return 1
+}
+
+case "${1:-status}" in
+apply)
+	if [ -e /data/zpod/core/disabled ]; then echo "core overlay disabled (/data/zpod/core/disabled)"; exit 0; fi
+	n=0
+	for b in $NAMES; do
+		[ -f "$CORE/$b" ] && [ -x "$CORE/$b" ] || continue
+		if ! is_arm_elf "$CORE/$b"; then echo "skip $b: $CORE/$b is not an ARM ELF" >&2; continue; fi
+		# lazy: the running launcher keeps its old binary until it restarts
+		while mounted "$b"; do umount -l "$SYS/$b" || break; done
+		mount --bind "$CORE/$b" "$SYS/$b" && echo "$SYS/$b <- $CORE/$b" && n=$((n+1))
+	done
+	[ $n -gt 0 ] || echo "nothing in $CORE"
+	[ "${2:-}" = --restart ] && restart_launcher
+	exit 0
+	;;
+off)
+	for b in $NAMES; do while mounted "$b"; do umount -l "$SYS/$b" || break; echo "$SYS/$b: image binary"; done; done
+	[ "${2:-}" = --restart ] && restart_launcher
+	exit 0
+	;;
+status)
+	for b in $NAMES; do
+		if mounted "$b"; then echo "$b: /data overlay ($(ls -l "$CORE/$b" 2>/dev/null | awk '{print $5" bytes "$6" "$7" "$8}'))"; else echo "$b: image"; fi
+	done
+	;;
+restart-launcher) restart_launcher ;;
+*) sed -n '2,9p' "$0"; exit 2 ;;
+esac
