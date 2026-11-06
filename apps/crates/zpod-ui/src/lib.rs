@@ -8,6 +8,8 @@ pub mod fb;
 pub mod image;
 pub mod status;
 pub mod text;
+pub mod textentry;
+pub mod textfield;
 pub mod theme;
 pub mod widgets;
 

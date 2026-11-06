@@ -1,0 +1,6 @@
+#!/bin/sh
+# Print this boot's timing marks (seconds after the kernel started).
+echo "kernel -> mark (s), from /run/zpod/boot-times:"
+cat /run/zpod/boot-times 2>/dev/null
+grep -h 'first frame' /run/zpod/bootsplash.log 2>/dev/null
+echo "(add ~2-2.5 s of GPU firmware before the kernel for power-on time)"

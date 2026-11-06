@@ -1,0 +1,16 @@
+# <t_us> <source> <contact> <phase> <control> <dx> <dy> <text>
+1000 1 42 begin key:shift 0 0 -
+1100 1 35 begin key:char 0 0 H
+1200 1 35 end key:char 0 0 -
+1200 1 42 end key:shift 0 0 -
+1300 1 23 begin key:char 0 0 i
+1400 1 23 end key:char 0 0 -
+500000 1 28 begin key:enter 0 0 -
+900000 1 28 update key:enter 0 0 -
+950000 1 28 end key:enter 0 0 -
+2000000 2 0 begin pointer 12 -3 -
+2010000 2 0 update pointer 30 0 -
+2020000 2 256 begin button:left 0 0 -
+2100000 2 256 end button:left 0 0 -
+2200000 2 512 update wheel 0 -1 -
+2260000 2 0 end pointer 0 0 -

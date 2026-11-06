@@ -1,0 +1,140 @@
+#!/bin/sh
+# ZPOD first login for the Buildroot image: the same boot-partition files as
+# the Pi OS image (docs/FIRST-LOGIN.md). Images never contain a password or key.
+#
+#   userconf.txt   "name:<openssl passwd -6 hash>" (Raspberry Pi OS format;
+#                  "userconf" also accepted). Creates (or renames to) the login
+#                  user, uid 1000, with that password hash; password SSH logins
+#                  are then allowed for it (root stays key-only). Deleted after
+#                  use; an invalid file is renamed failed_userconf.txt.
+#   zpod-ssh.pub   SSH public keys (authorized_keys lines). Installed for the
+#                  login user (if any) AND for root (key-only fallback), then
+#                  deleted. A file containing a private key is refused.
+#   zpod-user.txt  optional login name for a key-only user (no userconf.txt):
+#                  uid 1000 with no password, passwordless sudo (like Pi OS's
+#                  010_zpod-nopasswd). Without it, key-only means root.
+# A userconf.txt added on a later boot is applied too (rename + password,
+# passwordless sudo removed). Accounts live on /data/etc (root is read-only).
+BOOT=${ZPOD_BOOT_DIR:-/boot/firmware}
+ETC=${ZPOD_ETC:-/data/etc}
+HOMES=${ZPOD_HOMES:-/data/home}
+SUDOERS_D=$ETC/sudoers.d
+NOPW=$SUDOERS_D/010_zpod-nopasswd
+PUB=$BOOT/zpod-ssh.pub
+NAMEF=$BOOT/zpod-user.txt
+ROOT_AK=$ETC/ssh/authorized_keys
+GROUPS_ADD="audio input video zpod sudo"
+log() { echo "zpod-firstuser: $*"; }
+# M6 boot notice: what a file did on a boot AFTER the first one (the launcher
+# writes booted-once on its first start) is shown on the launcher's first screen.
+BOOTED_ONCE=${ZPOD_BOOTED_ONCE:-/var/lib/zpod/booted-once}
+NOTICE=${ZPOD_NOTICE:-/run/zpod/boot-notice}
+notice() { [ -e "$BOOTED_ONCE" ] || return 0; mkdir -p "${NOTICE%/*}"; printf '%s\n' "$*" >> "$NOTICE"; }
+umask 022
+
+valid_name() { printf '%s' "$1" | grep -qE '^[a-z][a-z0-9-]{0,31}$' && [ "$1" != root ]; }
+uid1000() { awk -F: '$3==1000{print $1; exit}' "$ETC/passwd"; }
+name_exists() { grep -q "^$1:" "$ETC/passwd"; }
+# days since 1970 for the shadow "last change" field; empty (no aging) when the
+# clock is unset (1970 or a dead RTC), since 0 would mean "change at next login"
+today() { d=$(( $(date +%s) / 86400 )); [ "$d" -gt 18262 ] && echo "$d"; }
+
+# replace field 2 of NAME's line in a colon file
+set_field2() { # file name value
+	awk -F: -v OFS=: -v n="$2" -v v="$3" '$1==n{$2=v} {print}' "$1" > "$1.tmp" && cat "$1.tmp" > "$1" && rm -f "$1.tmp"
+}
+rename_user() { # old new
+	for f in passwd shadow; do
+		awk -F: -v OFS=: -v o="$1" -v n="$2" -v h="$HOMES/$2" -v f="$f" \
+			'$1==o{$1=n; if (f=="passwd") $6=h} {print}' "$ETC/$f" > "$ETC/$f.tmp" && cat "$ETC/$f.tmp" > "$ETC/$f" && rm -f "$ETC/$f.tmp"
+	done
+	# group name of the user's own group and memberships
+	awk -F: -v OFS=: -v o="$1" -v n="$2" '{ if ($1==o) $1=n; m=split($4,a,","); s=""; for(i=1;i<=m;i++){ if(a[i]==o) a[i]=n; s=s (i>1?",":"") a[i] } $4=s; print }' "$ETC/group" > "$ETC/group.tmp" && cat "$ETC/group.tmp" > "$ETC/group" && rm -f "$ETC/group.tmp"
+	[ -d "$HOMES/$1" ] && [ ! -e "$HOMES/$2" ] && mv "$HOMES/$1" "$HOMES/$2"
+	[ -f "$NOPW" ] && sed -i "s/^$1 /$2 /" "$NOPW"
+}
+add_to_groups() { # user
+	for g in $GROUPS_ADD; do
+		grep -q "^$g:" "$ETC/group" || continue
+		awk -F: -v OFS=: -v g="$g" -v u="$1" '$1==g{ if ($4=="") $4=u; else if (index(","$4",", ","u",")==0) $4=$4","u } {print}' "$ETC/group" > "$ETC/group.tmp" && cat "$ETC/group.tmp" > "$ETC/group" && rm -f "$ETC/group.tmp"
+	done
+}
+create_user() { # name hash
+	grep -q "^$1:" "$ETC/group" || echo "$1:x:1000:" >> "$ETC/group"
+	echo "$1:x:1000:1000:$1:$HOMES/$1:/bin/sh" >> "$ETC/passwd"
+	echo "$1:$2:$(today):0:99999:7:::" >> "$ETC/shadow"
+	add_to_groups "$1"
+	mkdir -p "$HOMES/$1"; chown 1000:1000 "$HOMES/$1"; chmod 0750 "$HOMES/$1"
+}
+
+# 1. userconf.txt (first boot or later)
+for f in "$BOOT/userconf.txt" "$BOOT/userconf"; do
+	[ -f "$f" ] || continue
+	line=$(head -n1 "$f" | tr -d '\r')
+	name=${line%%:*}; hash=${line#*:}
+	b=${f##*/}
+	if ! valid_name "$name" || [ "$hash" = "$line" ] || ! printf '%s' "$hash" | grep -qE '^\$(6|5|y|2[aby])\$[^:[:space:]]+$'; then
+		log "$b: invalid (want name:<openssl passwd -6 hash>); renamed failed_$b"
+		notice "$b: invalid, renamed failed_$b"
+		mv -f "$f" "$BOOT/failed_$b"; sync; continue
+	fi
+	cur=$(uid1000)
+	if [ -n "$cur" ] && [ "$cur" != "$name" ]; then
+		if name_exists "$name"; then log "$b: user '$name' already exists; not applied"; notice "$b: user '$name' exists, not applied"; continue; fi
+		log "$b: renaming '$cur' -> '$name'"
+		notice "$b: $cur is now $name, password set"
+		rename_user "$cur" "$name"
+	elif [ -z "$cur" ]; then
+		if name_exists "$name"; then log "$b: '$name' is a system account; not applied"; notice "$b: '$name' is a system account, not applied"; continue; fi
+		log "$b: creating login user '$name' (uid 1000)"
+		create_user "$name" "*"
+	fi
+	set_field2 "$ETC/shadow" "$name" "$hash"
+	rm -f "$NOPW" "$f" "$BOOT/failed_userconf.txt" "$BOOT/failed_userconf"; sync
+	log "password set for '$name' (password SSH login allowed for '$name'; root stays key-only)"
+	[ "$cur" = "$name" ] && notice "$b: password set for $name"
+	[ -z "$cur" ] && notice "$b: login $name created"
+	notice "sudo now asks for that password"
+	break
+done
+
+# 2. SSH keys
+[ -f "$PUB" ] || exit 0
+if grep -q 'PRIVATE KEY' "$PUB"; then
+	log "zpod-ssh.pub contains a PRIVATE key: ignored and deleted"; notice "zpod-ssh.pub: PRIVATE key, ignored (deleted)"; rm -f "$PUB"; sync; exit 0
+fi
+tr -d '\r' < "$PUB" | sed 's/^\xef\xbb\xbf//' | grep -E '^(ssh-(ed25519|rsa)|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com) [A-Za-z0-9+/=]+( .*)?$' > /tmp/.zpod-keys
+n=$(grep -c . /tmp/.zpod-keys)
+if [ "$n" -eq 0 ]; then
+	log "zpod-ssh.pub has no valid public key lines; left in place"; notice "zpod-ssh.pub: no valid public key, ignored"; rm -f /tmp/.zpod-keys; exit 0
+fi
+user=$(uid1000)
+if [ -z "$user" ] && [ -f "$NAMEF" ]; then
+	cand=$(head -n1 "$NAMEF" | tr -d '\r[:space:]')
+	if valid_name "$cand" && ! name_exists "$cand"; then
+		log "key-only login user '$cand' (no password, passwordless sudo)"
+		create_user "$cand" "*"
+		mkdir -p "$SUDOERS_D"; chmod 0750 "$SUDOERS_D"
+		printf '# ZPOD key-only setup (zpod-firstuser): no password set, so sudo is passwordless.\n%s ALL=(ALL) NOPASSWD: ALL\n' "$cand" > "$NOPW"
+		chmod 0440 "$NOPW"
+		user=$cand
+	else
+		log "zpod-user.txt: invalid or existing name; keys go to root only"
+	fi
+	rm -f "$NAMEF"
+fi
+install_keys() { # authorized_keys owner
+	mkdir -p "${1%/*}"; chmod 700 "${1%/*}"; touch "$1"; chmod 600 "$1"
+	a=0
+	while IFS= read -r k; do
+		grep -qxF "$k" "$1" || { printf '%s\n' "$k" >> "$1"; a=$((a + 1)); }
+	done < /tmp/.zpod-keys
+	chown -R "$2" "${1%/*}"
+	log "installed $a new key(s) for ${3}"
+	notice "zpod-ssh.pub: $a new SSH key(s) for ${3}"
+}
+install_keys "$ROOT_AK" 0:0 root
+[ -n "$user" ] && install_keys "$HOMES/$user/.ssh/authorized_keys" 1000:1000 "$user"
+rm -f /tmp/.zpod-keys "$PUB"; sync
+log "zpod-ssh.pub removed ($n key line(s))"
+exit 0

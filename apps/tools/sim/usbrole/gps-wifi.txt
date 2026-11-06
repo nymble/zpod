@@ -1,0 +1,17 @@
+# GPS opened while USB is the computer link: it asks, switches, runs, gives it back
+wait 600
+shot gps-ask-host-wifi
+key ok
+wait 150
+shot gps-switching
+wait 1200
+shot gps-host-switched
+wait 6000
+shot gps-host-running
+key square
+wait 300
+shot gps-ask-gadget
+key ok
+wait 1500
+shot gps-gadget-back
+exit

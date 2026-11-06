@@ -1,0 +1,12 @@
+[package]
+name = "zpod-music-core"
+description = "Shared synth, harmony, voice allocation, exclusive ALSA output and MPD pause/restore for ZPOD generative music apps"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zpod-mpd.workspace = true
+libc.workspace = true
+
+[dev-dependencies]

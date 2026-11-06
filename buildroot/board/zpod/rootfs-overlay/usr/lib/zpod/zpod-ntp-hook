@@ -1,0 +1,5 @@
+#!/bin/sh
+# busybox ntpd -S hook: once the clock is NTP-synchronised, write the DS3231.
+[ "$1" = stratum ] || [ "$1" = step ] || exit 0
+[ -e /run/zpod/rtc-written ] && [ "$1" = stratum ] && exit 0
+hwclock -w -u 2>/dev/null && touch /run/zpod/rtc-written

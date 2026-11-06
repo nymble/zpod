@@ -14,12 +14,18 @@
 //! order = 30                    # optional menu position (lower = higher)
 //! ```
 //!
+//! Schema 1 adds `[menu]` (where the app lives in the menu tree),
+//! `[[handles]]` and `[requires]`: docs/APP-MANIFEST.md, [`tree`].
+//!
 //! A package (`<id>-<version>.zpa`) is a gzip'd tar of that directory with
 //! `manifest.toml` at the top level.
 
+pub mod ctl;
 pub mod elf;
+pub mod logs;
 pub mod manifest;
 pub mod package;
+pub mod tree;
 
 pub use manifest::{AppInfo, Manifest, Version};
 

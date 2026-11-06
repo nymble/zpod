@@ -1,0 +1,14 @@
+# test3 card, old manifests: same tree via the legacy mapping
+wait 500
+shot menu-17-legacy-home
+key down
+key down
+key down
+key down
+key ok
+wait 300
+key up
+key up
+wait 100
+shot menu-18-legacy-tools
+exit

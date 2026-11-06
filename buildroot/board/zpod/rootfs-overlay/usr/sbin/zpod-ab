@@ -1,0 +1,299 @@
+#!/bin/sh
+# zpod-ab: A/B system updates that keep /data (docs/AB-UPDATES.md).
+#
+# Card layout (since the first Buildroot images): p1 FAT boot, p2 system A
+# (squashfs), p3 system B (squashfs), p4 /data (music, apps, accounts,
+# Wi-Fi; never touched here). An update is written to the system that is NOT
+# running, with its own kernel, device tree, overlays and command line in
+# /boot/firmware/slot-a/ or slot-b/. zpod-slot.txt (included last from
+# config.txt) tells the firmware which folder to boot (os_prefix=); without
+# it, or when that folder lacks a kernel and .dtb (the firmware ignores a
+# prefix it cannot boot), the files at the top of the FAT partition boot
+# system A, as on test5.
+#
+#   zpod-ab status [--kv]        running system, versions, trial / last result
+#   zpod-ab verify <bundle>      check a .zab bundle (or its unpacked folder)
+#   zpod-ab install <bundle>     write it to the other system and boot it next
+#                                time on trial (does not reboot)
+#   zpod-ab boot                 sysinit (zpod-data-early): trial bookkeeping;
+#                                starts the guard
+#   zpod-ab guard                (from boot) launcher healthy -> commit;
+#                                otherwise back to the previous system + reboot
+#   zpod-ab commit               keep the running system (ends a trial)
+#   zpod-ab switch               next boot: the other system (no reboot)
+#
+# Trial: the first MAX_TRIES (2) boots of a new system must bring the launcher
+# up with its control socket for 20 s within 120 s; then it is committed.
+# Otherwise the guard switches zpod-slot.txt back and reboots; a boot count
+# above MAX_TRIES does the same before anything else. Booting the old system
+# during a trial (Square held at power-on: zpod-slot.txt [gpio12=0], or the
+# firmware ignored a broken new folder) abandons the trial. A kernel that
+# never reaches user space cannot be caught here: hold Square while powering
+# on, or delete zpod-slot.txt on a computer.
+# Logs to /run/zpod/ab.log; never prints secrets.
+set -u
+BOOT=${ZPOD_AB_BOOT:-/boot/firmware}
+SD=${ZPOD_AB_DATA:-/data/zpod/ab}
+CMDLINE=${ZPOD_AB_CMDLINE:-/proc/cmdline}
+DEV=${ZPOD_AB_DEV:-/dev/mmcblk0p}
+MOUNTS=${ZPOD_AB_MOUNTS:-/proc/mounts}
+RUN=${ZPOD_AB_RUN:-/run/zpod}
+SOCK=${ZPOD_AB_SOCK:-$RUN/launcher.sock}
+GUARD_SECS=${ZPOD_AB_GUARD_SECS:-120}
+SETTLE=${ZPOD_AB_SETTLE:-20}
+MAX_TRIES=${ZPOD_AB_MAX_TRIES:-2}
+REBOOT=${ZPOD_AB_REBOOT:-reboot}
+ESCAPE_GPIO=12   # Square (docs/BUTTONS.md)
+ST=$SD/state
+LOG=$RUN/ab.log
+
+log() { mkdir -p "$RUN" 2>/dev/null; echo "$(cut -d' ' -f1 /proc/uptime 2>/dev/null) ab: $*" >> "$LOG" 2>/dev/null; }
+die() { echo "zpod-ab: $*" >&2; log "error: $*"; exit 1; }
+kv() { [ -f "$2" ] && sed -n "s/^$1=//p" "$2" | head -1; }
+get() { kv "$1" "$ST"; }
+put() { # key value ...: rewrite the state file atomically
+	mkdir -p "$SD"
+	_f=$ST.new; cp "$ST" "$_f" 2>/dev/null || : > "$_f"
+	while [ $# -ge 2 ]; do
+		grep -v "^$1=" "$_f" > "$_f.2" || true
+		[ -n "$2" ] && echo "$1=$2" >> "$_f.2"
+		mv "$_f.2" "$_f"; shift 2
+	done
+	mv "$_f" "$ST"; sync
+}
+part_of() { case "$1" in a) echo 2 ;; b) echo 3 ;; *) return 1 ;; esac; }
+other() { case "$1" in a) echo b ;; *) echo a ;; esac; }
+current() { # slot of the running root file system
+	r=$(tr ' ' '\n' < "$CMDLINE" | sed -n 's/^root=//p' | head -1)
+	case "$r" in
+	*p3 | */mmcblk0p3 | PARTUUID=*-03) echo b ;;
+	*) echo a ;;
+	esac
+}
+size_of() { # bytes of a block device or file
+	if [ -b "$1" ]; then echo $(( $(cat "/sys/class/block/${1##*/}/size") * 512 )); else wc -c < "$1" | tr -d ' '; fi
+}
+sum() { sha256sum "$1" | cut -d' ' -f1; }
+
+slot_version() { # a|b
+	if [ -f "$BOOT/slot-$1/VERSION" ]; then
+		echo "$(kv version "$BOOT/slot-$1/VERSION") $(kv git "$BOOT/slot-$1/VERSION")"
+	elif [ "$1" = a ] && [ -f "$BOOT/zImage" ]; then
+		echo "top-level files (no slot folder yet)"
+	else
+		echo "unknown"
+	fi
+}
+layout() {
+	if grep -q '^include zpod-slot.txt' "$BOOT/config.txt" 2>/dev/null && [ -f "$BOOT/zpod-slot.txt" ]; then echo ab; else echo single; fi
+}
+active_prefix() { sed -n '1,/^\[/{s/^os_prefix=slot-\([ab]\)\/$/\1/p}' "$BOOT/zpod-slot.txt" 2>/dev/null | head -1; }
+
+write_slot_file() { # slot to boot next
+	_n=$1; _o=$(other "$1")
+	_f=$BOOT/zpod-slot.txt.new
+	{
+		echo "# ZPOD A/B system choice, written by zpod-ab (docs/AB-UPDATES.md)."
+		echo "# Recovery on a computer: delete this file to boot system A from the"
+		echo "# top-level files. Holding Square while powering on boots the other one."
+		echo "os_prefix=slot-$_n/"
+		echo "[gpio$ESCAPE_GPIO=0]"
+		echo "os_prefix=slot-$_o/"
+		echo "[all]"
+	} > "$_f" && sync && mv "$_f" "$BOOT/zpod-slot.txt" && sync
+}
+
+# ---------------------------------------------------------------- bundle
+B= # unpacked bundle folder
+unpack() { # bundle -> B
+	if [ -d "$1" ]; then B=$1; return 0; fi
+	[ -f "$1" ] || die "$1: no such bundle"
+	B=$SD/unpacked
+	rm -rf "$B"; mkdir -p "$B"
+	tar -xf "$1" -C "$B" || die "$1: not a tar bundle"
+}
+check_bundle() { # sets REASON; 0 = ok
+	M=$B/AB.manifest
+	[ -f "$M" ] || { REASON="no AB.manifest"; return 1; }
+	[ "$(kv format "$M")" = 1 ] || { REASON="unknown bundle format '$(kv format "$M")'"; return 1; }
+	[ "$(kv board "$M")" = pi0w ] || { REASON="bundle is for board '$(kv board "$M")', not pi0w"; return 1; }
+	for f in rootfs.squashfs boot/zImage boot/cmdline.txt boot/config.txt boot/overlays/README; do
+		grep -q " $f\$" "$M" || { REASON="$f is not listed in the manifest"; return 1; }
+	done
+	ls "$B"/boot/*.dtb >/dev/null 2>&1 || { REASON="no .dtb in the bundle"; return 1; }
+	grep '^file=' "$M" | while read -r line; do
+		h=${line#file=}; h=${h%% *}; f=${line#file=* }
+		case "$f" in /* | *..* | "") echo "bad path $f"; exit 1 ;; esac
+		[ -f "$B/$f" ] || { echo "$f is missing"; exit 1; }
+		[ "$(sum "$B/$f")" = "$h" ] || { echo "$f does not match its sha256"; exit 1; }
+	done > "$SD/check.out" 2>&1
+	r=$(cat "$SD/check.out"); rm -f "$SD/check.out"
+	[ -z "$r" ] || { REASON=$r; return 1; }
+	[ "$(head -c 4 "$B/rootfs.squashfs")" = hsqs ] || { REASON="rootfs.squashfs is not a squashfs image"; return 1; }
+	grep -q '^include zpod-usb-role.txt' "$B/boot/config.txt" && grep -q '^include zpod-slot.txt' "$B/boot/config.txt" \
+		|| { REASON="bundle config.txt lacks the zpod-usb-role.txt / zpod-slot.txt includes"; return 1; }
+	return 0
+}
+
+copy_boot_files() { # from-dir to-dir cmdline-file: kernel last (firmware viability = kernel + dtb)
+	from=$1 to=$2
+	mkdir -p "$to" || return 1
+	cp "$3" "$to/cmdline.txt" && printf '%s zpod.nocore zpod.safe\n' "$(tr -d '\n' < "$3")" > "$to/cmdline-safe.txt" || return 1
+	rm -rf "$to/overlays"; cp -R "$from/overlays" "$to/overlays" || return 1
+	for d in "$from"/*.dtb; do cp "$d" "$to/" || return 1; done
+	cp "$from/zImage" "$to/zImage.new" && sync && mv "$to/zImage.new" "$to/zImage" && sync
+}
+
+install() {
+	unpack "$1"
+	check_bundle || die "bundle refused: $REASON"
+	cur=$(current); t=$(other "$cur"); n=$(part_of "$t")
+	# on trial: the other system is the only known-good one; keep it
+	[ "$(get trial)" = "$cur" ] && die "system $cur is still on trial; wait for it to be committed (zpod-ab status) or run zpod-ab commit"
+	dev=$DEV$n
+	[ -e "$dev" ] || die "$dev not found"
+	grep -q "^$dev " "$MOUNTS" && die "$dev is mounted"
+	[ "$t" != "$cur" ] || die "refusing to write the running system"
+	sz=$(wc -c < "$B/rootfs.squashfs" | tr -d ' ')
+	psz=$(size_of "$dev")
+	[ "$sz" -le "$psz" ] || die "rootfs.squashfs ($sz bytes) is larger than $dev ($psz bytes)"
+	ver=$(kv version "$B/AB.manifest"); git=$(kv git "$B/AB.manifest")
+	echo "running system $cur ($(slot_version "$cur")); writing $ver $git to system $t ($dev)"
+	log "install $ver $git -> $t ($dev)"
+	put trial "" tries "" result "installing $ver to $t"
+	# 1. the root file system, read back and compared
+	dd if="$B/rootfs.squashfs" of="$dev" bs=1M conv=fsync,notrunc 2>/dev/null || die "writing $dev failed"
+	sync
+	{ echo 3 > /proc/sys/vm/drop_caches; } 2>/dev/null || : # read back from the card, not the cache
+	[ "$(head -c "$sz" "$dev" | sha256sum | cut -d' ' -f1)" = "$(sum "$B/rootfs.squashfs")" ] || die "read-back of $dev does not match; the running system is unchanged"
+	echo "  system $t: root file system written and verified"
+	# 2. its boot folder on the FAT partition (built aside, then renamed)
+	sed "s#root=[^ ]*#root=/dev/mmcblk0p$n#; s/ zpod\.slot=[ab]//; s/\$/ zpod.slot=$t/" "$B/boot/cmdline.txt" | head -1 > "$SD/cmdline.$t"
+	rm -rf "$BOOT/slot-$t.new"
+	copy_boot_files "$B/boot" "$BOOT/slot-$t.new" "$SD/cmdline.$t" || die "writing $BOOT/slot-$t.new failed (no space?)"
+	printf 'version=%s\ngit=%s\ndate=%s\nabi=%s\n' "$ver" "$git" "$(kv date "$B/AB.manifest")" "$(kv abi "$B/AB.manifest")" > "$BOOT/slot-$t.new/VERSION"
+	sync
+	rm -rf "$BOOT/slot-$t.old"; [ -d "$BOOT/slot-$t" ] && mv "$BOOT/slot-$t" "$BOOT/slot-$t.old"
+	mv "$BOOT/slot-$t.new" "$BOOT/slot-$t" && rm -rf "$BOOT/slot-$t.old"; sync
+	echo "  system $t: kernel, device tree, overlays, command line in $BOOT/slot-$t/"
+	# system A also owns the top-level files (the no-prefix fallback)
+	if [ "$t" = a ]; then
+		copy_boot_files "$B/boot" "$BOOT" "$SD/cmdline.a" || die "updating the top-level boot files failed"
+	fi
+	# 3. migrating a single-system card (test5): the running system gets its folder
+	if [ "$cur" = a ] && [ ! -f "$BOOT/slot-a/zImage" ] && [ -f "$BOOT/zImage" ]; then
+		tr -d '\n' < "$BOOT/cmdline.txt" > "$SD/cmdline.a"; echo " zpod.slot=a" >> "$SD/cmdline.a"
+		rm -rf "$BOOT/slot-a.new"
+		copy_boot_files "$BOOT" "$BOOT/slot-a.new" "$SD/cmdline.a" || die "copying the running system's boot files failed"
+		v=$(sed -n 's/^ZPOD_VERSION=//p' /etc/zpod-release 2>/dev/null)
+		printf 'version=%s\ngit=%s\n' "${v:-current}" "$(sed -n 's/^ZPOD_GIT=//p' /etc/zpod-release 2>/dev/null)" > "$BOOT/slot-a.new/VERSION"
+		mv "$BOOT/slot-a.new" "$BOOT/slot-a"; sync
+		echo "  system a: copied the running system's boot files to $BOOT/slot-a/"
+	fi
+	# 4. config.txt: the bundle's (includes zpod-slot.txt last); previous kept
+	if ! cmp -s "$B/boot/config.txt" "$BOOT/config.txt"; then
+		cp "$BOOT/config.txt" "$BOOT/config.txt.prev" 2>/dev/null
+		cp "$B/boot/config.txt" "$BOOT/config.txt.new" && sync && mv "$BOOT/config.txt.new" "$BOOT/config.txt" && sync || die "writing config.txt failed"
+		echo "  config.txt updated (previous: config.txt.prev)"
+	fi
+	# 5. boot the new system next time, on trial
+	write_slot_file "$t" || die "writing zpod-slot.txt failed"
+	put trial "$t" prev "$cur" tries 0 version "$ver $git" result "installed $ver to $t; reboot to try it"
+	echo "ok: next boot runs system $t ($ver) on trial; system $cur stays as the fallback."
+	echo "    Reboot when ready. Hold Square while powering on to boot system $cur instead."
+	[ "$B" = "$SD/unpacked" ] && rm -rf "$B"
+	return 0
+}
+
+revert_to() { # slot reason
+	write_slot_file "$1"
+	put trial "" tries "" committed "$1" result "back to system $1: $2"
+	log "reverted to $1: $2"
+	echo "back to system $1: $2"
+}
+
+launcher_pid() {
+	if [ -n "${ZPOD_AB_FAKE_PID:-}" ]; then cat "$ZPOD_AB_FAKE_PID" 2>/dev/null; else pidof zpod-launcher 2>/dev/null | cut -d' ' -f1; fi
+}
+
+boot() {
+	mkdir -p "$RUN"
+	cur=$(current)
+	echo "slot=$cur" > "$RUN/ab-slot"
+	trial=$(get trial)
+	[ -n "$trial" ] || { log "system $cur (no trial)"; return 0; }
+	if [ "$cur" != "$trial" ]; then
+		revert_to "$cur" "system $trial was not booted (Square held, or its boot files are unusable)" >> "$LOG"
+		return 0
+	fi
+	n=$(get tries | tr -cd 0-9); n=$(( ${n:-0} + 1 ))
+	if [ "$n" -gt "$MAX_TRIES" ]; then
+		p=$(get prev); revert_to "${p:-$(other "$cur")}" "system $trial did not start on $MAX_TRIES boots" >> "$LOG"
+		sync; $REBOOT
+		return 0
+	fi
+	put tries "$n" result "trial boot $n of $MAX_TRIES of system $trial"
+	log "trial boot $n of $MAX_TRIES (system $trial)"
+	[ -n "${ZPOD_AB_NO_GUARD:-}" ] && return 0
+	if command -v setsid >/dev/null 2>&1; then setsid sh "$0" guard </dev/null >>"$LOG" 2>&1 &
+	else sh "$0" guard </dev/null >>"$LOG" 2>&1 & fi
+	return 0
+}
+
+guard() {
+	t=0; pid=; since=0
+	while [ $t -lt $((GUARD_SECS * 2)) ]; do
+		[ -n "$(get trial)" ] || return 0 # committed or reverted by hand
+		p=$(launcher_pid)
+		if [ -n "$p" ] && { [ -S "$SOCK" ] || { [ -n "${ZPOD_AB_FAKE_PID:-}" ] && [ -e "$SOCK" ]; }; }; then
+			if [ "$p" = "$pid" ]; then
+				if [ $((t - since)) -ge $((SETTLE * 2)) ]; then
+					cur=$(current)
+					put trial "" tries "" prev "" committed "$cur" result "system $cur ($(get version)) committed"
+					log "committed system $cur"
+					return 0
+				fi
+			else pid=$p; since=$t; fi
+		else pid=; fi
+		sleep 0.5; t=$((t + 1))
+	done
+	p=$(get prev); cur=$(current)
+	revert_to "${p:-$(other "$cur")}" "the launcher of system $cur was not up within $GUARD_SECS s"
+	sync; $REBOOT
+}
+
+status() {
+	cur=$(current)
+	echo "slot=$cur"
+	echo "layout=$(layout)"
+	echo "next=$(active_prefix)"
+	echo "a=$(slot_version a)"
+	echo "b=$(slot_version b)"
+	echo "trial=$(get trial)"
+	echo "tries=$(get tries)"
+	echo "committed=$(get committed)"
+	echo "result=$(get result)"
+}
+
+case "${1:-status}" in
+status) if [ "${2:-}" = --kv ]; then status; else status | sed 's/=/: /'; fi ;;
+verify)
+	[ $# -ge 2 ] || die "usage: zpod-ab verify <bundle.zab>"
+	mkdir -p "$SD"; unpack "$2"
+	if check_bundle; then echo "ok: $(kv version "$B/AB.manifest") $(kv git "$B/AB.manifest")"; r=0; else echo "no: $REASON"; r=1; fi
+	[ "$B" = "$SD/unpacked" ] && rm -rf "$B"
+	exit $r ;;
+install)
+	[ $# -ge 2 ] || die "usage: zpod-ab install <bundle.zab>"
+	[ -d "$BOOT" ] || die "$BOOT is not mounted"
+	mkdir -p "$SD"
+	exec 9> "$SD/lock"; flock -n 9 || die "another zpod-ab is running"
+	install "$2" ;;
+boot) boot ;;
+guard) guard ;;
+commit) cur=$(current); write_slot_file "$cur"; put trial "" tries "" prev "" committed "$cur" result "system $cur committed by hand"; echo "ok: system $cur" ;;
+switch) o=$(other "$(current)")
+	[ -f "$BOOT/slot-$o/zImage" ] || die "system $o has no boot folder ($BOOT/slot-$o); install an update first"
+	write_slot_file "$o"; put trial "" tries "" result "switched to system $o by hand"; echo "ok: next boot runs system $o ($(slot_version "$o"))" ;;
+*) sed -n '2,/^set -u/p' "$0" | sed 's/^# \{0,1\}//;/^set -u/d'; exit 2 ;;
+esac

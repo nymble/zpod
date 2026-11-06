@@ -1,0 +1,19 @@
+#!/bin/sh
+# Optional rsync share (Pi OS zpod-rsyncd.socket equivalent): rsync daemon on
+# the USB link only (10.12.194.1:873), no password, OFF by default. On/off from
+# the launcher's File transfer screen (systemctl shim) or
+#   systemctl enable --now zpod-rsyncd.socket / disable --now
+# Config: /etc/zpod/rsyncd.conf (same file as Pi OS). Enabled flag on /data.
+PID=/run/zpod/rsyncd.pid
+FLAG=/data/etc/zpod/rsyncd.enabled
+start() {
+	[ -e $FLAG ] || [ "$1" = force ] || return 0
+	mkdir -p /run/zpod
+	rsync --daemon --address=10.12.194.1 --port=873 --config=/etc/zpod/rsyncd.conf \
+		--dparam=pidfile=$PID --log-file=/run/zpod/rsyncd.log
+}
+stop() { [ -f $PID ] && kill "$(cat $PID)" 2>/dev/null; rm -f $PID; }
+status() { [ -f $PID ] && kill -0 "$(cat $PID)" 2>/dev/null; }
+case "$1" in
+start) start boot ;; stop) stop ;; restart) stop; start ;; status) status ;;
+esac

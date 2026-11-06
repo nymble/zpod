@@ -1,0 +1,68 @@
+# ZPOD (Pi Zero W) config.txt -- Buildroot fast-boot image (proof of concept)
+# Same hardware lines as the pi-gen image (build/tweaks/stage2-05-zpod-m2),
+# plus boot-speed settings. Base-DT dtparams come before any dtoverlay=.
+start_file=start.elf
+fixup_file=fixup.dat
+kernel=zImage
+
+# --- boot speed ---
+# No HDMI on the ZPOD: skip EDID retries (~2.5 s saved on a Zero W, ahepp.dev 2025)
+hdmi_ignore_hotplug=1
+hdmi_blanking=2
+disable_splash=1
+boot_delay=0
+# No initramfs: SD, squashfs and ext4 are built into the kernel
+auto_initramfs=0
+gpu_mem=16
+disable_overscan=1
+
+# --- base-DT parameters (I2C1, I2S, SPI0; on-board PWM audio off) ---
+dtparam=i2c_arm=on
+dtparam=i2s=on
+dtparam=spi=on
+dtparam=audio=off
+
+# --- headphone amp: GPIO14 must stay LOW (so no UART/serial console) ---
+enable_uart=0
+gpio=14=op,dl
+
+# --- display: ILI9340 on SPI0 CE0, DC=GPIO25 (driven from userspace spidev) ---
+gpio=25=op,dl
+# GPIO27 = backlight (inferred): on as early as possible
+gpio=27=op,dh
+
+# --- buttons: active-low, pull-ups (BCM). GPIO20 (Vol-) is the I2S DIN pin:
+# pull-up only, its function is left alone (so gpio-keys cannot claim it).
+gpio=4,5,6,12,13,16,17,22,23,24,26=ip,pu
+gpio=20=pu
+
+# --- audio: Aoide ZPOD DAC, PCM5122 @ I2C1 0x4d (overlay built from drivers/aoide-zpod-dac) ---
+dtoverlay=aoide-zpod-dac
+
+# --- I2C1: DS3231 RTC @0x68 (MAX17048 fuel gauge @0x36 is read from userspace) ---
+dtoverlay=i2c-rtc,ds3231
+
+# --- USB OTG port as gadget (CDC-NCM Ethernet, 10.12.194.1/28) ---
+dtoverlay=dwc2,dr_mode=peripheral
+# USB role switch (docs/USB-HOST.md): zpod-usb-role.txt on this partition.
+# Uncommenting "dtparam=dr_mode=host" there makes the port a USB host
+# (keyboard, mouse, GPS) and removes the USB link to the computer; Wi-Fi
+# and SSH stay up. Keep this include right after the dwc2 line.
+include zpod-usb-role.txt
+# Recovery: hold Home (GPIO24, pulled up above) while powering on and, for
+# this boot, the port is a gadget again whatever zpod-usb-role.txt says, and
+# core updates on /data are not loaded (cmdline-safe.txt = cmdline.txt plus
+# zpod.nocore zpod.safe; docs/BOOT-UPDATES.md).
+[gpio24=0]
+dtparam=dr_mode=peripheral
+cmdline=cmdline-safe.txt
+[all]
+
+# --- A/B systems (docs/AB-UPDATES.md); keep this last ---
+# zpod-slot.txt (written by zpod-ab) sets os_prefix=slot-a/ or slot-b/: the
+# kernel, device tree, overlays and cmdline.txt come from that folder, whose
+# cmdline boots p2 (A) or p3 (B). Holding Square (GPIO12) while powering on
+# boots the other system. Without zpod-slot.txt (or if the named folder has
+# no kernel + .dtb) the files at the top of this partition boot system A.
+[all]
+include zpod-slot.txt

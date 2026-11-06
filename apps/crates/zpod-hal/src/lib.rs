@@ -23,6 +23,7 @@ pub mod sim;
 pub mod storage;
 pub mod sys;
 pub mod wifi;
+pub mod wifijoin;
 
 pub use platform::Platform;
 pub use zpod_core::{Event, Key, KeyState, StatusInfo};

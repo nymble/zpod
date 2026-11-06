@@ -1,5 +1,9 @@
 # USB cable networking to a Mac (M2+)
 
+> The data port can also be a USB **host** (keyboard, mouse, GPS) instead,
+> chosen at boot on the SD card; then this cable link is off and SSH goes
+> over Wi-Fi. See [USB-HOST.md](./USB-HOST.md).
+
 The Pi Zero's **data** micro-USB port (the one marked `USB`, not `PWR`) is a
 USB Ethernet gadget. A single data-capable USB cable to the Mac powers the Pi
 **and** gives a network link that does not depend on Wi-Fi.

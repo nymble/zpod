@@ -1,0 +1,24 @@
+# Top: music, clock, tetris, mousemusic, Tools >, Settings >, Power >
+wait 400
+shot launcher-home-gadget
+key down
+key down
+key down
+key down
+key ok
+wait 300
+shot launcher-tools-gps-gadget
+# Tools > Wi-Fi > Networks > 2nd network (HomeNet-guest, WPA2, not saved)
+key ok
+wait 900
+key down
+key ok
+wait 900
+key down
+key ok
+wait 300
+key ok
+# Join network page: no keyboard yet
+wait 600
+shot launcher-pw-gadget
+exit

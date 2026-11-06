@@ -108,6 +108,19 @@ fn extract(pkg: &Path, dest: &Path) -> Result<(), String> {
             return Err(format!("unsupported entry type for {} (symlinks/devices are not allowed)", rel.display()));
         }
     }
+    // Directories made for file entries follow the umask (0077 in a root ssh
+    // session on Buildroot), but apps run as the zpod user: make them 0755.
+    dirs_0755(dest).map_err(|e| e.to_string())
+}
+
+fn dirs_0755(d: &Path) -> io::Result<()> {
+    fs::set_permissions(d, fs::Permissions::from_mode(0o755))?;
+    for e in fs::read_dir(d)? {
+        let e = e?;
+        if e.file_type()?.is_dir() {
+            dirs_0755(&e.path())?;
+        }
+    }
     Ok(())
 }
 
@@ -129,7 +142,8 @@ fn walk_files(dir: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
 pub fn validate_tree(dir: &Path, core: Version) -> Result<(Manifest, Vec<String>), String> {
     let text = fs::read_to_string(dir.join("manifest.toml")).map_err(|_| "package has no top-level manifest.toml".to_string())?;
     let m = Manifest::parse(&text)?;
-    let mut warnings = Vec::new();
+    // placement, handles, requires (docs/APP-MANIFEST.md); unknown keys warn
+    let mut warnings = crate::tree::check(&m)?;
     if m.min_core() > core {
         return Err(format!("{} needs ZPOD core >= {}, this device has {}", m.app.id, m.app.min_core, core));
     }
@@ -352,6 +366,22 @@ mod tests {
         fs::remove_dir_all(&root).unwrap();
     }
 
+    #[test]
+    fn install_validates_placement() {
+        let root = tmp("place");
+        let s = app_src(&root, "1.0.0", "0.5.0");
+        let m = fs::read_to_string(s.join("manifest.toml")).unwrap();
+        fs::write(s.join("manifest.toml"), format!("schema = 1\n{m}[menu]\npath = \"Nowhere\"\n")).unwrap();
+        let p = pack(&s, &root).unwrap();
+        let e = install(&p, &root.join("apps"), Mode::Install, CORE).unwrap_err();
+        assert!(e.contains("built-in folder"), "{e}");
+        fs::write(s.join("manifest.toml"), format!("schema = 1\n{m}shiny = true\n[menu]\npath = \"games\"\n")).unwrap();
+        let p = pack(&s, &root).unwrap();
+        let r = install(&p, &root.join("apps"), Mode::Install, CORE).unwrap();
+        assert!(r.warnings.iter().any(|w| w.contains("app.shiny")), "{:?}", r.warnings);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
     fn raw_tar(root: &Path, entries: &[(&str, &[u8], tar::EntryType)]) -> PathBuf {
         let out = root.join("evil.zpa");
         let gz = flate2::write::GzEncoder::new(File::create(&out).unwrap(), flate2::Compression::fast());
@@ -394,5 +424,23 @@ mod tests {
         let leftovers: Vec<_> = fs::read_dir(&apps).unwrap().flatten().map(|e| e.file_name()).filter(|n| n != ".lock").collect();
         assert!(leftovers.is_empty(), "{leftovers:?}");
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn install_dirs_are_world_readable_under_strict_umask() {
+        let root = tmp("umask");
+        let src = app_src(&root, "1.0.0", "0.5.0");
+        let out = root.join("out");
+        fs::create_dir_all(&out).unwrap();
+        let pkg = pack(&src, &out).unwrap();
+        let apps = root.join("apps");
+        let old = unsafe { libc::umask(0o077) };
+        let r = install(&pkg, &apps, Mode::Install, CORE);
+        unsafe { libc::umask(old) };
+        r.unwrap();
+        for d in [apps.join("hello"), apps.join("hello/bin")] {
+            assert_eq!(fs::metadata(&d).unwrap().permissions().mode() & 0o777, 0o755, "{}", d.display());
+        }
+        let _ = fs::remove_dir_all(&root);
     }
 }

@@ -18,12 +18,12 @@ vendor files or wiring, not yet proven.
 | Button | Key | Role | Scope |
 | --- | --- | --- | --- |
 | Home | `KEY_HOME` | go to the **top launcher menu** (closes the app) | global |
-| Play/Pause | `KEY_PLAYPAUSE` | **play / pause music** (MPD) | global |
+| Play/Pause | `KEY_PLAYPAUSE` | **play / pause music** (MPD) on the top menu and in Music; on every other launcher screen (Tools, Settings, ...) it **only pauses music that is playing** and otherwise does nothing (test3; before, Play on a tool screen said "Nothing queued") | global |
 | Vol + / − (side) | `KEY_VOLUMEUP/DOWN` | change the volume; one overlay for every screen | global |
 | Up / Down | `KEY_UP/DOWN` | move the selection; repeat while held | default |
 | Right, D-pad centre, Circle | `KEY_RIGHT`, `KEY_ENTER`, `KEY_K` | **enter / OK** | default |
 | Left, X | `KEY_LEFT`, `KEY_J` | **back one level** (Left at the top = nothing) | default |
-| Triangle, Square | `KEY_I`, `KEY_U` | page-local (scanners: Square = rescan, Triangle = sort; File transfer: Square = rsync share; M6 Channels / Saved networks: Square = rescan / refresh; Hotspot: Triangle = new password) | app/page |
+| Triangle, Square | `KEY_I`, `KEY_U` | page-local (scanners: Square = rescan, Triangle = sort; File transfer: Square = rsync share; Saved networks: Square = refresh, Triangle twice = forget; Hotspot password: Triangle = new password) | app/page |
 
 "Global" bindings are handled before an app or menu sees the key and cannot
 be overridden, with two documented exceptions: Tetris uses Play to pause
@@ -42,79 +42,34 @@ pin of its own: all four directions low within 50 ms means `KEY_ENTER`.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Idle
-    state "D-pad" as D {
-        Idle --> Pending: any direction low
-        Pending --> Centre: all 4 low within 50 ms
-        Pending --> Dir: 50 ms passed, ≥1 still down
-        Pending --> Idle: released inside 50 ms / tap (press+release)
-        Centre --> Idle: all released / KEY_ENTER up
-        Dir --> Dir: held ≥ 400 ms / repeat every 120 ms
-        Dir --> Centre: all 4 low
-        Dir --> Idle: all released
-    }
-    state "Volume key" as V {
-        VUp --> VArmed: pressed (debounced 20 ms)
-        VArmed --> VUp: released before 75 ms / ignored
-        VArmed --> VStep: 75 ms / step 2 %, press event
-        VStep --> VRepeat: held 650 ms
-        VRepeat --> VRepeat: every 150 ms / step 2 %, repeat event
-        VStep --> VUp: released / release event, overlay 1.2 s
-        VRepeat --> VUp: released / release event, overlay 1.2 s
-    }
-    Idle --> VUp
-```
-
-Other buttons: debounce 20 ms, then press and release events (no repeat).
-
-Key events reach the launcher, which routes them:
-
-```mermaid
-flowchart TD
-    K[key event] --> G{global?}
-    G -- Vol +/- --> O[platform overlay: show /run/zpod/volume, stay while held]
-    G -- Home --> H{in an app?}
-    H -- yes --> X[app exits] --> T[top menu]
-    H -- no --> T
-    G -- Play --> P[MPD toggle; toast if nothing queued]
-    G -- no --> A{app running?}
-    A -- yes --> AP[app handles it, may override defaults]
-    A -- no --> M{page}
-    M -- menu --> N[Up/Down move, Right/OK/Circle enter, Left/X back]
-    M -- info page --> I[Left/X back, OK refresh where noted]
-    M -- editor --> E[editor bindings, section 4]
-    M -- M6 switch page --> SW[OK on/off: Hotspot, Drop box, Book catalog]
-```
-
-M6 adds pages that run slow work (nmcli, iw, systemctl) on a background
-job so the UI never blocks; while a job runs the page says "working..." and
-keys other than Left/X/Home are ignored. The launcher's page state machine:
-
-```mermaid
-stateDiagram-v2
     [*] --> Notice: /run/zpod/boot-notice not empty (M6)
     [*] --> Top
     Notice --> Top: OK (file moved to /var/lib/zpod/boot-notice.last) / Home
-    Top --> Battery: Battery
     Top --> Tools: Tools
     Top --> Settings: Settings
     Settings --> About: About
-    Tools --> Scanner: Wi-Fi scanner
-    Scanner --> Details: OK
-    Details --> Meter: OK (meter for that BSSID)
-    Tools --> Meter: Signal meter (connected network)
-    Tools --> Channels: Channels
-    Tools --> Saved: Saved networks
-    Saved --> Job: OK = connect
-    Tools --> Hotspot: Hotspot
-    Hotspot --> Job: OK = on/off, Triangle = new password
-    Tools --> Server: Drop box / Book catalog
+    Tools --> WiFi: Wi-Fi (status card)
+    Tools --> BT: Bluetooth
+    Tools --> USB: USB
+    Tools --> Battery: Battery
+    Tools --> Transfer: File transfer
+    WiFi --> Mode: Mode
+    Mode --> Job: OK = Off / Client / Hotspot
+    WiFi --> Networks: Networks nearby (client)
+    Networks --> Detail: OK
+    Detail --> Job: OK = join (saved or open)
+    WiFi --> Saved: Saved networks (client)
+    Saved --> Detail: OK
+    Saved --> Job: Triangle twice = forget
+    WiFi --> Devices: Connected devices (hotspot)
+    WiFi --> Password: Password (hotspot)
+    Password --> Job: Triangle = new password
+    WiFi --> WTools: Wi-Fi tools
+    WTools --> Channels: Channel utilization
+    WTools --> Addresses: Devices & addresses
+    WTools --> Server: Drop box / Book catalog
     Server --> Job: OK = on/off
-    Job --> Saved: done (toast)
-    Job --> Hotspot: done (toast)
-    Job --> Server: done (toast)
-    Battery --> Top: Left/X
-    Meter --> Tools: Left/X
+    Job --> WiFi: done (toast, card refreshed)
 ```
 
 ## 3. Menu tree
@@ -127,9 +82,9 @@ Top level (Home always lands here):
 | **Clock** | M4, M5 menu | 3 faces (digital, analog, words). M5: Up/Down = face, Right/OK/Circle = **Clock menu** (Alarm >, Timer >, Face, Seconds, 12/24 hour), Square = seconds, Triangle = 12/24 h. See section 4a |
 | **Tetris** | M4 | SRS rotation, hold, ghost, high scores |
 | (installed apps) | M4 | anything installed with `zpod-app install` appears here |
-| **File transfer** | M4, M5 | M5: USB IP, Wi-Fi IP + `zpod.local`, browser (drop server), rsync share state, free space, library song count + last scan (or "rescanning..."), newest 4 files. **OK = rescan library now**, **Square = rsync share on/off** (USB only, off by default). Refreshes every 3 s (1 s while scanning) |
-| **Battery** | M6 | its own page (was "Battery & about"): big %, charging state, time left, last full charge, typical runtime, discharge chart. Section 8 |
-| **Tools >** | M5, M6 | Wi-Fi scanner, Signal meter, Channels, Saved networks, Hotspot, Drop box, Book catalog, Bluetooth scanner, Wi-Fi info |
+| **File transfer** (test3: under Tools) | M4, M5 | M5: USB IP, Wi-Fi IP + `zpod.local`, browser (drop server), rsync share state, free space, library song count + last scan (or "rescanning..."), newest 4 files. **OK = rescan library now**, **Square = rsync share on/off** (USB only, off by default). Refreshes every 3 s (1 s while scanning) |
+| **Battery** (test3: under Tools) | M6 | its own page (was "Battery & about"): big %, charging state, time left, last full charge, typical runtime, discharge chart. Section 8 |
+| **Tools >** | M5, M6, test3 | test3: **Wi-Fi, Bluetooth, USB, Battery, File transfer** (in that order) |
 | **Settings >** | M4 | |
 | **Power >** | M4 | |
 
@@ -148,19 +103,28 @@ Settings:
 | Diagnostics > Button test | M4 | shows each key as it is pressed, repeats, last event; Home exits |
 | Diagnostics > Tone test (440 Hz) | M4 | start/stop the sine tone (Play also stops it) |
 
-Tools (M5, M6):
+Tools (test3 layout, Paul's spec 2026-11-01; M5/M6 screens regrouped):
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| Wi-Fi scanner | M5 | nearby networks: SSID ("(hidden)" if none), BSSID, channel, signal dBm (colour bar: green ≥ −65, amber ≥ −75, red ≥ −85), security (Open / WEP / WPA / WPA2 / WPA3 / WPA2/WPA3 / WPA2-EAP); this ZPOD's network is marked cyan. Scans on entry if the last scan is older than 60 s. **Square = rescan**, **Triangle = sort** (signal → name → channel), **OK = details** (SSID, BSSID, channel + MHz + band, dBm + bars, security, connected?). Uses `iw dev wlan0 scan` as root (the launcher); falls back to NetworkManager's rescan + `iw … scan dump` |
-| Bluetooth scanner | M5 | classic (BR/EDR) and BLE devices: name ("(no name)"), address, type (BR/EDR, LE public, LE random), RSSI. About 10 s per scan (`btmgmt find` as root; `bluetoothctl` fallback). Clears the rfkill soft block first and powers the controller off again if it was off. **Square = rescan**, **Triangle = sort** (signal ↔ name), **OK = details**. Lists only what devices advertise; never pairs or connects |
-| Signal meter | M6 | live signal (dBm, quality %, bars) and a 90-point history of the connected network, once a second from `iw dev wlan0 link`. From Wi-Fi scanner > details, **OK** opens the meter for that network (BSSID) instead; it rescans every few seconds (slower). Walk around: higher = better |
-| Channels | M6 | 2.4 GHz channels 1-13: bar per channel = overlap-weighted load of the networks heard (a network on ch 6 also loads 4-8), count, and **least busy: ch 1/6/11**. Square = rescan |
-| Saved networks | M6 | NetworkManager Wi-Fi profiles (not the hotspot); the active one is marked. **OK = connect** (`nmcli connection up`, up to 40 s; Wi-Fi drops while it switches; SSH over USB stays up). Square = refresh |
-| Hotspot | M6 | ZPOD as an access point: SSID `ZPOD-xxxx` (last 4 hex digits of the wlan0 MAC), WPA2, 2.4 GHz on the least busy of 1/6/11, address 10.42.0.1 with DHCP for clients. The passphrase (16 characters) is **generated on the ZPOD** the first time and shown on screen; it is stored only in the root-only profile `/etc/NetworkManager/system-connections/zpod-hotspot.nmconnection`, never in the repo or image. **Turning it on takes the ZPOD off your home Wi-Fi** (one radio); turning it off reconnects. OK = on/off, Triangle = new password |
-| Drop box | M6 | web page on port 8080: browse and download music and books, upload files into `/data/inbox`. **Off by default**. OK = on/off. Screen shows the URLs (USB, hotspot, home Wi-Fi with token) |
-| Book catalog | M6 | OPDS 1.2 feed of `/data/books` at `http://<ZPOD>:8080/opds` for e-reader apps. **Off by default**, same server as Drop box. OK = on/off |
-| Wi-Fi info | M4 (moved in M5) | this ZPOD's SSID, signal, IP, **MAC**, power save, usb0 address; OK = refresh |
+| **Wi-Fi** | test3 | One screen. **Status card**: mode pill (Off grey / Client cyan / Hotspot amber), SSID, IP, channel, signal (dBm + words, link rate), MAC; refreshed every 5 s on a background thread. Rows by mode — **Off**: Mode, Wi-Fi tools. **Client**: Mode, Networks nearby, Saved networks, Wi-Fi tools. **Hotspot**: Mode, Connected devices (count), Password, Wi-Fi tools |
+| Wi-Fi > Mode | test3 | **Off / Client / Hotspot**, current one marked. Off = `nmcli radio wifi off` (no wpa_supplicant/hostapd left); Client = radio on, hotspot down, rejoin saved networks; Hotspot = radio on + hotspot (made on first use, least busy of 1/6/11). Leaving Hotspot goes to whatever you pick |
+| Wi-Fi > Networks nearby | M5 scanner, test3 | the scanner list (Square = rescan, Triangle = sort). **OK = network details** with the **live signal meter** (the standalone Signal meter is gone). **OK on the details = join**: a saved network connects; an **open** network is joined and saved (`nmcli device wifi connect`); a network with a password opens **password entry** (test6: USB keyboard if plugged in, otherwise the button character grid; [TEXT-ENTRY.md](./TEXT-ENTRY.md)) |
+| Wi-Fi > Saved networks | M6, test3 | profiles; **OK = details + meter (OK there = connect)**, **Triangle twice = forget** (`nmcli connection delete`), Square = refresh |
+| Wi-Fi > Connected devices | test3 | hotspot clients: name (DHCP host name) or IP, MAC, connected time, signal (`iw dev wlan0 station dump` + DHCP leases + ARP). Refreshes every 5 s |
+| Wi-Fi > Password | M6 hotspot, test3 | SSID, password hidden until **OK = show/hide**, **Triangle = new password** (clients must re-join), address and drop box URL. Stored only in the root-only hotspot profile (`/etc/NetworkManager/system-connections/zpod-hotspot.nmconnection`; on Buildroot that is `/data/etc/NetworkManager/...`), never in the repo or image |
+| Wi-Fi > Wi-Fi tools > Channel utilization | test3 | 2.4 GHz axis ch 1-13; **one curve per network** spanning its ~22 MHz (about ±2 channels), height = RSSI (−95 to −30 dBm); columns shaded by overlap-weighted load; **green marker on the least busy of 1/6/11**; yours in cyan; SSIDs labelled for the strongest six. OK = rescan |
+| Wi-Fi > Wi-Fi tools > Devices & addresses | test3 | passive: LAN neighbours from the ARP table (IP, MAC) and every access point heard (BSSID, SSID, channel, security, dBm). OK = rescan. Nothing is probed or sent |
+| Wi-Fi > Wi-Fi tools > Drop box, Book catalog | M6 | as before (moved from Tools) |
+| Bluetooth | M5, test3 | the Bluetooth scanner. test3: an empty `btmgmt find` counts as a failure (falls back to `bluetoothctl`), the `bluetoothctl` parser handles coloured `[CHG] Device … RSSI` lines, and `bluetoothctl devices` is merged in (names) |
+| USB | test3 | landing page: gadget function (CDC-NCM), controller state + speed (`/sys/class/udc`), usb0 up/down + 10.12.194.1, the host's IP/MAC (ARP) and DHCP host name, traffic. Read-only; Bash Bunny-style tools later |
+| Battery | M6 | unchanged, moved from the top menu |
+| File transfer | M4, M5 | unchanged, moved from the top menu |
+
+Status bar Wi-Fi indicator (test3): **Off** = grey bars with a red strike;
+**Client** = 0-4 bars from the link signal (an amber dot while not
+connected); **Hotspot** = a cyan antenna glyph plus the number of connected
+devices.
 
 Why the scanners live in the launcher: triggering a Wi-Fi scan and Bluetooth
 discovery needs CAP_NET_ADMIN. The launcher already runs as root (it owns the
@@ -168,7 +132,7 @@ LCD, power and the clock), so it is the privileged helper; apps run as the
 unprivileged `zpod` user and cannot scan. No setuid binary or file
 capability is added.
 
-Moved in M5: **Wi-Fi info** from the top menu to Tools. Diagnostics (System
+Moved in M5: **Wi-Fi info** from the top menu to Tools (test3: merged into the Wi-Fi status card). Diagnostics (System
 status, Storage & build, Button test, Tone test) stays under Settings: they
 check this ZPOD's own hardware, Tools look at the world around it.
 
@@ -192,15 +156,20 @@ Other planned items (not in the menu yet):
 | Screen | Up/Down | Right / OK / Circle | Left / X | Other |
 | --- | --- | --- | --- | --- |
 | Menu (any level) | move (wraps), repeat | enter item / open app | back one level (nothing at top) | — |
-| Wi-Fi info | — | OK = refresh | back | — |
+| Wi-Fi (test3) | move | open row | back | card refreshes every 5 s |
+| Wi-Fi mode (test3) | move | switch | back | — |
 | File transfer (M5) | — | OK = rescan music library | back | Square = rsync share on/off |
 | Wi-Fi / Bluetooth scanner (M5) | move, repeat | OK/Right/Circle = details | back | Square = rescan, Triangle = sort |
-| Scan details (M5) | — | M6: OK = signal meter for this network | back | — |
+| Bluetooth details (M5) | — | — | back | — |
+| Wi-Fi network details + meter (test3) | — | OK = join (saved / open) | back | updates 1/s (connected) or per scan |
 | Battery (M6) | — | — | back | refreshes every 20 s |
-| Signal meter (M6) | — | — | back | updates 1/s |
-| Channels (M6) | — | — | back | Square = rescan |
-| Saved networks (M6) | move | OK = connect | back | Square = refresh |
-| Hotspot (M6) | — | OK = on/off | back | Triangle = new password (clients must reconnect) |
+| Channel utilization (test3) | — | OK = rescan | back | Square = rescan |
+| Devices & addresses (test3) | move | OK = rescan | back | — |
+| Saved networks (M6, test3) | move | OK = details | back | Square = refresh, Triangle twice = forget |
+| Connected devices (test3) | move | OK = refresh | back | every 5 s |
+| Wi-Fi password entry (test6) | move in the grid, repeat | OK/Circle = type / run cell (Done = join) | X = delete, cancel when empty | Square = next set, Triangle = show/hide; USB keyboard: Enter/Esc/Backspace/Tab |
+| Hotspot password (M6, test3) | — | OK = show/hide | back | Triangle = new password (clients must reconnect) |
+| USB (test3) | — | OK = refresh | back | every 3 s |
 | Drop box, Book catalog (M6) | — | OK = on/off | back | — |
 | Boot notice (M6) | — | OK = got it (dismiss) | — | Home = dismiss, menu |
 | Alarm / timer ringing (M5, over any screen or app) | alarm: snooze | alarm: OK/Circle/Right = **stop** | alarm: snooze | alarm: Home/Play = stop, Triangle/Square = snooze; **timer: any key stops**; Vol keys = volume (never stop/snooze) |

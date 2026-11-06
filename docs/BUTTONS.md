@@ -128,3 +128,13 @@ Restart with `sudo systemctl restart zpod-buttons`.
   without evdev support can use the buttons.
 - Debug: `sudo journalctl -u zpod-buttons`, `sudo evtest` (pick
   `zpod-buttons`), or read raw levels with `pinctrl get 4,5,6,12,13,16,17,20,22,23,24,26`.
+
+
+## Per-app mode: fast arrows
+
+Apps that need low-latency D-pad (generative music) write `fast-arrows` to
+`/run/zpod/buttons.mode` (0666 placeholder created by the daemon; also
+`/tmp/zpod-buttons.mode`). While that mode is set, the 50 ms centre-combo
+window is skipped and centre (OK) is not emitted — the app uses Circle as OK.
+Clear the file on exit. Shipped via the `/data` core overlay of
+`zpod_buttons.py` until the next image includes it.

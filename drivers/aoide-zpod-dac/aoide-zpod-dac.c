@@ -32,9 +32,17 @@ static int snd_rpi_aoide_zpod_dac_init(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_card *card = rtd->card;
 	int ret;
 
+	/*
+	 * PCM5122 GPIO4 = amp enable (also lights the red "play" LED on the
+	 * ZPOD). Make it a register-driven output, but leave it LOW here:
+	 * startup() raises it when a stream opens and shutdown() drops it.
+	 * The vendor module (and this rebuild up to test2) drove it HIGH at card
+	 * init, so the LED stayed on from boot until the first stream closed
+	 * (seen on hardware, test2, nothing playing).
+	 */
 	snd_soc_component_update_bits(component, PCM512x_GPIO_EN, 0x08, 0x08);
 	snd_soc_component_update_bits(component, PCM512x_GPIO_OUTPUT_4, 0x0f, 0x02);
-	snd_soc_component_update_bits(component, PCM512x_GPIO_CONTROL_1, 0x08, 0x08);
+	snd_soc_component_update_bits(component, PCM512x_GPIO_CONTROL_1, 0x08, 0x00);
 
 	if (digital_gain_0db_limit) {
 		ret = snd_soc_limit_volume(card, "Digital Playback Volume", 207);

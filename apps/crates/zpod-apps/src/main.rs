@@ -1,6 +1,9 @@
 //! zpod-app: install / update / remove / list ZPOD apps without an image rebuild.
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Duration;
+use zpod_apps::ctl::{self, Request};
+use zpod_apps::logs;
 use zpod_apps::package::{self, Mode};
 
 const USAGE: &str = "usage:
@@ -8,10 +11,29 @@ const USAGE: &str = "usage:
   zpod-app info <id | file.zpa>         show manifest
   zpod-app install [--force] <file.zpa> install a new app (--force: reinstall/downgrade)
   zpod-app update  [--force] <file.zpa> update an installed app to a newer version
-  zpod-app remove  <id>                 uninstall
+  zpod-app update --if-newer <file.zpa>...
+                                        update installed apps the files are newer
+                                        than; others are skipped quietly (boot)
+  zpod-app remove  [--purge] <id>       uninstall (--purge: also delete its data and logs)
   zpod-app pack <app-dir> [out-dir]     build <id>-<version>.zpa
   zpod-app check <file.zpa>             validate without installing
-env: ZPOD_APPS_DIR (default /opt/zpod/apps)";
+  zpod-app launch <id>                  start an app on the screen (stops the running one)
+  zpod-app restart [<id>]               stop and start again (default: the running app)
+  zpod-app stop [<id>]                  back to the home screen
+  zpod-app status                       which app is running
+  zpod-app usb [status]                 USB role, Wi-Fi SSH, devices (via the launcher)
+  zpod-app usb host|gadget|auto [force] [persist]
+                                        switch the USB port now (as Tools > USB)
+  zpod-app logs [-f] [-n N] <id>        the app's stdout/stderr (-f: follow)
+  zpod-app tree                         the menu tree the launcher shows
+  zpod-app handlers <kind> <what>       apps for a device/file, e.g.
+                                        handlers usb-device 067b:2303
+  zpod-app core [status|on|off]         core updates from /data at boot
+                                        (zpod-core-overlay; root)
+launch/restart/stop/status talk to the launcher (root only); see docs/DEV-LOOP.md.
+env: ZPOD_APPS_DIR (default /opt/zpod/apps), ZPOD_DATA_DIR, ZPOD_LOG_DIR, ZPOD_SOCKET";
+
+const CTL_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -31,8 +53,22 @@ fn notify_launcher() {
 
 fn run(args: &[String]) -> Result<(), String> {
     let apps = zpod_apps::apps_dir();
-    let force = args.iter().any(|a| a == "--force" || a == "-f");
-    let pos: Vec<&str> = args.iter().map(String::as_str).filter(|a| !a.starts_with('-')).collect();
+    let mut pos: Vec<&str> = Vec::new();
+    let mut flags: Vec<&str> = Vec::new();
+    let mut lines = 30usize;
+    let mut it = args.iter().map(String::as_str);
+    while let Some(a) = it.next() {
+        if a == "-n" || a == "--lines" {
+            lines = it.next().and_then(|n| n.parse().ok()).ok_or("-n needs a number")?;
+        } else if a.starts_with('-') {
+            flags.push(a);
+        } else {
+            pos.push(a);
+        }
+    }
+    let flag = |f: &[&str]| flags.iter().any(|a| f.contains(a));
+    // -f is --force for install/update and --follow for logs
+    let force = flag(&["--force", "-f"]) && pos.first() != Some(&"logs");
     let core = zpod_apps::core_version();
     if args.iter().any(|a| a == "-h" || a == "--help") {
         println!("{USAGE}");
@@ -61,10 +97,99 @@ fn run(args: &[String]) -> Result<(), String> {
             };
             let a = &m.app;
             println!(
-                "id:          {}\nname:        {}\nversion:     {}\nexec:        {} {}\nicon:        {}\ndescription: {}\nmin_core:    {} (device: {core})\norder:       {}",
-                a.id, a.name, a.version, a.exec, a.args.join(" "), a.icon.as_deref().unwrap_or("-"), a.description, a.min_core, a.order
+                "id:          {}\nname:        {}\nversion:     {}\nexec:        {} {}\nicon:        {}\ndescription: {}\nmin_core:    {} (device: {core})\norder:       {}\nschema:      {}",
+                a.id, a.name, a.version, a.exec, a.args.join(" "), a.icon.as_deref().unwrap_or("-"), a.description, a.min_core, a.order, m.schema
             );
+            match zpod_apps::tree::placements(&m) {
+                Ok(ps) => {
+                    for p in ps {
+                        println!("menu:        {} > {}  (order {})", if p.path.is_empty() { "Home" } else { &p.path }, p.label, p.order);
+                    }
+                }
+                Err(e) => println!("menu:        INVALID: {e} (shown at Home)"),
+            }
+            for h in &m.handles {
+                println!("handles:     {} {}{}", h.kind, h.matches.join(", "), h.label.as_ref().map(|l| format!("  ({l})")).unwrap_or_default());
+            }
+            let r = &m.requires;
+            println!(
+                "requires:    launcher API {} (device: {}){}{}{}",
+                m.launcher_api(),
+                zpod_apps::manifest::LAUNCHER_API,
+                if r.usb_host { ", USB host" } else { "" },
+                if r.wifi { ", Wi-Fi" } else { "" },
+                if r.input.is_empty() { String::new() } else { format!(", input {}", r.input.join("/")) }
+            );
+            for k in &m.unknown {
+                println!("ignored:     {k}");
+            }
             Ok(())
+        }
+        ["update", pkgs @ ..] if flag(&["--if-newer"]) && !pkgs.is_empty() => {
+            // boot (S00zpod-data): bring bundled apps up to the image's
+            // versions; never installs an app that was removed, never downgrades
+            let mut changed = false;
+            for pkg in pkgs {
+                let m = match package::inspect(Path::new(pkg)) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("zpod-app: {pkg}: {e}");
+                        continue;
+                    }
+                };
+                let Ok(cur) = zpod_apps::AppInfo::load(&apps.join(&m.app.id)) else { continue };
+                if m.version() <= cur.manifest.version() {
+                    continue;
+                }
+                match package::install(Path::new(pkg), &apps, Mode::Update, core) {
+                    Ok(r) => {
+                        println!("updated {} {} -> {}", r.id, r.from.map(|v| v.to_string()).unwrap_or_default(), r.to);
+                        changed = true;
+                    }
+                    Err(e) => eprintln!("zpod-app: {}: {e}", m.app.id),
+                }
+            }
+            if changed {
+                notify_launcher();
+            }
+            Ok(())
+        }
+        ["tree"] => {
+            let (list, bad) = zpod_apps::discover(&apps);
+            print!("{}", zpod_apps::tree::Tree::build(&list).outline(&list));
+            for (id, why) in &bad {
+                println!("broken: {id}: {why}");
+            }
+            Ok(())
+        }
+        ["handlers", kind, what] => {
+            let (list, _) = zpod_apps::discover(&apps);
+            let hs = zpod_apps::tree::handlers(&list, kind, what);
+            if hs.is_empty() {
+                return Err(format!("no app handles {kind} {what}"));
+            }
+            for a in hs {
+                println!("{:<16} {}", a.manifest.app.id, a.manifest.app.name);
+            }
+            Ok(())
+        }
+        ["core", rest @ ..] => {
+            let sub = match rest {
+                [] | ["status"] => "status",
+                ["on"] | ["enable"] => "enable",
+                ["off"] | ["disable"] => "disable",
+                _ => return Err("usage: zpod-app core [status|on|off]".into()),
+            };
+            let tool = ["/usr/sbin/zpod-core-overlay", "/data/zpod/core/zpod-core-overlay"]
+                .into_iter()
+                .find(|p| Path::new(p).exists())
+                .ok_or("this image has no zpod-core-overlay")?;
+            let st = std::process::Command::new("/bin/sh").arg(tool).arg(sub).status().map_err(|e| e.to_string())?;
+            if st.success() {
+                Ok(())
+            } else {
+                Err(format!("zpod-core-overlay {sub} failed"))
+            }
         }
         ["install", pkg] | ["update", pkg] => {
             let mode = if force { Mode::Force } else if pos[0] == "install" { Mode::Install } else { Mode::Update };
@@ -80,10 +205,70 @@ fn run(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         ["remove", id] => {
-            let v = package::remove(&apps, id)?;
-            println!("removed {id} {v}");
+            let purge = flag(&["--purge"]);
+            // Stop it first if it is on the screen (best effort: older launchers have no socket).
+            if let Ok(ctl::Status::Running { id: r, .. }) = status() {
+                if r == *id {
+                    let _ = ctl::send(&Request::Stop(Some(id.to_string())), CTL_TIMEOUT);
+                }
+            }
+            match package::remove(&apps, id) {
+                Ok(v) => println!("removed {id} {v}"),
+                Err(e) if !purge => return Err(e),
+                Err(e) => println!("{e}"),
+            }
             notify_launcher();
+            if purge {
+                for p in logs::purge(&logs::data_root(), &logs::log_dir(), id)? {
+                    println!("deleted {}", p.display());
+                }
+            } else if logs::data_root().join(id).exists() {
+                println!("kept data in {} (remove --purge {id} deletes it)", logs::data_root().join(id).display());
+            }
             Ok(())
+        }
+        ["launch", id] => ctl_cmd(Request::Launch(id.to_string())),
+        ["restart"] => ctl_cmd(Request::Restart(None)),
+        ["restart", id] => ctl_cmd(Request::Restart(Some(id.to_string()))),
+        ["stop"] => ctl_cmd(Request::Stop(None)),
+        ["stop", id] => ctl_cmd(Request::Stop(Some(id.to_string()))),
+        ["usb", rest @ ..] => {
+            let line = if rest.is_empty() { "usb status".to_string() } else { format!("usb {}", rest.join(" ")) };
+            let req = Request::parse(&line)?;
+            let r = ctl::send(&req, Duration::from_secs(25))?;
+            if req == Request::Usb(ctl::UsbReq::Status) {
+                // one key=value per line (devices: '_' for spaces)
+                for w in r.split_whitespace() {
+                    println!("{w}");
+                }
+            } else {
+                println!("{r}");
+            }
+            Ok(())
+        }
+        ["status"] => {
+            match status()? {
+                ctl::Status::Idle => println!("idle (home screen)"),
+                ctl::Status::Running { id, pid, secs } => println!("running {id} (pid {pid}, {secs} s)"),
+            }
+            Ok(())
+        }
+        ["logs", id] => {
+            if !zpod_apps::manifest::valid_id(id) {
+                return Err(format!("invalid app id '{id}'"));
+            }
+            let p = logs::log_path(&logs::log_dir(), id);
+            if flag(&["-f", "--follow"]) {
+                if !p.exists() {
+                    eprintln!("(waiting for {})", p.display());
+                }
+                let out = std::io::stdout();
+                logs::follow(&p, lines, &mut out.lock(), &|| logs::reader_present(1)).map_err(|e| e.to_string())
+            } else {
+                let t = logs::tail(&p, lines).map_err(|e| format!("{}: {e}", p.display()))?;
+                print!("{t}");
+                Ok(())
+            }
         }
         ["pack", dir] | ["pack", dir, _] => {
             let out = pos.get(2).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
@@ -104,4 +289,14 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         _ => Err(USAGE.into()),
     }
+}
+
+fn status() -> Result<ctl::Status, String> {
+    let r = ctl::send(&Request::Status, CTL_TIMEOUT)?;
+    ctl::Status::parse(&format!("ok {r}")).ok_or_else(|| format!("bad status reply '{r}'"))
+}
+
+fn ctl_cmd(req: Request) -> Result<(), String> {
+    println!("{}", ctl::send(&req, CTL_TIMEOUT)?);
+    Ok(())
 }

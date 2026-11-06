@@ -1,0 +1,12 @@
+# USB keyboard on the Join network page (timeline starts when it opens).
+# Demo strings only; the simulator "joins" anything except "wrongpass".
+wait 1200
+add keyboard Apple Keyboard
+wait 600
+type wrongpass
+wait 1000
+key enter
+wait 1700
+type demo-passphrase
+wait 900
+key enter
