@@ -8,3 +8,4 @@ description = "Music Mouse-style generative performance (Laurie Spiegel)"
 min_core = "0.5.0"
 order = 40
 arch = "arm-unknown-linux-musleabihf"
+permissions = ["usb-host"]

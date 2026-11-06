@@ -10,6 +10,7 @@ use zpod_nmea::{state::format_dd, state::format_dmm, GpsState, GpsStatus};
 use zpod_ui::{fill, rect, status::draw_status_bar, text, text::Align, theme::*, widgets, Font, Framebuffer};
 
 use crate::View;
+use zpod_input::role::{ask::UsbAsk, prompt::Tone};
 
 fn rrect(fb: &mut Framebuffer, x: i32, y: i32, w: u32, h: u32, r: u32, c: Rgb565) {
     let _ = RoundedRectangle::with_equal_corners(rect(x, y, w, h), Size::new(r, r)).into_styled(PrimitiveStyle::with_fill(c)).draw(fb);
@@ -52,7 +53,11 @@ pub fn draw(fb: &mut Framebuffer, st: &StatusInfo, v: &View, g: &GpsState) {
 
     match &v.status {
         GpsStatus::Unsupported(why) => {
-            message(fb, "USB host mode needed", &[why, "Tools > USB shows the current role.", "Switch: edit zpod-usb-role.txt on the SD card", "(docs/USB-HOST.md)."]);
+            if v.can_ask {
+                message(fb, "USB host mode needed", &[why, "OK: switch USB to devices here", "(or Tools > USB; docs/USB-HOST.md)."]);
+            } else {
+                message(fb, "USB host mode needed", &[why, "Switch in Tools > USB, then open GPS again", "(docs/USB-HOST.md)."]);
+            }
         }
         GpsStatus::NoDevice => {
             message(fb, "No GPS receiver", &["Plug in a USB GPS (e.g. GlobalSat ND-105C).", "Looking for PL2303 / ttyUSB / ttyACM ports.", "Use a powered hub if the Pi resets."]);
@@ -71,7 +76,36 @@ pub fn draw(fb: &mut Framebuffer, st: &StatusInfo, v: &View, g: &GpsState) {
         }
     }
     let port = v.port.as_deref().and_then(|p| p.split_whitespace().next()).map(|n| format!("{n} 4800 8N1")).unwrap_or_default();
-    widgets::hints(fb, &[("OK", if v.dmm { "decimal" } else { "deg min" }), ("Home", "exit"), ("", &port)]);
+    if v.can_ask {
+        widgets::hints(fb, &[("OK", "switch USB"), ("Home", "exit")]);
+    } else if v.host {
+        widgets::hints(fb, &[("OK", if v.dmm { "decimal" } else { "deg min" }), ("Sq", "computer link"), ("Home", "exit"), ("", &port)]);
+    } else {
+        widgets::hints(fb, &[("OK", if v.dmm { "decimal" } else { "deg min" }), ("Home", "exit"), ("", &port)]);
+    }
+}
+
+/// "Switch USB?" dialog / "Switching..." / a short note, over the screen.
+pub fn draw_ask(fb: &mut Framebuffer, a: &UsbAsk, note: Option<&str>) {
+    if let Some(p) = a.prompt() {
+        let lines: Vec<(&str, Rgb565)> = p.lines.iter().map(|(l, t)| (l.as_str(), tone(*t))).collect();
+        widgets::confirm(fb, p.title, &lines, if p.ok_switches { ACCENT } else { WARN });
+        widgets::hints(fb, &a.hints());
+    }
+    if let Some(b) = a.busy() {
+        widgets::toast(fb, &b);
+    } else if let Some(n) = note {
+        widgets::toast(fb, n);
+    }
+}
+
+fn tone(t: Tone) -> Rgb565 {
+    match t {
+        Tone::Normal => FG,
+        Tone::Good => OK,
+        Tone::Warn => WARN,
+        Tone::Dim => DIM,
+    }
 }
 
 fn message(fb: &mut Framebuffer, title: &str, lines: &[&str]) {

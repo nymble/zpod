@@ -14,7 +14,13 @@ use zpod_ui::{
     widgets, Font, Framebuffer,
 };
 
-use crate::{menu::WifiRow, server, usb, wifitools};
+use crate::{
+    menu::{UsbChoice, WifiRow},
+    server, usb, usbrole, wifitools,
+};
+use zpod_input::role::prompt::{self, Tone};
+use zpod_input::role::RoleInfo;
+use zpod_input::UsbRole;
 
 const Y0: i32 = STATUS_H;
 const H: i32 = 240 - STATUS_H - widgets::HINTS_H;
@@ -638,26 +644,116 @@ pub fn draw_chan_util(fb: &mut Framebuffer, nets: &[WifiNet], scanning: bool, ag
     widgets::hints(fb, &[("OK", if scanning { "scanning" } else { "rescan" }), ("Lt/X", "back"), ("", age)]);
 }
 
-/// Tools > USB: gadget status and what we can see of the host.
-pub fn draw_usb(fb: &mut Framebuffer, u: &usb::Info) {
+/// Tools > USB: the port's role now, the computer link or the plugged-in
+/// devices, Wi-Fi SSH (the way in once the computer link is gone), the boot
+/// role, and three switch rows (Up/Down + OK opens the confirmation).
+pub fn draw_usb(fb: &mut Framebuffer, u: &usb::Info, i: &RoleInfo, sel: usize, busy: Option<&str>) {
     clear(fb);
-    let up = u.link_up;
-    let px = pill(fb, 14, Y0 + 10, if up { "Connected" } else if u.udc_state.as_deref() == Some("configured") { "Configured" } else { "Not connected" }, if up { OK } else { FAINT });
-    text::draw_fit(fb, Font::Title, &u.function.clone().unwrap_or_else(|| "USB gadget".into()), 14 + px + 8, Y0 + 9, 290 - px, FG);
-    let mut y = Y0 + 36;
+    let role = i.role;
+    let (pc, sub) = match role {
+        Some(UsbRole::Host) => (OK, if i.devices.is_empty() { "no devices yet".to_string() } else { format!("{} device{}", i.devices.len(), if i.devices.len() == 1 { "" } else { "s" }) }),
+        Some(UsbRole::Otg) => (ACCENT, "follows the cable".to_string()),
+        _ => (CYAN, u.function.clone().unwrap_or_else(|| "USB Ethernet".into())),
+    };
+    let px = pill(fb, 14, Y0 + 8, usbrole::role_label(role), pc);
+    text::draw_fit(fb, Font::Title, &sub, 14 + px + 8, Y0 + 7, 290 - px, FG);
+    let mut y = Y0 + 32;
     let mut kv = |k: &str, v: &str, c: Rgb565| {
         text::draw(fb, Font::Small, k, 14, y + 3, DIM);
-        text::draw_fit(fb, Font::Body, v, 96, y, 216, c);
-        y += 20;
+        text::draw_fit(fb, Font::Body, v, 86, y, 226, c);
+        y += 19;
     };
     let dash = |o: &Option<String>| o.clone().unwrap_or_else(|| "--".into());
-    kv("Controller", &format!("{}{}", dash(&u.udc_state), u.speed.as_ref().map(|s| format!("  {s}")).unwrap_or_default()), FG);
-    kv("usb0", &format!("{}  {}", if up { "up" } else { "down" }, dash(&u.ip)), if up { FG } else { DIM });
-    kv("Host", &u.host_ip.as_ref().map(|ip| format!("{ip}  {}", u.host_mac.clone().unwrap_or_default())).unwrap_or_else(|| "not seen yet".into()), if u.host_ip.is_some() { CYAN } else { DIM });
-    kv("Host name", &dash(&u.host_name), FG);
-    kv("Traffic", &format!("rx {}  tx {}", zpod_hal::storage::human(u.rx_bytes), zpod_hal::storage::human(u.tx_bytes)), FG);
-    kv("Login", &format!("ssh zpod@{}", u.ip.clone().unwrap_or_else(|| "10.12.194.1".into())), DIM);
-    fill(fb, 10, Y0 + 162, 300, 24, PANEL);
-    text::draw_fit(fb, Font::Small, "Bash Bunny-style tools: coming later.", 18, Y0 + 168, 286, FAINT);
-    widgets::hints(fb, &[("OK", "refresh"), ("Lt/X", "back"), ("Home", "top")]);
+    if role != Some(UsbRole::Host) {
+        let up = u.link_up;
+        let link = if up {
+            format!("{}  {}", dash(&u.host_ip), u.host_name.clone().unwrap_or_default())
+        } else {
+            u.udc_state.clone().or_else(|| i.link.clone()).unwrap_or_else(|| "not connected".into())
+        };
+        kv("Computer", &link, if up { CYAN } else { DIM });
+        kv("usb0", &format!("{}  {}", if up { "up" } else { "down" }, dash(&u.ip)), if up { FG } else { DIM });
+    }
+    if role != Some(UsbRole::Gadget) {
+        let devs: Vec<&str> = i.devices.iter().map(String::as_str).collect();
+        match devs.as_slice() {
+            [] => kv("Devices", "none: plug in via OTG adapter / hub", DIM),
+            [a] => kv("Devices", a, FG),
+            [a, rest @ ..] => {
+                kv("Devices", a, FG);
+                let more = if rest.len() > 1 { format!("{}  (+{})", rest[0], rest.len() - 1) } else { rest[0].to_string() };
+                kv("", &more, FG);
+            }
+        }
+    }
+    match (&i.wifi_ip, i.safe) {
+        (Some(ip), true) => kv("Wi-Fi SSH", &format!("root@{ip}"), OK),
+        (Some(ip), false) => kv("Wi-Fi SSH", &format!("{ip}, SSH not listening"), WARN),
+        (None, _) => kv("Wi-Fi SSH", "no Wi-Fi: join first to switch safely", WARN),
+    }
+    let boot = format!("{}{}", usbrole::role_label(i.next), if i.live { "   (now: switched live)" } else { "" });
+    kv("At boot", &boot, DIM);
+
+    let ry = Y0 + 118;
+    for (k, c) in UsbChoice::ALL.iter().enumerate() {
+        let yy = ry + k as i32 * 23;
+        let t = c.target();
+        let cur = usbrole::is_current(t, role);
+        if k == sel {
+            fill(fb, 8, yy, 304, 22, SEL);
+        }
+        let label = match c {
+            UsbChoice::Host => "Use USB for devices",
+            UsbChoice::Gadget => "Connect to computer",
+            UsbChoice::Auto => "Auto: follow the cable",
+        };
+        let fg = if !i.can_switch { FAINT } else if k == sel { WHITE } else { FG };
+        text::draw(fb, Font::BodyBold, label, 16, yy + 5, fg);
+        let right = if cur { "now" } else if *c == UsbChoice::Auto { "experimental" } else { "" };
+        text::draw_aligned(fb, Font::Small, right, 304, yy + 6, Align::Right, if cur { OK } else { DIM });
+    }
+    if !i.can_switch {
+        text::draw_fit(fb, Font::Small, "Live switching needs zpod-usb-role (scripts/zpod-dev --core)", 14, ry + 70, 296, WARN);
+    }
+    if let Some(b) = busy {
+        widgets::toast(fb, b);
+    }
+    widgets::hints(fb, &[("OK", "switch"), ("Sq", "refresh"), ("Lt/X", "back"), ("Home", "top")]);
+}
+
+fn tone_colour(t: Tone) -> Rgb565 {
+    match t {
+        Tone::Normal => FG,
+        Tone::Good => OK,
+        Tone::Warn => WARN,
+        Tone::Dim => DIM,
+    }
+}
+
+/// Tools > USB > "Switch USB?" (also used by apps through zpod-input's
+/// prompt wording). `busy`: switching now.
+pub fn draw_usb_confirm(fb: &mut Framebuffer, c: UsbChoice, i: &RoleInfo, busy: Option<&str>) {
+    clear(fb);
+    let p = match c {
+        UsbChoice::Host => prompt::to_host(i, None),
+        UsbChoice::Gadget => prompt::to_gadget(i),
+        UsbChoice::Auto => prompt::to_auto(i),
+    };
+    let lines: Vec<(&str, Rgb565)> = p.lines.iter().map(|(l, t)| (l.as_str(), tone_colour(*t))).collect();
+    widgets::confirm(fb, p.title, &lines, if p.ok_switches { ACCENT } else { WARN });
+    if let Some(b) = busy {
+        widgets::toast(fb, b);
+    }
+    let persist = usbrole::can_persist(i, c.target());
+    let mut h: Vec<(&str, &str)> = Vec::new();
+    if p.ok_switches {
+        h.push(("OK", "switch"));
+    } else {
+        h.push(("Tri", "switch anyway"));
+    }
+    if persist {
+        h.push(("Sq", "switch + at boot"));
+    }
+    h.push(("X", "cancel"));
+    widgets::hints(fb, &h);
 }

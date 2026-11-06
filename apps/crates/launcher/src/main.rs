@@ -42,6 +42,7 @@ mod server;
 mod tools;
 mod transfer;
 mod usb;
+mod usbrole;
 mod wifitools;
 
 use std::path::PathBuf;
@@ -188,6 +189,10 @@ struct Launcher {
     notice: Vec<String>,
     usb: usb::Info,
     usb_at: Instant,
+    /// zpod-usb-role status (Tools > USB)
+    role: zpod_input::role::RoleInfo,
+    /// a USB role switch running on a thread
+    usb_job: Option<usbrole::Job>,
     /// Control socket requests (None: socket not available, e.g. sim).
     ctl: Option<std::sync::mpsc::Receiver<ctl::Pending>>,
     /// App to start on the next main-loop turn (control socket / restart).
@@ -266,11 +271,13 @@ impl Launcher {
             notice: Vec::new(),
             usb: usb::Info::default(),
             usb_at: Instant::now(),
+            role: Default::default(),
+            usb_job: None,
             ctl: None,
             pending_launch: None,
         };
         if !sys::sim() || std::env::var_os("ZPOD_SOCKET").is_some() {
-            l.ctl = ctl::start(&zpod_apps::ctl::socket_path());
+            l.ctl = ctl::start_both(&zpod_apps::ctl::socket_path(), &zpod_apps::ctl::app_socket_path());
         }
         l.rescan(true);
         l.notice = std::fs::read_to_string(notice_path())
@@ -417,6 +424,7 @@ impl Launcher {
             Page::WifiSaved => (self.wt.saved.len(), (LIST_H / APPS_ROW) as usize),
             Page::Wifi => (if self.wt.status.is_some() { menu::wifi_rows(self.wt.mode()).len() } else { 0 }, 4),
             Page::WifiMode => (3, 5),
+            Page::Usb => (3, 3),
             Page::HotspotDevices => (self.wt.status.as_ref().map(|s| s.clients.len()).unwrap_or(0), (LIST_H / APPS_ROW) as usize),
             Page::WifiDevices => (self.wt.neighbours.len() + self.tools.wifi.items.len(), ((LIST_H - 16) / APPS_ROW) as usize),
             _ => (0, 1),
@@ -573,7 +581,14 @@ impl Launcher {
                 let ssid = self.wt.hotspot.as_ref().map(|h| h.ssid.clone()).unwrap_or_else(|| "the ZPOD hotspot".into());
                 pages::draw_peers(fb, peers, &ssid, &ls);
             }
-            Page::Usb => pages::draw_usb(fb, &self.usb),
+            Page::Usb => {
+                let busy = self.usb_job.as_ref().map(|j| format!("Switching USB... {} s", j.started.elapsed().as_secs()));
+                pages::draw_usb(fb, &self.usb, &self.role, self.menus.list().sel, busy.as_deref());
+            }
+            Page::UsbConfirm(c) => {
+                let busy = self.usb_job.as_ref().map(|j| format!("Switching USB... {} s", j.started.elapsed().as_secs()));
+                pages::draw_usb_confirm(fb, c, &self.role, busy.as_deref());
+            }
             Page::WifiSaved => {
                 let ls = *self.menus.list();
                 let w = &self.wt;
@@ -907,6 +922,15 @@ impl Launcher {
             }
             return None;
         }
+        if let Page::UsbConfirm(c) = page {
+            if ev.state == KeyState::Press && !matches!(ev.key, Key::Home | Key::VolUp | Key::VolDown | Key::PlayPause) {
+                self.usb_confirm_key(c, ev.key);
+                return None;
+            }
+            if ev.key != Key::Home {
+                return None;
+            }
+        }
         if page == Page::WifiPassword && ev.key == Key::Home {
             self.pw = None; // wipes the field, stops the keyboard reader
         }
@@ -971,6 +995,11 @@ impl Launcher {
             (Page::WifiChannels, Nav::Other(Key::Square)) => {
                 self.tools.wifi.start(tools::wifi_job);
                 self.redraw = true;
+                return None;
+            }
+            (Page::Usb, Nav::Other(Key::Square)) => {
+                self.refresh_usb();
+                self.toast("Refreshed", 600);
                 return None;
             }
             (Page::WifiSaved, Nav::Other(Key::Square)) => {
@@ -1061,7 +1090,7 @@ impl Launcher {
                         self.wt.neighbours = wifi::neighbours();
                         self.tools.wifi.start(tools::wifi_job);
                     }
-                    Page::Usb => self.refresh_usb(),
+                    Page::Usb => self.usb_row_ok(),
                     Page::Server(opds) => match server::toggle(opds) {
                         Ok(st) => {
                             let on = if opds { st.opds } else { st.dropbox };
@@ -1178,8 +1207,70 @@ impl Launcher {
 
     fn refresh_usb(&mut self) {
         self.usb = usb::gather();
+        self.role = usbrole::status();
         self.usb_at = Instant::now();
         self.redraw = true;
+    }
+
+    /// Tools > USB, OK on a row: open its confirmation.
+    fn usb_row_ok(&mut self) {
+        let sel = self.menus.list().sel.min(2);
+        let c = menu::UsbChoice::ALL[sel];
+        if self.usb_job.is_some() {
+            return;
+        }
+        if !self.role.can_switch {
+            self.toast("This image cannot switch live (no zpod-usb-role)", 2500);
+        } else if usbrole::is_current(c.target(), self.role.role) {
+            self.toast(format!("Already: {}", usbrole::target_label(c.target())), 1500);
+        } else {
+            self.menus.push(Page::UsbConfirm(c));
+            self.redraw = true;
+        }
+    }
+
+    /// Keys on the "Switch USB?" confirmation.
+    fn usb_confirm_key(&mut self, c: menu::UsbChoice, k: Key) {
+        self.redraw = true;
+        let busy = self.usb_job.is_some();
+        let unsafe_host = c == menu::UsbChoice::Host && !self.role.safe;
+        match k {
+            Key::Left | Key::Cross if !busy => self.menus.back(),
+            Key::Ok | Key::Circle if !busy => {
+                if unsafe_host {
+                    self.toast("Needs Wi-Fi SSH (or Triangle)", 2200);
+                } else {
+                    self.usb_job = Some(usbrole::Job::start(c.target(), false, false));
+                }
+            }
+            Key::Triangle if !busy && unsafe_host => {
+                eprintln!("launcher: USB host without Wi-Fi SSH (confirmed on screen)");
+                self.usb_job = Some(usbrole::Job::start(c.target(), true, false));
+            }
+            Key::Square if !busy && usbrole::can_persist(&self.role, c.target()) => {
+                if unsafe_host {
+                    self.toast("No Wi-Fi SSH: not saved for next boot", 2200);
+                } else {
+                    self.usb_job = Some(usbrole::Job::start(c.target(), false, true));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// A finished Tools > USB switch.
+    fn usb_job_poll(&mut self) {
+        let Some(r) = self.usb_job.as_ref().and_then(|j| j.poll()) else { return };
+        let to = self.usb_job.take().map(|j| j.to);
+        match r {
+            Ok(_) => self.toast(format!("USB: {}", to.map(usbrole::target_label).unwrap_or("switched")), 2200),
+            Err(e) => self.toast(format!("USB switch failed: {e}"), 4000),
+        }
+        if matches!(self.menus.page(), Page::UsbConfirm(_)) {
+            self.menus.back();
+        }
+        self.p.status.net_changed();
+        self.refresh_usb();
     }
 
     /// Play/Pause away from the top menu: pause music that is playing,
@@ -1337,6 +1428,7 @@ impl Launcher {
                     }
                     None => p.reply(format!("err {id} is not installed (or BROKEN: zpod-app list)")),
                 },
+                Request::Usb(_) => ctl_usb(p, None),
                 Request::Restart(None) => p.reply("err no app is running (restart <id> starts one)"),
                 Request::Stop(_) | Request::Status => p.reply(Status::Idle.reply()),
                 Request::Version => p.reply(version_reply()),
@@ -1433,6 +1525,10 @@ impl Launcher {
                             }
                             Request::Version => {
                                 p.reply(version_reply());
+                                continue;
+                            }
+                            Request::Usb(_) => {
+                                ctl_usb(p, Some((m, child.id())));
                                 continue;
                             }
                             Request::Stop(Some(x)) if x != m.id => {
@@ -1812,7 +1908,12 @@ fn main() {
         if matches!(page, Page::Wifi | Page::WifiMode | Page::HotspotDevices) && !l.wt.busy() {
             l.wt.refresh_status(false); // every 5 s, on a thread
         }
-        if page == Page::Usb && l.usb_at.elapsed() >= Duration::from_secs(3) {
+        l.usb_job_poll();
+        if matches!(page, Page::Usb | Page::UsbConfirm(_)) && l.usb_job.is_some() && Instant::now() >= status_redraw_at {
+            l.redraw = true; // "Switching USB... N s"
+            status_redraw_at = Instant::now() + Duration::from_secs(1);
+        }
+        if page == Page::Usb && l.usb_job.is_none() && l.usb_at.elapsed() >= Duration::from_secs(3) {
             l.refresh_usb();
         }
         if page == Page::Battery && l.batt_at.elapsed() >= Duration::from_secs(20) {
@@ -1854,7 +1955,7 @@ fn main() {
         if let Some((_, until)) = l.spi_trial {
             timeout = timeout.min(until.saturating_duration_since(Instant::now()).max(Duration::from_millis(20)));
         }
-        if l.tools.busy() || l.wt.busy() || page == Page::WifiSignal {
+        if l.tools.busy() || l.wt.busy() || page == Page::WifiSignal || l.usb_job.is_some() {
             timeout = timeout.min(Duration::from_millis(250));
         }
         if l.ctl.is_some() {
@@ -1907,6 +2008,52 @@ fn main() {
     let kind = proc::stop_kind();
     eprintln!("zpod-launcher: stopping ({kind:?})");
     end_screen(&mut l.p, kind);
+}
+
+/// `usb ...` on the control or app socket. Apps (app socket): only the app
+/// on the screen (`front`: its manifest + pid; the caller may be a child),
+/// and only with `permissions = ["usb-host"]`. The switch runs on a thread
+/// that answers when done, so the app's wait loop keeps running.
+fn ctl_usb(p: ctl::Pending, front: Option<(&zpod_apps::manifest::AppSection, u32)>) {
+    use zpod_apps::ctl::{Request, UsbReq};
+    let Request::Usb(u) = p.req.clone() else {
+        p.reply("err not a usb request");
+        return;
+    };
+    match u {
+        UsbReq::Status => {
+            let i = usbrole::status();
+            p.reply(format!("ok {}", i.to_words()));
+        }
+        UsbReq::Set { to, force, persist } => {
+            if p.from_app {
+                let Some((m, pid)) = front else {
+                    p.reply("err only the app on the screen can switch USB");
+                    return;
+                };
+                let caller = match p.peer_pid {
+                    Some(pp) => usbrole::is_descendant(pp, pid),
+                    None => sys::sim(),
+                };
+                if !caller {
+                    p.reply("err only the app on the screen can switch USB");
+                    return;
+                }
+                if !m.has_permission("usb-host") {
+                    p.reply(format!("err {} lacks permission usb-host (manifest permissions)", m.id));
+                    return;
+                }
+                eprintln!("launcher: {} asks for usb {}{}", m.id, to.word(), if force { " (forced)" } else { "" });
+            }
+            std::thread::spawn(move || {
+                let r = usbrole::set(to, force, persist);
+                p.reply(match r {
+                    Ok(x) => format!("ok {x}"),
+                    Err(e) => format!("err {e}"),
+                });
+            });
+        }
+    }
 }
 
 fn version_reply() -> String {

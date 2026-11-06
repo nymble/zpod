@@ -4,7 +4,10 @@
 //! error), coordinates, UTC time, satellites used / in view, HDOP and one
 //! SNR bar per satellite.
 //!
-//! Buttons: OK = decimal degrees / degrees + minutes, Home = exit.
+//! Buttons: OK = decimal degrees / degrees + minutes, Square = give the
+//! USB port back to the computer, Home = exit. In gadget mode the app asks
+//! the launcher to switch USB to host ("Switch USB to devices?", manifest
+//! permission usb-host; docs/USB-HOST.md).
 //! Simulator: `ZPOD_GPS_SIM=<nmea fixture>` (see serial::run_sim),
 //! `ZPOD_USB_ROLE=gadget|host`.
 
@@ -16,6 +19,7 @@ use std::time::{Duration, Instant};
 
 use zpod_core::{Key, KeyState};
 use zpod_hal::Platform;
+use zpod_input::role::ask::{Answer, Outcome, UsbAsk};
 use zpod_input::UsbRole;
 use zpod_nmea::{GpsState, GpsStatus};
 
@@ -31,6 +35,18 @@ pub struct View {
     pub dmm: bool,
     /// ms since the last fix (for "stale 12 s")
     pub fix_age_ms: Option<u64>,
+    /// OK here asks to switch USB to host
+    pub can_ask: bool,
+    /// USB is host: Square gives it back to the computer
+    pub host: bool,
+}
+
+fn unsupported(role: UsbRole, drivers: bool) -> Option<String> {
+    match (role, drivers) {
+        (UsbRole::Gadget, _) => Some("USB is the computer link (gadget mode)".to_string()),
+        (_, false) => Some("This image has no USB serial (pl2303) driver".to_string()),
+        _ => None,
+    }
 }
 
 fn main() {
@@ -45,25 +61,36 @@ fn main() {
         libc::signal(libc::SIGTERM, on_sigterm as *const () as libc::sighandler_t);
         libc::signal(libc::SIGINT, on_sigterm as *const () as libc::sighandler_t);
     }
-    let role = zpod_input::role::usb_role();
+    let mut role = zpod_input::role::usb_role();
     let sim = std::env::var("ZPOD_GPS_SIM").ok();
     let drivers = sim.is_some() || serial::drivers_present();
-    let unsupported = match (role, drivers) {
-        (UsbRole::Gadget, _) => Some("USB is the computer link (gadget mode)".to_string()),
-        (_, false) => Some("This image has no USB serial (pl2303) driver".to_string()),
-        _ => None,
-    };
+    let mut unsup = unsupported(role, drivers);
     eprintln!("gps: USB role {}, drivers {}", role.label(), if drivers { "present" } else { "missing" });
 
     let (tx, rx) = channel();
-    if unsupported.is_none() {
-        match sim {
+    let mut tx = Some(tx);
+    let mut start_reader = move |sim: &Option<String>| {
+        let Some(tx) = tx.take() else { return };
+        match sim.clone() {
             Some(path) => {
                 std::thread::spawn(move || serial::run_sim(&path, tx));
             }
             None => {
                 std::thread::spawn(move || serial::run_reader(tx));
             }
+        }
+    };
+    if unsup.is_none() {
+        start_reader(&sim);
+    }
+    // gadget: ask right away (the user opened GPS to use a receiver)
+    let mut ask = UsbAsk::new("GPS");
+    let mut can_ask = false;
+    let mut note: Option<(String, Instant)> = None;
+    if role == UsbRole::Gadget && drivers {
+        match ask.open(true) {
+            Ok(()) => can_ask = true,
+            Err(e) => eprintln!("gps: cannot ask for USB host: {e}"),
         }
     }
 
@@ -108,7 +135,29 @@ fn main() {
             dirty = true;
         }
         let now = now_ms();
-        let status = match &unsupported {
+        match ask.poll() {
+            Outcome::Switched(r) => {
+                eprintln!("gps: USB is now {}", r.label());
+                role = r;
+                unsup = unsupported(role, drivers);
+                note = Some((if role == UsbRole::Gadget { "Computer link back".into() } else { "USB: devices. Plug in the GPS".into() }, Instant::now()));
+                if unsup.is_none() {
+                    start_reader(&sim);
+                }
+                dirty = true;
+            }
+            Outcome::Failed(e) => {
+                eprintln!("gps: USB switch failed: {e}");
+                note = Some((format!("USB switch failed: {e}"), Instant::now()));
+                dirty = true;
+            }
+            _ => {}
+        }
+        if note.as_ref().is_some_and(|(_, t)| t.elapsed() > Duration::from_millis(2500)) {
+            note = None;
+            dirty = true;
+        }
+        let status = match &unsup {
             Some(r) => GpsStatus::Unsupported(r.clone()),
             None => gps.status(now, port.is_some(), io_error.as_deref()),
         };
@@ -123,8 +172,16 @@ fn main() {
             dirty = true;
         }
         if dirty || Instant::now() >= next_redraw {
-            let v = View { status, port: port.as_ref().map(|p| p.describe()), dmm, fix_age_ms: gps.last_fix_ms.map(|t| now.saturating_sub(t)) };
+            let v = View {
+                status,
+                port: port.as_ref().map(|p| p.describe()),
+                dmm,
+                fix_age_ms: gps.last_fix_ms.map(|t| now.saturating_sub(t)),
+                can_ask: can_ask && role == UsbRole::Gadget,
+                host: can_ask && role == UsbRole::Host,
+            };
             ui::draw(&mut p.fb, &st, &v, &gps);
+            ui::draw_ask(&mut p.fb, &ask, note.as_ref().map(|(n, _)| n.as_str()));
             p.flush();
             dirty = false;
             next_redraw = Instant::now() + Duration::from_millis(500);
@@ -133,11 +190,34 @@ fn main() {
         if ev.state != KeyState::Press {
             continue;
         }
+        dirty = true;
+        if ask.active() {
+            let a = match ev.key {
+                Key::Home => break,
+                Key::Ok | Key::Circle => Answer::Yes,
+                Key::Triangle => Answer::Force,
+                Key::Cross | Key::Left => Answer::Cancel,
+                _ => continue,
+            };
+            if ask.answer(a) == Outcome::NeedForce {
+                note = Some(("Needs Wi-Fi SSH (or Triangle)".into(), Instant::now()));
+            }
+            continue;
+        }
         match ev.key {
             Key::Home => break,
-            Key::Ok | Key::Circle => {
-                dmm = !dmm;
-                dirty = true;
+            Key::Ok | Key::Circle if role == UsbRole::Gadget && drivers => {
+                if let Err(e) = ask.open(true) {
+                    note = Some((format!("Cannot switch here: {e}"), Instant::now()));
+                } else {
+                    can_ask = true;
+                }
+            }
+            Key::Ok | Key::Circle => dmm = !dmm,
+            Key::Square if role == UsbRole::Host => {
+                if let Err(e) = ask.open(false) {
+                    note = Some((format!("Cannot switch here: {e}"), Instant::now()));
+                }
             }
             _ => {}
         }

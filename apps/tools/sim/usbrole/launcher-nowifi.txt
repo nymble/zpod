@@ -1,0 +1,22 @@
+# Tools > USB without Wi-Fi: the host switch needs Triangle (switch anyway)
+wait 400
+key down
+key down
+key down
+key down
+key ok
+wait 300
+key down
+key down
+key ok
+wait 500
+shot usb-gadget-nowifi
+key ok
+wait 300
+shot usb-confirm-host-nowifi
+key ok
+wait 200
+shot usb-confirm-host-needforce
+key cross
+wait 300
+exit

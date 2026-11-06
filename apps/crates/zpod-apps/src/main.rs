@@ -18,6 +18,9 @@ const USAGE: &str = "usage:
   zpod-app restart [<id>]               stop and start again (default: the running app)
   zpod-app stop [<id>]                  back to the home screen
   zpod-app status                       which app is running
+  zpod-app usb [status]                 USB role, Wi-Fi SSH, devices (via the launcher)
+  zpod-app usb host|gadget|auto [force] [persist]
+                                        switch the USB port now (as Tools > USB)
   zpod-app logs [-f] [-n N] <id>        the app's stdout/stderr (-f: follow)
 launch/restart/stop/status talk to the launcher (root only); see docs/DEV-LOOP.md.
 env: ZPOD_APPS_DIR (default /opt/zpod/apps), ZPOD_DATA_DIR, ZPOD_LOG_DIR, ZPOD_SOCKET";
@@ -132,6 +135,20 @@ fn run(args: &[String]) -> Result<(), String> {
         ["restart", id] => ctl_cmd(Request::Restart(Some(id.to_string()))),
         ["stop"] => ctl_cmd(Request::Stop(None)),
         ["stop", id] => ctl_cmd(Request::Stop(Some(id.to_string()))),
+        ["usb", rest @ ..] => {
+            let line = if rest.is_empty() { "usb status".to_string() } else { format!("usb {}", rest.join(" ")) };
+            let req = Request::parse(&line)?;
+            let r = ctl::send(&req, Duration::from_secs(25))?;
+            if req == Request::Usb(ctl::UsbReq::Status) {
+                // one key=value per line (devices: '_' for spaces)
+                for w in r.split_whitespace() {
+                    println!("{w}");
+                }
+            } else {
+                println!("{r}");
+            }
+            Ok(())
+        }
         ["status"] => {
             match status()? {
                 ctl::Status::Idle => println!("idle (home screen)"),

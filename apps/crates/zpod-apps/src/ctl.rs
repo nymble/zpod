@@ -9,6 +9,16 @@
 //! | `stop [<id>]`      | `ok stopped <id>`, or `ok idle`                   |
 //! | `status`           | `ok running <id> <pid> <seconds>`, or `ok idle`   |
 //! | `version`          | `ok zpod-launcher <version> ctl <protocol>`       |
+//! | `usb status`       | `ok role=gadget boot=gadget safe=1 ...` (key=value) |
+//! | `usb host\|gadget\|auto [force] [persist]` | `ok host` after a live switch (zpod-usb-role) |
+//!
+//! Apps (user `zpod`) cannot open this socket. They use the app socket
+//! (`/run/zpod/app.sock`, [`APP_SOCKET`]), which takes only the `usb`
+//! requests: `usb status` from any app, `usb host|gadget|auto [force]` only
+//! from the app on the screen and only if its manifest lists
+//! `permissions = ["usb-host"]` (the launcher checks the caller's pid).
+//! The app asks the user first (Switch USB? dialog); `persist` (next boot
+//! too) is root-socket only.
 //!
 //! Errors are `err <reason>`. The launcher is the only LCD owner, so this is
 //! how the Mac (over ssh) starts, restarts and stops apps without fighting it
@@ -19,12 +29,54 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 pub const DEFAULT_SOCKET: &str = "/run/zpod/launcher.sock";
-pub const PROTOCOL: u32 = 1;
+/// Requests from apps (mode 0666; the launcher authorises by peer pid).
+pub const APP_SOCKET: &str = "/run/zpod/app.sock";
+/// 2: `usb` requests and the app socket.
+pub const PROTOCOL: u32 = 2;
 /// Longest request line accepted.
 pub const MAX_LINE: usize = 256;
 
 pub fn socket_path() -> PathBuf {
     std::env::var_os("ZPOD_SOCKET").map(Into::into).unwrap_or_else(|| DEFAULT_SOCKET.into())
+}
+
+pub fn app_socket_path() -> PathBuf {
+    std::env::var_os("ZPOD_APP_SOCKET").map(Into::into).unwrap_or_else(|| APP_SOCKET.into())
+}
+
+/// Role asked for in a `usb` request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UsbTarget {
+    /// keyboard / mouse / GPS (dwc2 host)
+    Host,
+    /// link to the computer (dwc2 peripheral + CDC-NCM gadget)
+    Gadget,
+    /// follow the cable's ID pin (dwc2 otg), experimental
+    Auto,
+}
+
+impl UsbTarget {
+    pub fn word(self) -> &'static str {
+        match self {
+            UsbTarget::Host => "host",
+            UsbTarget::Gadget => "gadget",
+            UsbTarget::Auto => "auto",
+        }
+    }
+    pub fn parse(s: &str) -> Option<UsbTarget> {
+        match s {
+            "host" => Some(UsbTarget::Host),
+            "gadget" => Some(UsbTarget::Gadget),
+            "auto" => Some(UsbTarget::Auto),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UsbReq {
+    Status,
+    Set { to: UsbTarget, force: bool, persist: bool },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,6 +86,7 @@ pub enum Request {
     Stop(Option<String>),
     Status,
     Version,
+    Usb(UsbReq),
 }
 
 fn id_arg(s: Option<&str>) -> Result<Option<String>, String> {
@@ -48,6 +101,9 @@ impl Request {
     pub fn parse(line: &str) -> Result<Request, String> {
         let mut w = line.split_whitespace();
         let cmd = w.next().unwrap_or("");
+        if cmd == "usb" {
+            return Self::parse_usb(w.collect());
+        }
         let arg = w.next();
         if w.next().is_some() {
             return Err("too many arguments".into());
@@ -63,8 +119,36 @@ impl Request {
         }
     }
 
+    fn parse_usb(args: Vec<&str>) -> Result<Request, String> {
+        match args.as_slice() {
+            ["status"] => Ok(Request::Usb(UsbReq::Status)),
+            [to, flags @ ..] => {
+                let to = UsbTarget::parse(to).ok_or_else(|| format!("usb: unknown role '{to}' (host, gadget, auto, status)"))?;
+                let (mut force, mut persist) = (false, false);
+                for f in flags {
+                    match *f {
+                        "force" if !force => force = true,
+                        "persist" if !persist => persist = true,
+                        x => return Err(format!("usb: unknown option '{x}'")),
+                    }
+                }
+                Ok(Request::Usb(UsbReq::Set { to, force, persist }))
+            }
+            [] => Err("usb needs status, host, gadget or auto".into()),
+        }
+    }
+
+    /// Requests accepted on the app socket.
+    pub fn allowed_for_apps(&self) -> bool {
+        matches!(self, Request::Usb(UsbReq::Status) | Request::Usb(UsbReq::Set { persist: false, .. }))
+    }
+
     pub fn to_line(&self) -> String {
         match self {
+            Request::Usb(UsbReq::Status) => "usb status".into(),
+            Request::Usb(UsbReq::Set { to, force, persist }) => {
+                format!("usb {}{}{}", to.word(), if *force { " force" } else { "" }, if *persist { " persist" } else { "" })
+            }
             Request::Launch(id) => format!("launch {id}"),
             Request::Restart(Some(id)) => format!("restart {id}"),
             Request::Restart(None) => "restart".into(),
@@ -110,7 +194,12 @@ impl Status {
 /// after `err ` as an error. `Err` also when the launcher is not listening
 /// (no socket: the image's launcher predates the control socket).
 pub fn send(req: &Request, timeout: Duration) -> Result<String, String> {
-    let path = socket_path();
+    send_to(&socket_path(), req, timeout)
+}
+
+/// [`send`] to another socket (the app socket).
+pub fn send_to(path: &std::path::Path, req: &Request, timeout: Duration) -> Result<String, String> {
+    let path = path.to_path_buf();
     let mut s = std::os::unix::net::UnixStream::connect(&path).map_err(|e| {
         format!("launcher control socket {}: {e} (launcher too old or not running? see docs/DEV-LOOP.md)", path.display())
     })?;
@@ -148,7 +237,29 @@ mod tests {
         assert!(Request::parse("rm -rf").is_err());
         assert!(Request::parse("").is_err());
         assert!(Request::parse("launch a b").is_err());
-        for r in [Request::Launch("a".into()), Request::Restart(None), Request::Restart(Some("b".into())), Request::Stop(None), Request::Status, Request::Version] {
+        assert_eq!(Request::parse("usb status").unwrap(), Request::Usb(UsbReq::Status));
+        assert_eq!(Request::parse("usb host").unwrap(), Request::Usb(UsbReq::Set { to: UsbTarget::Host, force: false, persist: false }));
+        assert_eq!(Request::parse("usb gadget persist force").unwrap(), Request::Usb(UsbReq::Set { to: UsbTarget::Gadget, force: true, persist: true }));
+        assert!(Request::parse("usb").is_err());
+        assert!(Request::parse("usb mass-storage").is_err());
+        assert!(Request::parse("usb host now").is_err());
+        assert!(Request::parse("usb host force force").is_err());
+        assert!(Request::parse("usb status").unwrap().allowed_for_apps());
+        assert!(Request::parse("usb host force").unwrap().allowed_for_apps());
+        assert!(!Request::parse("usb host persist").unwrap().allowed_for_apps());
+        assert!(!Request::parse("launch clock").unwrap().allowed_for_apps());
+        assert!(!Request::parse("stop").unwrap().allowed_for_apps());
+        for r in [
+            Request::Launch("a".into()),
+            Request::Restart(None),
+            Request::Restart(Some("b".into())),
+            Request::Stop(None),
+            Request::Status,
+            Request::Version,
+            Request::Usb(UsbReq::Status),
+            Request::Usb(UsbReq::Set { to: UsbTarget::Auto, force: true, persist: false }),
+            Request::Usb(UsbReq::Set { to: UsbTarget::Gadget, force: false, persist: true }),
+        ] {
             assert_eq!(Request::parse(&r.to_line()).unwrap(), r);
         }
     }

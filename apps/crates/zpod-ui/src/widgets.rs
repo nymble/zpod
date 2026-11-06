@@ -215,6 +215,26 @@ pub fn dialog<D: Canvas>(d: &mut D, title: &str, lines: &[&str], title_color: Rg
     }
 }
 
+/// Confirmation box with a short title and coloured lines (the "Switch
+/// USB?" prompts in the launcher and in apps). Lines are fitted to width.
+pub fn confirm<D: Canvas>(d: &mut D, title: &str, lines: &[(&str, Rgb565)], accent: Rgb565) {
+    let r = rect(10, 30, 300, 176);
+    let _ = RoundedRectangle::with_equal_corners(r, Size::new(10, 10))
+        .into_styled(PrimitiveStyle::with_fill(PANEL))
+        .draw(d);
+    let _ = RoundedRectangle::with_equal_corners(r, Size::new(10, 10))
+        .into_styled(PrimitiveStyle::with_stroke(accent, 2))
+        .draw(d);
+    text::draw_aligned(d, Font::Large, &text::fit(Font::Large, title, 284), 160, 42, text::Align::Center, accent);
+    let mut y = 76;
+    for (l, c) in lines {
+        // body font when it fits, else the small one (fitted, never clipped)
+        let f = if text::width(Font::Body, l) <= 284 { Font::Body } else { Font::Small };
+        text::draw_aligned(d, f, &text::fit(f, l, 290), 160, y, text::Align::Center, *c);
+        y += 24;
+    }
+}
+
 /// Bottom hint line: pairs of (button glyph label, action), e.g. ("OK", "play").
 pub fn hints<D: Canvas>(d: &mut D, items: &[(&str, &str)]) {
     let y = 240 - 16;

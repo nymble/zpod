@@ -80,8 +80,11 @@ pub enum Page {
     Hotspot,
     /// devices connected to the hotspot
     HotspotDevices,
-    /// USB gadget landing page
+    /// USB port: role now (computer link / USB devices), devices, and the
+    /// switch rows (Up/Down + OK)
     Usb,
+    /// "Switch USB?" confirmation for one target
+    UsbConfirm(UsbChoice),
     /// M6: web drop box / OPDS catalog on/off (true = OPDS)
     Server(bool),
     /// M6: first-boot files applied after the first boot (shown at start)
@@ -97,6 +100,25 @@ pub enum Page {
     ButtonTest,
     /// true = reboot, false = shut down
     Confirm(bool),
+}
+
+/// Tools > USB rows, in order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UsbChoice {
+    Host,
+    Gadget,
+    Auto,
+}
+
+impl UsbChoice {
+    pub const ALL: [UsbChoice; 3] = [UsbChoice::Host, UsbChoice::Gadget, UsbChoice::Auto];
+    pub fn target(self) -> zpod_apps::ctl::UsbTarget {
+        match self {
+            UsbChoice::Host => zpod_apps::ctl::UsbTarget::Host,
+            UsbChoice::Gadget => zpod_apps::ctl::UsbTarget::Gadget,
+            UsbChoice::Auto => zpod_apps::ctl::UsbTarget::Auto,
+        }
+    }
 }
 
 /// What the launcher must do after a key.
@@ -170,7 +192,7 @@ pub fn label(it: Item) -> (&'static str, &'static str) {
         Item::Transfer => ("File transfer", "How to connect, free space, rescan"),
         Item::Battery => ("Battery", "Charge, time left, last charge, history"),
         Item::Wifi => ("Wi-Fi", "Off, client or hotspot; networks, devices"),
-        Item::Usb => ("USB", "Gadget link to the computer"),
+        Item::Usb => ("USB", "Computer link or USB devices"),
         Item::WifiChannels => ("Channel utilization", "2.4 GHz networks and the least busy channel"),
         Item::WifiDevices => ("Devices & addresses", "Access points heard, LAN neighbours"),
         Item::DropBox => ("Drop box", "Web page: browse, download, upload"),
@@ -216,7 +238,7 @@ pub fn title(p: Page) -> &'static str {
         Page::WifiPassword => "Join network",
         Page::Hotspot => "Hotspot",
         Page::HotspotDevices => "Connected",
-        Page::Usb => "USB",
+        Page::Usb | Page::UsbConfirm(_) => "USB",
         Page::Server(false) => "Drop box",
         Page::Server(true) => "Books",
         Page::Notice => "Setup files",

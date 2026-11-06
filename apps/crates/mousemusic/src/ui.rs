@@ -101,6 +101,8 @@ pub struct Chooser<'a> {
     pub sel: usize,
     /// USB row subtitle: found device / plug one in / needs host mode
     pub usb_line: &'a str,
+    /// USB is host: Square gives it back to the computer
+    pub usb_back: bool,
     pub usb_found: bool,
     /// seconds until the highlighted choice starts by itself
     pub countdown: Option<u32>,
@@ -143,7 +145,37 @@ pub fn draw_choose(fb: &mut Framebuffer, st: &StatusInfo, c: &Chooser) {
         y += h as i32 + 6;
     }
     let cd = c.countdown.map(|s| format!("starts in {s} s")).unwrap_or_default();
-    widgets::hints(fb, &[("Up/Dn", "choose"), ("OK", "start"), ("", &cd)]);
+    if c.usb_back {
+        widgets::hints(fb, &[("Up/Dn", "choose"), ("OK", "start"), ("Sq", "computer link"), ("", &cd)]);
+    } else {
+        widgets::hints(fb, &[("Up/Dn", "choose"), ("OK", "start"), ("", &cd)]);
+    }
+}
+
+/// "Switch USB?" dialog and "Switching..." over the chooser.
+pub fn draw_ask(fb: &mut Framebuffer, a: &zpod_input::role::ask::UsbAsk) {
+    use zpod_input::role::prompt::Tone;
+    use zpod_ui::theme::{ACCENT, DIM, FG, OK, WARN};
+    if let Some(p) = a.prompt() {
+        let lines: Vec<(&str, Rgb565)> = p
+            .lines
+            .iter()
+            .map(|(l, t)| {
+                let c = match t {
+                    Tone::Normal => FG,
+                    Tone::Good => OK,
+                    Tone::Warn => WARN,
+                    Tone::Dim => DIM,
+                };
+                (l.as_str(), c)
+            })
+            .collect();
+        widgets::confirm(fb, p.title, &lines, if p.ok_switches { ACCENT } else { WARN });
+        widgets::hints(fb, &a.hints());
+    }
+    if let Some(b) = a.busy() {
+        widgets::toast(fb, &b);
+    }
 }
 
 pub fn draw_play(fb: &mut Framebuffer, st: &StatusInfo, perf: &PerfState, trail: &[(i32, i32)]) {

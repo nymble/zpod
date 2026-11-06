@@ -5,6 +5,9 @@
 //! Input chooser after the splash: ZPOD buttons (always on) / USB mouse +
 //! keyboard (zpod-input, hotplug; needs USB host mode) / Bluetooth (later).
 //! Without a choice the highlighted one starts after a few seconds.
+//! Choosing USB while the port is the computer link (gadget) asks the
+//! launcher to switch it ("Switch USB to devices?", manifest permission
+//! usb-host); Square on the chooser gives it back to the computer.
 //!
 //! Buttons (fast-arrows mode; Circle acts as OK):
 //!   Lt/Rt lower voices · Up/Dn upper · Cir pattern (hold = menu soon)
@@ -18,6 +21,7 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use zpod_core::{Event, Key, KeyState, StatusInfo};
+use zpod_input::role::ask::{Answer, Outcome, UsbAsk};
 use zpod_input::{HidEvent, HidInput, SourceKind, UsbRole};
 use zpod_hal::Platform;
 use zpod_music_core::{
@@ -68,7 +72,7 @@ fn usb_line(hid: &HidInput, role: UsbRole) -> (String, bool) {
         return (format!("Found {} {}: {}{more}", d.bus_label(), d.kind.label(), d.name), true);
     }
     let s = match role {
-        UsbRole::Gadget => "Needs host mode: USB is the Mac link now".to_string(),
+        UsbRole::Gadget => "USB is the computer link: OK asks to switch".to_string(),
         UsbRole::Host | UsbRole::Otg => "Plug in a mouse or keyboard".to_string(),
         UsbRole::Unknown => "No mouse or keyboard found".to_string(),
     };
@@ -144,8 +148,9 @@ fn main() {
     };
 
     let hid = HidInput::spawn();
-    let role = zpod_input::role::usb_role();
+    let mut role = zpod_input::role::usb_role();
     eprintln!("mousemusic: USB role {}", role.label());
+    let mut ask = UsbAsk::new("Mouse Music");
     let mut hidmap = hidmap::HidMap::default();
     let mut mode = InputMode::Buttons;
     let mut choose_sel = 0usize;
@@ -221,6 +226,33 @@ fn main() {
                 }
             }
         }
+        match ask.poll() {
+            Outcome::Switched(r) => {
+                eprintln!("mousemusic: USB is now {}", r.label());
+                role = r;
+                if role == UsbRole::Gadget {
+                    toast = Some(("Computer link back".into(), Instant::now()));
+                } else {
+                    mode = InputMode::Usb;
+                    save_mode(mode);
+                    screen = Screen::Play;
+                    toast = Some(("USB: plug in mouse / keyboard".into(), Instant::now()));
+                }
+                choose_until = Instant::now() + Duration::from_secs(CHOOSE_SECS as u64);
+                dirty = true;
+            }
+            Outcome::Failed(e) => {
+                eprintln!("mousemusic: USB switch failed: {e}");
+                toast = Some((format!("USB switch failed: {e}"), Instant::now()));
+                choose_until = Instant::now() + Duration::from_secs(CHOOSE_SECS as u64);
+                dirty = true;
+            }
+            _ => {}
+        }
+        if ask.active() {
+            choose_until = Instant::now() + Duration::from_secs(CHOOSE_SECS as u64); // no auto-start under the dialog
+            dirty = true; // "Switching USB... N s"
+        }
         if screen == Screen::Choose {
             let left = choose_until.saturating_duration_since(Instant::now());
             if left.is_zero() {
@@ -253,7 +285,9 @@ fn main() {
                 Screen::Choose => {
                     let (line, found) = usb_line(&hid, role);
                     let secs = choose_until.saturating_duration_since(Instant::now()).as_millis().div_ceil(1000) as u32;
-                    ui::draw_choose(&mut p.fb, &status, &ui::Chooser { sel: choose_sel, usb_line: &line, usb_found: found, countdown: Some(secs) });
+                    let back = role == UsbRole::Host;
+                    ui::draw_choose(&mut p.fb, &status, &ui::Chooser { sel: choose_sel, usb_line: &line, usb_found: found, countdown: (!ask.active()).then_some(secs), usb_back: back });
+                    ui::draw_ask(&mut p.fb, &ask);
                 }
                 Screen::Play => {
                     let t: Vec<_> = trail.iter().copied().collect();
@@ -294,6 +328,23 @@ fn main() {
         if ev.key == Key::Home && ev.state == KeyState::Press {
             break 0;
         }
+        if ask.active() {
+            if ev.is_down() {
+                let a = match ev.key {
+                    Key::Ok | Key::Circle => Some(Answer::Yes),
+                    Key::Triangle => Some(Answer::Force),
+                    Key::Cross | Key::Left => Some(Answer::Cancel),
+                    _ => None,
+                };
+                if let Some(a) = a {
+                    if ask.answer(a) == Outcome::NeedForce {
+                        toast = Some(("Needs Wi-Fi SSH (or Triangle)".into(), Instant::now()));
+                    }
+                }
+                dirty = true;
+            }
+            continue;
+        }
 
         match screen {
             Screen::Splash => {
@@ -310,6 +361,16 @@ fn main() {
                     match ev.key {
                         Key::Up => choose_sel = choose_sel.saturating_sub(1),
                         Key::Down => choose_sel = (choose_sel + 1).min(1), // Bluetooth row is disabled
+                        Key::Square if role == UsbRole::Host => {
+                            if let Err(e) = ask.open(false) {
+                                toast = Some((format!("Cannot switch here: {e}"), Instant::now()));
+                            }
+                        }
+                        Key::Ok | Key::Circle | Key::Right | Key::PlayPause
+                            if choose_sel == 1 && role == UsbRole::Gadget && ask.open(true).is_ok() =>
+                        {
+                            // "Switch USB to devices?" is open; Play starts after the switch
+                        }
                         Key::Ok | Key::Circle | Key::Right | Key::PlayPause => {
                             mode = if choose_sel == 1 { InputMode::Usb } else { InputMode::Buttons };
                             save_mode(mode);

@@ -46,11 +46,23 @@ pub struct AppSection {
     /// Needs a zpod-app / launcher from 2026-11-05 or later.
     #[serde(default)]
     pub category: Option<String>,
+    /// Extra things the launcher lets this app do. Known: "usb-host" (ask
+    /// the launcher to switch the USB port between computer link and USB
+    /// devices; see ctl.rs). Needs a launcher from 2026-11-05 (ctl 2).
+    #[serde(default)]
+    pub permissions: Vec<String>,
 }
+
+/// Values accepted in `permissions`.
+pub const KNOWN_PERMISSIONS: &[&str] = &["usb-host"];
 
 impl AppSection {
     pub fn is_tool(&self) -> bool {
         self.category.as_deref() == Some("tool")
+    }
+
+    pub fn has_permission(&self, p: &str) -> bool {
+        self.permissions.iter().any(|x| x == p)
     }
 }
 
@@ -103,6 +115,11 @@ impl Manifest {
         if let Some(i) = &a.icon {
             if !safe_rel(i) {
                 return Err(format!("bad icon path '{i}'"));
+            }
+        }
+        for p in &a.permissions {
+            if !KNOWN_PERMISSIONS.contains(&p.as_str()) {
+                return Err(format!("unknown permission '{p}' (known: {})", KNOWN_PERMISSIONS.join(", ")));
             }
         }
         if let Some(c) = &a.category {
@@ -178,6 +195,15 @@ order = 30
         assert!(bad("min_core = \"0.5.0\"", "min_core = \"x\"").contains("min_core"));
         assert!(bad("order = 30", "order = 30\nroot = true").contains("unknown field"));
         assert!(bad("name = \"Tetris\"\n", "").contains("name"));
+        assert!(bad("order = 30", "order = 30\npermissions = [\"root\"]").contains("unknown permission"));
+    }
+
+    #[test]
+    fn permissions() {
+        let m = Manifest::parse(GOOD).unwrap();
+        assert!(m.app.permissions.is_empty() && !m.app.has_permission("usb-host"));
+        let m = Manifest::parse(&GOOD.replace("order = 30", "order = 30\npermissions = [\"usb-host\"]")).unwrap();
+        assert!(m.app.has_permission("usb-host"));
     }
 
     #[test]
