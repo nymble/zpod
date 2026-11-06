@@ -19,6 +19,8 @@ endef
 
 define ZPOD_APPS_INSTALL_TARGET_CMDS
 	$(INSTALL) -d -m 0755 $(TARGET_DIR)/usr/lib/zpod/bin $(TARGET_DIR)/usr/share/zpod/packages
+	# only this build's bundled apps (an incremental build kept older versions)
+	rm -f $(TARGET_DIR)/usr/share/zpod/packages/*.zpa
 	$(INSTALL) -m 0755 $(ZPOD_APPS_DIST)/core/usr/lib/zpod/bin/* $(TARGET_DIR)/usr/lib/zpod/bin/
 	$(INSTALL) -m 0644 $(ZPOD_APPS_DIST)/packages/*.zpa $(TARGET_DIR)/usr/share/zpod/packages/
 	$(INSTALL) -D -m 0644 $(@D)/etc/zpod/core-version $(TARGET_DIR)/etc/zpod/core-version
