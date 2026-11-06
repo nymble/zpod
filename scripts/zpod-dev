@@ -5,7 +5,8 @@
 #                                   push + install it, restart it on the screen,
 #                                   then follow its log (Ctrl-C: the app keeps running)
 #   scripts/zpod-dev --core         build + push zpod-launcher and zpod-app to
-#                                   /data/zpod/core/bin and switch to them
+#                                   /data/zpod/core/bin and switch to them (also
+#                                   zpod-usb-role + usb-role/*.dtbo for Tools > USB)
 #   scripts/zpod-dev --logs <id>    only follow the log
 #   scripts/zpod-dev --save-host [addr]  save the device's Wi-Fi address (asked
 #                                   over the current link, e.g. USB) in ~/.zpod-host;
@@ -113,11 +114,18 @@ core)
 	d=$repo/apps/dist/dev/core
 	cp "$repo/buildroot/board/zpod/rootfs-overlay/usr/sbin/zpod-core-overlay" "$d/zpod-core-overlay"
 	cp "$repo/overlay/usr/lib/zpod/zpod_buttons.py" "$d/zpod_buttons.py"
-	(cd "$d" && COPYFILE_DISABLE=1 tar --format ustar -cf - zpod-launcher zpod-app zpod-core-overlay zpod_buttons.py) | zpod_ssh "$(zpod_target)" "$ZPOD_RPATH
+	# USB role switch (Tools > USB, app prompts): the launcher runs
+	# /data/zpod/core/zpod-usb-role when it is root-owned (older images)
+	cp "$repo/buildroot/board/zpod/rootfs-overlay/usr/sbin/zpod-usb-role" "$d/zpod-usb-role"
+	rm -rf "$d/usb-role" && mkdir "$d/usb-role" && cp "$repo"/buildroot/board/zpod/rootfs-overlay/usr/lib/zpod/usb-role/*.dtbo "$d/usb-role/"
+	(cd "$d" && COPYFILE_DISABLE=1 tar --format ustar -cf - zpod-launcher zpod-app zpod-core-overlay zpod_buttons.py zpod-usb-role usb-role) | zpod_ssh "$(zpod_target)" "$ZPOD_RPATH
 		set -e; ${S}mkdir -p /data/zpod/core/bin /tmp/zpod-core.\$\$ && cd /tmp/zpod-core.\$\$ && ${S}tar -xf -
 		for b in zpod-launcher zpod-app; do ${S}cp \$b /data/zpod/core/bin/.\$b.new && ${S}chmod 755 /data/zpod/core/bin/.\$b.new && ${S}mv /data/zpod/core/bin/.\$b.new /data/zpod/core/bin/\$b; done
 		${S}cp zpod-core-overlay /data/zpod/core/zpod-core-overlay; ${S}chmod 755 /data/zpod/core/zpod-core-overlay
 		${S}cp zpod_buttons.py /data/zpod/core/zpod_buttons.py; ${S}chmod 755 /data/zpod/core/zpod_buttons.py
+		${S}cp zpod-usb-role /data/zpod/core/.zpod-usb-role.new && ${S}chmod 755 /data/zpod/core/.zpod-usb-role.new && ${S}mv /data/zpod/core/.zpod-usb-role.new /data/zpod/core/zpod-usb-role
+		${S}mkdir -p /data/zpod/core/usb-role && ${S}cp usb-role/*.dtbo /data/zpod/core/usb-role/ && ${S}chmod 644 /data/zpod/core/usb-role/*.dtbo
+		${S}chown -R 0:0 /data/zpod/core/zpod-usb-role /data/zpod/core/usb-role 2>/dev/null || true
 		cd / && rm -rf /tmp/zpod-core.\$\$
 		${S}sh /data/zpod/core/zpod-core-overlay apply --restart
 		zpod-app status"

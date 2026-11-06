@@ -5,6 +5,7 @@
 # 10.12.194.2-14 to the host (no route/DNS). Host (zpod-usb-role.txt on the
 # boot partition, docs/USB-HOST.md): dwc2 only, mdev loads the drivers of
 # whatever is plugged in. The role is in /run/zpod/usb-role. Background.
+# Live switching without a reboot: zpod-usb-role set (Tools > USB).
 DT_ROLE=${ZPOD_DT_USB_ROLE:-/sys/firmware/devicetree/base/soc/usb@7e980000/dr_mode}
 role() {
 	r=$(tr -d '\0' 2>/dev/null < "$DT_ROLE")
@@ -19,6 +20,9 @@ start() {
 			modprobe -q dwc2
 			echo "usb: host mode (zpod-usb-role.txt); no USB link to the computer"
 			/usr/sbin/zpod-bootmark usb-host-up
+			# back to gadget if this host-mode boot never reaches the
+			# launcher (or after 3 such boots in a row): zpod-usb-role
+			/usr/sbin/zpod-usb-role boot-guard
 		) </dev/null >>/run/zpod/usb.log 2>&1 &
 		return 0
 	fi

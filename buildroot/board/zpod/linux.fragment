@@ -120,3 +120,6 @@ CONFIG_USB_STORAGE=m
 # CONFIG_MEDIA_SUPPORT is not set
 # CONFIG_DRM is not set
 # CONFIG_STAGING_MEDIA is not set
+# Live USB role switch (zpod-usb-role): device-tree overlays through configfs
+CONFIG_OF_OVERLAY=y
+CONFIG_OF_CONFIGFS=y
