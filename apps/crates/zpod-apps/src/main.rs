@@ -11,6 +11,9 @@ const USAGE: &str = "usage:
   zpod-app info <id | file.zpa>         show manifest
   zpod-app install [--force] <file.zpa> install a new app (--force: reinstall/downgrade)
   zpod-app update  [--force] <file.zpa> update an installed app to a newer version
+  zpod-app update --if-newer <file.zpa>...
+                                        update installed apps the files are newer
+                                        than; others are skipped quietly (boot)
   zpod-app remove  [--purge] <id>       uninstall (--purge: also delete its data and logs)
   zpod-app pack <app-dir> [out-dir]     build <id>-<version>.zpa
   zpod-app check <file.zpa>             validate without installing
@@ -22,6 +25,11 @@ const USAGE: &str = "usage:
   zpod-app usb host|gadget|auto [force] [persist]
                                         switch the USB port now (as Tools > USB)
   zpod-app logs [-f] [-n N] <id>        the app's stdout/stderr (-f: follow)
+  zpod-app tree                         the menu tree the launcher shows
+  zpod-app handlers <kind> <what>       apps for a device/file, e.g.
+                                        handlers usb-device 067b:2303
+  zpod-app core [status|on|off]         core updates from /data at boot
+                                        (zpod-core-overlay; root)
 launch/restart/stop/status talk to the launcher (root only); see docs/DEV-LOOP.md.
 env: ZPOD_APPS_DIR (default /opt/zpod/apps), ZPOD_DATA_DIR, ZPOD_LOG_DIR, ZPOD_SOCKET";
 
@@ -89,10 +97,99 @@ fn run(args: &[String]) -> Result<(), String> {
             };
             let a = &m.app;
             println!(
-                "id:          {}\nname:        {}\nversion:     {}\nexec:        {} {}\nicon:        {}\ndescription: {}\nmin_core:    {} (device: {core})\norder:       {}",
-                a.id, a.name, a.version, a.exec, a.args.join(" "), a.icon.as_deref().unwrap_or("-"), a.description, a.min_core, a.order
+                "id:          {}\nname:        {}\nversion:     {}\nexec:        {} {}\nicon:        {}\ndescription: {}\nmin_core:    {} (device: {core})\norder:       {}\nschema:      {}",
+                a.id, a.name, a.version, a.exec, a.args.join(" "), a.icon.as_deref().unwrap_or("-"), a.description, a.min_core, a.order, m.schema
             );
+            match zpod_apps::tree::placements(&m) {
+                Ok(ps) => {
+                    for p in ps {
+                        println!("menu:        {} > {}  (order {})", if p.path.is_empty() { "Home" } else { &p.path }, p.label, p.order);
+                    }
+                }
+                Err(e) => println!("menu:        INVALID: {e} (shown at Home)"),
+            }
+            for h in &m.handles {
+                println!("handles:     {} {}{}", h.kind, h.matches.join(", "), h.label.as_ref().map(|l| format!("  ({l})")).unwrap_or_default());
+            }
+            let r = &m.requires;
+            println!(
+                "requires:    launcher API {} (device: {}){}{}{}",
+                m.launcher_api(),
+                zpod_apps::manifest::LAUNCHER_API,
+                if r.usb_host { ", USB host" } else { "" },
+                if r.wifi { ", Wi-Fi" } else { "" },
+                if r.input.is_empty() { String::new() } else { format!(", input {}", r.input.join("/")) }
+            );
+            for k in &m.unknown {
+                println!("ignored:     {k}");
+            }
             Ok(())
+        }
+        ["update", pkgs @ ..] if flag(&["--if-newer"]) && !pkgs.is_empty() => {
+            // boot (S00zpod-data): bring bundled apps up to the image's
+            // versions; never installs an app that was removed, never downgrades
+            let mut changed = false;
+            for pkg in pkgs {
+                let m = match package::inspect(Path::new(pkg)) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("zpod-app: {pkg}: {e}");
+                        continue;
+                    }
+                };
+                let Ok(cur) = zpod_apps::AppInfo::load(&apps.join(&m.app.id)) else { continue };
+                if m.version() <= cur.manifest.version() {
+                    continue;
+                }
+                match package::install(Path::new(pkg), &apps, Mode::Update, core) {
+                    Ok(r) => {
+                        println!("updated {} {} -> {}", r.id, r.from.map(|v| v.to_string()).unwrap_or_default(), r.to);
+                        changed = true;
+                    }
+                    Err(e) => eprintln!("zpod-app: {}: {e}", m.app.id),
+                }
+            }
+            if changed {
+                notify_launcher();
+            }
+            Ok(())
+        }
+        ["tree"] => {
+            let (list, bad) = zpod_apps::discover(&apps);
+            print!("{}", zpod_apps::tree::Tree::build(&list).outline(&list));
+            for (id, why) in &bad {
+                println!("broken: {id}: {why}");
+            }
+            Ok(())
+        }
+        ["handlers", kind, what] => {
+            let (list, _) = zpod_apps::discover(&apps);
+            let hs = zpod_apps::tree::handlers(&list, kind, what);
+            if hs.is_empty() {
+                return Err(format!("no app handles {kind} {what}"));
+            }
+            for a in hs {
+                println!("{:<16} {}", a.manifest.app.id, a.manifest.app.name);
+            }
+            Ok(())
+        }
+        ["core", rest @ ..] => {
+            let sub = match rest {
+                [] | ["status"] => "status",
+                ["on"] | ["enable"] => "enable",
+                ["off"] | ["disable"] => "disable",
+                _ => return Err("usage: zpod-app core [status|on|off]".into()),
+            };
+            let tool = ["/usr/sbin/zpod-core-overlay", "/data/zpod/core/zpod-core-overlay"]
+                .into_iter()
+                .find(|p| Path::new(p).exists())
+                .ok_or("this image has no zpod-core-overlay")?;
+            let st = std::process::Command::new("/bin/sh").arg(tool).arg(sub).status().map_err(|e| e.to_string())?;
+            if st.success() {
+                Ok(())
+            } else {
+                Err(format!("zpod-core-overlay {sub} failed"))
+            }
         }
         ["install", pkg] | ["update", pkg] => {
             let mode = if force { Mode::Force } else if pos[0] == "install" { Mode::Install } else { Mode::Update };

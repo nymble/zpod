@@ -32,6 +32,7 @@
 //!   and Book catalog switches ([`server`]), and a first-screen notice when
 //!   bootfs setup files were applied after the first boot.
 
+mod coreupd;
 mod ctl;
 mod icons;
 mod menu;
@@ -158,8 +159,13 @@ struct Launcher {
     menus: Menus,
     apps: Vec<AppInfo>,
     broken: Vec<(String, String)>,
+    /// the menu tree (docs/APP-MANIFEST.md): where each app is listed
+    tree: zpod_apps::tree::Tree,
     icons: Vec<icons::Icon>,
     system_icon: icons::Icon,
+    folder_icons: Vec<(&'static str, icons::Icon)>,
+    /// Tools > Updates
+    core: coreupd::Info,
     apps_dir: PathBuf,
     apps_stamp: Option<std::time::SystemTime>,
     status: StatusInfo,
@@ -242,8 +248,11 @@ impl Launcher {
             menus: Menus::new(),
             apps: Vec::new(),
             broken: Vec::new(),
+            tree: Default::default(),
             icons: Vec::new(),
             system_icon: icons::from_png(icons::SYSTEM_PNG).unwrap(),
+            folder_icons: icons::folders(),
+            core: Default::default(),
             apps_dir,
             apps_stamp: None,
             status: StatusInfo::default(),
@@ -320,16 +329,35 @@ impl Launcher {
             return;
         }
         self.apps_stamp = stamp;
-        let (mut apps, broken) = zpod_apps::discover(&self.apps_dir);
+        let (apps, broken) = zpod_apps::discover(&self.apps_dir);
         for (id, why) in &broken {
             eprintln!("launcher: skipping app '{id}': {why}");
         }
-        // home-screen apps first, then tools (listed under Tools); stable
-        apps.sort_by_key(|a| a.manifest.app.is_tool());
+        let tree = zpod_apps::tree::Tree::build(&apps);
+        for (id, why) in &tree.notes {
+            eprintln!("launcher: app '{id}': {why}");
+        }
+        // a folder page whose folder moved or went away: back out of it
+        let same = |i: u16| self.tree.nodes.get(i as usize).map(|n| &n.path) == tree.nodes.get(i as usize).map(|n| &n.path) && tree.nodes.get(i as usize).is_some_and(|n| !n.entries.is_empty());
+        if let Some(k) = self.menus.stack.iter().position(|(p, _)| matches!(p, Page::Menu(MenuId::Folder(i)) if !same(*i))) {
+            self.menus.stack.truncate(k.max(1));
+        }
         self.icons = apps.iter().map(|a| icons::load(a.icon_path().as_deref())).collect();
         self.apps = apps;
         self.broken = broken;
-        let n = menu::items(MenuId::Top, self.app_counts()).len();
+        self.tree = tree;
+        for k in 0..self.menus.stack.len() {
+            if let Page::Menu(id) = self.menus.stack[k].0 {
+                let n = menu::items(id, &self.tree).len();
+                let vis = if matches!(id, MenuId::Top | MenuId::Folder(_)) { HOME_ROW } else { SUB_ROW };
+                let ls = &mut self.menus.stack[k].1;
+                if ls.sel >= n {
+                    ls.sel = n.saturating_sub(1);
+                }
+                ls.scroll_into_view(n, (LIST_H / vis) as usize);
+            }
+        }
+        let n = menu::items(MenuId::Top, &self.tree).len();
         if let Some((_, ls)) = self.menus.stack.first_mut() {
             ls.scroll_into_view(n, (LIST_H / HOME_ROW) as usize);
         }
@@ -405,8 +433,31 @@ impl Launcher {
         self.redraw = true;
     }
 
-    fn app_counts(&self) -> menu::Apps {
-        menu::Apps { regular: self.apps.iter().filter(|a| !a.manifest.app.is_tool()).count(), total: self.apps.len() }
+    /// Label of app `i` in menu `id` (`[menu] label` may differ per folder).
+    fn app_label(&self, id: MenuId, i: usize) -> &str {
+        let n = menu::node_of(id, &self.tree).and_then(|n| self.tree.nodes.get(n));
+        n.and_then(|n| {
+            n.entries.iter().find_map(|e| match e {
+                zpod_apps::tree::Entry::App { app, label, .. } if *app == i => Some(label.as_str()),
+                _ => None,
+            })
+        })
+        .unwrap_or(&self.apps[i].manifest.app.name)
+    }
+
+    /// Devices on the USB port with the app that handles each (Tools > USB).
+    fn usb_devices(&self) -> Vec<String> {
+        self.role
+            .devices
+            .iter()
+            .map(|d| {
+                let id = d.split_whitespace().next().unwrap_or("");
+                match zpod_apps::tree::handlers(&self.apps, "usb-device", id).first() {
+                    Some(a) => format!("{} ({d})", a.manifest.app.name),
+                    None => d.clone(),
+                }
+            })
+            .collect()
     }
 
     fn toast(&mut self, msg: impl Into<String>, ms: u64) {
@@ -416,7 +467,8 @@ impl Launcher {
 
     fn rows_for(&self, page: Page) -> (usize, usize) {
         match page {
-            Page::Menu(MenuId::Top) => (0, (LIST_H / HOME_ROW) as usize),
+            Page::Menu(MenuId::Top | MenuId::Folder(_)) => (0, (LIST_H / HOME_ROW) as usize),
+            Page::Updates => (1, 1),
             Page::Menu(_) => (0, (LIST_H / SUB_ROW) as usize),
             Page::Apps => (self.apps.len() + self.broken.len(), (LIST_H / APPS_ROW) as usize),
             Page::WifiScan => (self.tools.wifi.items.len(), (LIST_H / APPS_ROW) as usize),
@@ -444,20 +496,39 @@ impl Launcher {
             Page::WifiScan if !self.tools.wifi.items.is_empty() => format!("Networks ({})", self.tools.wifi.items.len()),
             Page::BtScan if !self.tools.bt.items.is_empty() => format!("Bluetooth ({})", self.tools.bt.items.len()),
             Page::ScanDetail => self.tools.detail_title.clone(),
+            Page::Menu(MenuId::Folder(f)) => self.tree.nodes.get(f as usize).map(|n| n.title.clone()).unwrap_or_default(),
             _ => menu::title(page).to_string(),
         };
-        let n_apps = self.app_counts();
+        let labels: Vec<String> = match page {
+            Page::Menu(id) => menu::items(id, &self.tree)
+                .iter()
+                .map(|it| match it {
+                    Item::App(a) => self.app_label(id, *a).to_string(),
+                    _ => String::new(),
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        let usb_devs = if matches!(page, Page::Usb) { self.usb_devices() } else { Vec::new() };
         let fb = &mut self.p.fb;
         draw_status_bar(fb, &title, &st);
         let area = rect(0, LIST_Y, 320, LIST_H as u32);
         match page {
             Page::Menu(id) => {
-                let items = menu::items(id, n_apps);
+                let items = menu::items(id, &self.tree);
                 let ls = *self.menus.list();
                 let sel = ls.sel;
-                let (apps, icons, sysi) = (&self.apps, &self.icons, &self.system_icon);
+                let (apps, icons, sysi, tree, ficons) = (&self.apps, &self.icons, &self.system_icon, &self.tree, &self.folder_icons);
                 let top = id == MenuId::Top;
-                let row_h = if top { HOME_ROW } else { SUB_ROW };
+                let big = matches!(id, MenuId::Top | MenuId::Folder(_));
+                let row_h = if big { HOME_ROW } else { SUB_ROW };
+                let fsubs: Vec<String> = items
+                    .iter()
+                    .map(|it| match it {
+                        Item::Folder(f) => tree.nodes.get(*f as usize).map(|n| folder_sub(tree, apps, n)).unwrap_or_default(),
+                        _ => String::new(),
+                    })
+                    .collect();
                 widgets::draw_list(fb, area, row_h, &ls, items.len(), |i| {
                     let it = items[i];
                     let (t, sub) = menu::label(it);
@@ -465,11 +536,17 @@ impl Launcher {
                         Item::App(a) => {
                             let m = &apps[a].manifest.app;
                             let ic = if i == sel { &icons[a].selected } else { &icons[a].normal };
-                            Row { title: &m.name, sub: Some(&m.description), right: None, icon: Some(ic), mark: None }
+                            Row { title: &labels[i], sub: Some(&m.description), right: None, icon: big.then_some(ic), mark: None }
+                        }
+                        Item::Folder(f) => {
+                            let n = &tree.nodes[f as usize];
+                            let fi = ficons.iter().find(|(k, _)| *k == n.icon).or_else(|| ficons.iter().find(|(k, _)| *k == "folder")).map(|(_, i)| i).unwrap_or(sysi);
+                            let ic = if i == sel { &fi.selected } else { &fi.normal };
+                            Row { title: &n.title, sub: Some(&fsubs[i]), right: Some(">"), icon: big.then_some(ic), mark: None }
                         }
                         _ => {
                             let ic = if i == sel { &sysi.selected } else { &sysi.normal };
-                            Row { title: t, sub: if sub.is_empty() { None } else { Some(sub) }, right: None, icon: if top { Some(ic) } else { None }, mark: None }
+                            Row { title: t, sub: if sub.is_empty() { None } else { Some(sub) }, right: None, icon: if big { Some(ic) } else { None }, mark: None }
                         }
                     };
                     if matches!(it, Item::Menu(_)) {
@@ -481,7 +558,7 @@ impl Launcher {
                     if matches!(it, Item::Reboot | Item::Shutdown) {
                         r.mark = Some(WARN);
                     }
-                    if !top && sub.is_empty() {
+                    if !top && sub.is_empty() && !matches!(it, Item::App(_) | Item::Folder(_)) {
                         r.sub = None;
                     }
                     r
@@ -583,7 +660,7 @@ impl Launcher {
             }
             Page::Usb => {
                 let busy = self.usb_job.as_ref().map(|j| format!("Switching USB... {} s", j.started.elapsed().as_secs()));
-                pages::draw_usb(fb, &self.usb, &self.role, self.menus.list().sel, busy.as_deref());
+                pages::draw_usb(fb, &self.usb, &self.role, &usb_devs, self.menus.list().sel, busy.as_deref());
             }
             Page::UsbConfirm(c) => {
                 let busy = self.usb_job.as_ref().map(|j| format!("Switching USB... {} s", j.started.elapsed().as_secs()));
@@ -625,6 +702,7 @@ impl Launcher {
                 pages::draw_server(fb, opds, &self.srv, hs);
             }
             Page::Notice => pages::draw_notice(fb, &self.notice),
+            Page::Updates => pages::draw_updates(fb, &self.core, true),
             Page::Storage => {
                 let _ = fb.fill_solid(&area, BG);
                 let rel = storage::release();
@@ -731,10 +809,18 @@ impl Launcher {
             }
             Page::Apps => {
                 let n = self.apps.len() + self.broken.len();
-                let (apps, broken) = (&self.apps, &self.broken);
+                let (apps, broken, tree) = (&self.apps, &self.broken, &self.tree);
                 let mut subs: Vec<String> = Vec::with_capacity(n);
-                for a in apps {
-                    subs.push(format!("{}  \u{b7}  {}", a.manifest.app.id, a.manifest.app.description));
+                for (i, a) in apps.iter().enumerate() {
+                    let id = &a.manifest.app.id;
+                    let place = match tree.notes.iter().find(|(n, _)| n == id) {
+                        Some((_, why)) => why.clone(),
+                        None if tree.hidden.contains(&i) => "hidden".into(),
+                        None => zpod_apps::tree::placements(&a.manifest)
+                            .map(|ps| ps.iter().map(|p| if p.path.is_empty() { "Home".to_string() } else { p.path.clone() }).collect::<Vec<_>>().join(", "))
+                            .unwrap_or_default(),
+                    };
+                    subs.push(format!("{id}  \u{b7}  {place}"));
                 }
                 for (_, why) in broken {
                     subs.push(why.clone());
@@ -743,13 +829,14 @@ impl Launcher {
                 widgets::draw_list(fb, area, APPS_ROW, &ls, n, |i| {
                     if i < apps.len() {
                         let a = &apps[i].manifest.app;
-                        Row { title: &a.name, sub: Some(&subs[i]), right: Some(&a.version), icon: None, mark: None }
+                        let warn = tree.hidden.contains(&i) || tree.notes.iter().any(|(n, _)| *n == a.id);
+                        Row { title: &a.name, sub: Some(&subs[i]), right: Some(&a.version), icon: None, mark: if warn { Some(WARN) } else { None } }
                     } else {
                         let (id, _) = &broken[i - apps.len()];
                         Row { title: id, sub: Some(&subs[i]), right: Some("BROKEN"), icon: None, mark: Some(WARN) }
                     }
                 });
-                widgets::hints(fb, &[("Lt/X", "back"), ("", "install: sudo zpod-app install x.zpa")]);
+                widgets::hints(fb, &[("Lt/X", "back"), ("", "zpod-app install x.zpa  \u{b7}  zpod-app tree")]);
             }
             Page::DateTime => {
                 let _ = fb.fill_solid(&area, BG);
@@ -1043,7 +1130,7 @@ impl Launcher {
             _ => {}
         }
         let rows = self.rows_for(page);
-        let eff = self.menus.handle(nav, self.app_counts(), rows);
+        let eff = self.menus.handle(nav, &self.tree, rows);
         self.redraw = true;
         match eff {
             Effect::None | Effect::Redraw => None,
@@ -1100,6 +1187,17 @@ impl Launcher {
                         Err(e) => self.toast(e, 2500),
                     },
                     Page::Notice => self.dismiss_notice(),
+                    Page::Updates => {
+                        if !self.core.boot_support && self.core.error.is_none() {
+                            self.toast("test3 loads updates only by hand (zpod-dev --core)", 2500);
+                        } else {
+                            match coreupd::set(!self.core.boot_load) {
+                                Ok(m) => self.toast(m, 2000),
+                                Err(e) => self.toast(e, 2500),
+                            }
+                            self.core = coreupd::read();
+                        }
+                    }
                     _ => {}
                 }
                 None
@@ -1140,6 +1238,7 @@ impl Launcher {
                 self.tools.wifi.start_if_stale(tools::wifi_job);
             }
             Page::Usb => self.refresh_usb(),
+            Page::Updates => self.core = coreupd::read(),
             Page::Battery => self.load_battery(),
             Page::WifiSignal => self.open_details(),
             Page::WifiChannels => self.tools.wifi.start_if_stale(tools::wifi_job),
@@ -1626,6 +1725,23 @@ impl Launcher {
 
 }
 
+
+/// Subtitle of a folder row: its own, else the first few apps in it.
+fn folder_sub(t: &zpod_apps::tree::Tree, apps: &[AppInfo], n: &zpod_apps::tree::Node) -> String {
+    if !n.sub.is_empty() {
+        return n.sub.clone();
+    }
+    let names: Vec<&str> = n
+        .entries
+        .iter()
+        .map(|e| match e {
+            zpod_apps::tree::Entry::App { app, label, .. } => apps.get(*app).map(|_| label.as_str()).unwrap_or(""),
+            zpod_apps::tree::Entry::Folder(f) => t.nodes[*f].title.as_str(),
+        })
+        .take(3)
+        .collect();
+    names.join(", ")
+}
 
 fn it_is_spi(items: &[Item], sel: usize) -> bool {
     items.get(sel) == Some(&Item::SpiSpeed)

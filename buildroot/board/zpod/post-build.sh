@@ -87,3 +87,15 @@ ZPOD_GIT=$GIT
 ZPOD_DESCRIBE=$DESC
 ZPOD_BUILD_DATE=$(date -u +%Y-%m-%d)
 EOR
+# Core identity for boot-time core updates (zpod-core-overlay, docs/BOOT-UPDATES.md):
+# an update on /data loads only if it has this ABI and is newer (version, then
+# build time) than this image's core. On the squashfs, so /data cannot fake it.
+ABI=$(cat "${BR2_EXTERNAL_ZPOD_PATH}/../apps/system/etc/zpod/core-abi" 2>/dev/null || echo 1)
+mkdir -p "$T/usr/share/zpod"
+cat > "$T/usr/share/zpod/core.id" <<EOI
+version=$CORE
+build=${ZPOD_CORE_BUILD:-$(date -u +%s)}
+git=$GIT
+abi=$ABI
+date=$(date -u +%Y-%m-%d)
+EOI

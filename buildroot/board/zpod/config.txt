@@ -49,8 +49,11 @@ dtoverlay=dwc2,dr_mode=peripheral
 # (keyboard, mouse, GPS) and removes the USB link to the computer; Wi-Fi
 # and SSH stay up. Keep this include right after the dwc2 line.
 include zpod-usb-role.txt
-# Recovery: hold Home (GPIO24, pulled up above) while powering on and the
-# port is a gadget again for this boot, whatever zpod-usb-role.txt says.
+# Recovery: hold Home (GPIO24, pulled up above) while powering on and, for
+# this boot, the port is a gadget again whatever zpod-usb-role.txt says, and
+# core updates on /data are not loaded (cmdline-safe.txt = cmdline.txt plus
+# zpod.nocore zpod.safe; docs/BOOT-UPDATES.md).
 [gpio24=0]
 dtparam=dr_mode=peripheral
+cmdline=cmdline-safe.txt
 [all]

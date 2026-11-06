@@ -8,6 +8,11 @@ GENIMAGE_TMP="${BUILD_DIR}/genimage.tmp"
 
 install -m 0644 "${BOARD_DIR}/config.txt"  "${BINARIES_DIR}/rpi-firmware/config.txt"
 install -m 0644 "${BOARD_DIR}/cmdline.txt" "${BINARIES_DIR}/rpi-firmware/cmdline.txt"
+# Holding Home at power-on boots with cmdline-safe.txt (config.txt [gpio24=0]):
+# the same command line plus zpod.nocore zpod.safe = no core update from /data
+# for that boot (docs/BOOT-UPDATES.md).
+printf '%s zpod.nocore zpod.safe\n' "$(tr -d '\n' < "${BOARD_DIR}/cmdline.txt")" > "${BINARIES_DIR}/rpi-firmware/cmdline-safe.txt"
+chmod 0644 "${BINARIES_DIR}/rpi-firmware/cmdline-safe.txt"
 # USB role switch, included from config.txt (gadget by default; docs/USB-HOST.md)
 install -m 0644 "${BOARD_DIR}/zpod-usb-role.txt" "${BINARIES_DIR}/rpi-firmware/zpod-usb-role.txt"
 

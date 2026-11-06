@@ -1,106 +1,335 @@
 #!/bin/sh
-# zpod-core-overlay: run newer core binaries from /data without reflashing.
+# zpod-core-overlay: core updates from /data without reflashing
+# (docs/BOOT-UPDATES.md). The root file system is read-only squashfs; newer
+# core files on /data are bind-mounted over the image's copies:
+#   /data/zpod/core/bin/zpod-launcher  -> /usr/lib/zpod/bin/zpod-launcher
+#   /data/zpod/core/bin/zpod-app       -> /usr/lib/zpod/bin/zpod-app
+#   /data/zpod/core/zpod_buttons.py    -> /usr/lib/zpod/zpod_buttons.py
+#   /data/zpod/core/zpod-usb-role      -> /usr/sbin/zpod-usb-role (if the image has it)
+# /data/zpod/core/CORE.manifest (written by scripts/zpod-dev --core) gives
+# the update's version, build time, core ABI and the sha256 of every file.
 #
-#   zpod-core-overlay apply [--restart]   bind-mount /data/zpod/core/bin/<name>
-#                                         over /usr/lib/zpod/bin/<name>
-#   zpod-core-overlay off [--restart]     remove the bind mounts (image binaries)
-#   zpod-core-overlay status
-#   zpod-core-overlay restart-launcher    restart the launcher in place
+#   zpod-core-overlay boot               sysinit (zpod-data-early): apply the
+#                                        update when loading at boot is on and it
+#                                        passes the checks, then watch the launcher
+#   zpod-core-overlay guard              (started by boot) launcher health check:
+#                                        not up within 60 s -> image core
+#   zpod-core-overlay apply [--restart] [--force]
+#                                        apply now (dev loop); checks integrity and
+#                                        ABI, not "newer than the image"
+#   zpod-core-overlay off [--restart]    back to the image's files now
+#   zpod-core-overlay enable | disable   load at boot on / off (Tools > Updates,
+#                                        zpod-app core on|off); enable also clears
+#                                        an automatic fallback
+#   zpod-core-overlay fail <reason>      give up on the update (zpod-launcher-run)
+#   zpod-core-overlay verify             the boot checks only; changes nothing
+#   zpod-core-overlay status [--kv]
+#   zpod-core-overlay restart-launcher   restart the launcher in place
 #
-# <name> is one of: zpod-launcher zpod-app; also zpod_buttons.py when present. The root file system is read-only
-# squashfs; a bind mount over a single file is the one way to swap a binary
-# without a new image. It lasts until reboot. Images after test3 run
-# "apply" at boot from zpod-data-early (skipped with zpod.nocore on the kernel
-# command line or /data/zpod/core/disabled), and zpod-launcher-run removes a
-# launcher overlay that keeps crashing. On test3 run it by hand or let
-# scripts/zpod-dev do it (docs/DEV-LOOP.md).
-CORE=${ZPOD_CORE_DIR:-/data/zpod/core/bin}
-SYS=/usr/lib/zpod/bin
-NAMES="zpod-launcher zpod-app"
-# Optional: newer buttons daemon (Python). Bind-mounted over the image copy.
-PY_NAMES="zpod_buttons.py"
-PY_SYS=/usr/lib/zpod
-PY_CORE=${ZPOD_CORE_DIR:-/data/zpod/core/bin}
-PY_CORE=$(dirname "$PY_CORE")
+# Boot never loads an update that is missing its manifest, was built for
+# another core ABI, is not newer than the image core (version, then build
+# time: a newer image wins over an old update), or whose files do not
+# match their sha256. It is skipped for one boot with zpod.nocore on the
+# kernel command line, which holding Home at power-on selects
+# (config.txt [gpio24=0] cmdline=cmdline-safe.txt). Every boot that applies
+# it counts an attempt; the guard clears the count once the launcher has
+# run for 10 s with its control socket. After 2 boots that did not get
+# there, or a launcher crash loop, the update is marked failed and the
+# image core runs until the update is pushed again or turned back on.
+# Never prints secrets; logs to /run/zpod/core-overlay.log.
+set -u
+ROOT=${ZPOD_CORE_ROOT:-/data/zpod/core}
+CORE=$ROOT/bin
+SYS=${ZPOD_CORE_SYS:-/usr/lib/zpod}
+SBIN=${ZPOD_CORE_SBIN:-/usr/sbin}
+RUN=${ZPOD_CORE_RUN:-/run/zpod}
+ID=${ZPOD_CORE_ID:-/usr/share/zpod/core.id}
+CMDLINE=${ZPOD_CORE_CMDLINE:-/proc/cmdline}
+DRY=${ZPOD_CORE_DRY:-}
+MAX_BOOTS=${ZPOD_CORE_MAX_BOOTS:-2}
+GUARD_SECS=${ZPOD_CORE_GUARD_SECS:-60}
+SETTLE=${ZPOD_CORE_SETTLE:-10}
+SOCK=${ZPOD_CORE_SOCK:-$RUN/launcher.sock}
+M=$ROOT/CORE.manifest
+LOG=$RUN/core-overlay.log
+FILES="bin/zpod-launcher bin/zpod-app zpod_buttons.py zpod-usb-role"
 
-mounted() { grep -q " $SYS/$1 " /proc/mounts; }
+log() { mkdir -p "$RUN" 2>/dev/null; echo "$(cut -d' ' -f1 /proc/uptime 2>/dev/null) core: $*" >> "$LOG" 2>/dev/null; }
+kv() { [ -f "$2" ] && sed -n "s/^$1=//p" "$2" | head -1; }
+oneline() { tr '\n\r' '  ' | cut -c1-120; }
+st() { # state reason
+	mkdir -p "$RUN"
+	printf 'state=%s\nreason=%s\n' "$1" "$2" > "$RUN/core-state"
+	log "state $1${2:+: $2}"
+}
+
+target_of() {
+	case "$1" in
+	bin/zpod-launcher | bin/zpod-app) echo "$SYS/bin/${1#bin/}" ;;
+	zpod_buttons.py) echo "$SYS/zpod_buttons.py" ;;
+	zpod-usb-role) echo "$SBIN/zpod-usb-role" ;;
+	*) return 1 ;;
+	esac
+}
+
+mounted() {
+	if [ -n "$DRY" ]; then grep -qx "$1" "$RUN/mounts.dry" 2>/dev/null; else grep -q " $1 " /proc/mounts; fi
+}
+do_bind() { # src dst
+	if [ -n "$DRY" ]; then mkdir -p "$RUN"; echo "$2" >> "$RUN/mounts.dry"; return 0; fi
+	mount --bind "$1" "$2"
+}
+do_umount() {
+	if [ -n "$DRY" ]; then grep -vx "$1" "$RUN/mounts.dry" > "$RUN/mounts.dry.n" 2>/dev/null; mv "$RUN/mounts.dry.n" "$RUN/mounts.dry"; return 0; fi
+	umount -l "$1"
+}
 
 is_arm_elf() {
-	# ELF magic, 32-bit (1), little-endian (1); machine 40 = ARM (bytes 18-19)
+	# ELF magic, 32-bit (1), little-endian (1); machine 40 = ARM (byte 18)
 	[ "$(dd if="$1" bs=1 count=4 2>/dev/null | od -An -c | tr -d ' \n')" = '177ELF' ] || return 1
 	[ "$(dd if="$1" bs=1 skip=18 count=1 2>/dev/null | od -An -tu1 | tr -d ' ')" = 40 ]
 }
 
+# a b -> -1 / 0 / 1 (MAJOR.MINOR.PATCH, a leading v and -suffix ignored)
+vercmp() {
+	echo "$1 $2" | awk '{
+		n = split($1, a, "."); m = split($2, b, ".")
+		for (i = 1; i <= 3; i++) { x = a[i] + 0; y = b[i] + 0; if (x < y) { print -1; exit } if (x > y) { print 1; exit } }
+		print 0 }' | sed 's/^-0$/0/'
+}
+clean_ver() { echo "$1" | sed 's/^v//; s/[-+].*//'; }
+
+image_version() { v=$(kv version "$ID"); [ -n "$v" ] || v=$(cat /etc/zpod/core-version 2>/dev/null); echo "${v:-0}"; }
+
+# Integrity: every file= line matches (about 0.2 s for the launcher and
+# zpod-app on a Zero W, so it runs on every boot; BusyBox has no stat to cache it)
+check_files() {
+	n=0
+	sed -n 's/^file=//p' "$M" > "$RUN/core-files.$$" 2>/dev/null || { REASON="cannot read $M"; return 1; }
+	while read -r sum rel; do
+		case "$rel" in */../* | ../* | /* | *..) REASON="unsafe path '$rel' in CORE.manifest"; rm -f "$RUN/core-files.$$"; return 1 ;; esac
+		target_of "$rel" >/dev/null || { REASON="unknown file '$rel' in CORE.manifest"; rm -f "$RUN/core-files.$$"; return 1; }
+		[ -f "$ROOT/$rel" ] || { REASON="$rel is missing"; rm -f "$RUN/core-files.$$"; return 1; }
+		case "$rel" in bin/*) is_arm_elf "$ROOT/$rel" || { REASON="$rel is not an ARM program"; rm -f "$RUN/core-files.$$"; return 1; } ;; esac
+		n=$((n + 1))
+	done < "$RUN/core-files.$$"
+	[ $n -gt 0 ] || { REASON="CORE.manifest lists no files"; rm -f "$RUN/core-files.$$"; return 1; }
+	(cd "$ROOT" && sed 's/^\([0-9a-f]*\) \(.*\)$/\1  \2/' "$RUN/core-files.$$" | sha256sum -c >/dev/null 2>&1) || {
+		bad=$(cd "$ROOT" && sed 's/^\([0-9a-f]*\) \(.*\)$/\1  \2/' "$RUN/core-files.$$" | sha256sum -c 2>/dev/null | sed -n 's/: FAILED.*//p' | head -1)
+		REASON="checksum mismatch: ${bad:-?} (incomplete push?)"; rm -f "$RUN/core-files.$$"; return 1
+	}
+	rm -f "$RUN/core-files.$$"
+	return 0
+}
+
+# $1 = boot | manual. Sets REASON; 0 = ok to apply.
+check_update() {
+	REASON=
+	mkdir -p "$RUN"
+	[ -d "$CORE" ] || [ -f "$ROOT/zpod_buttons.py" ] || { REASON="no update on the card"; return 2; }
+	[ -f "$M" ] || { REASON="no CORE.manifest (pushed by an older zpod-dev): push it again"; return 1; }
+	[ "$(kv format "$M")" = 1 ] || { REASON="unknown CORE.manifest format '$(kv format "$M")'"; return 1; }
+	ia=$(kv abi "$ID"); ua=$(kv abi "$M")
+	if [ -n "$ia" ] && [ "$ua" != "$ia" ]; then REASON="built for core ABI ${ua:-?}, this image has $ia"; return 1; fi
+	if [ "$1" = boot ]; then
+		iv=$(clean_ver "$(image_version)"); uv=$(clean_ver "$(kv version "$M")")
+		c=$(vercmp "$uv" "$iv")
+		if [ "$c" = -1 ]; then REASON="the image core $iv is newer than the update $uv"; return 1; fi
+		if [ "$c" = 0 ] && [ "$(kv build "$M" | tr -cd 0-9)0" -le "$(kv build "$ID" | tr -cd 0-9)0" ]; then
+			REASON="the image core is the same version and not older than the update ($uv)"; return 1
+		fi
+	fi
+	check_files
+}
+
+apply_mounts() {
+	n=0
+	for rel in $FILES; do
+		src=$ROOT/$rel; dst=$(target_of "$rel")
+		[ -f "$src" ] && [ -e "$dst" ] || continue
+		if [ -f "$M" ] && ! grep -q "^file=[0-9a-f]* $rel\$" "$M"; then continue; fi   # listed files only
+		case "$rel" in bin/*) [ -x "$src" ] && is_arm_elf "$src" || { echo "skip $rel: not an ARM program" >&2; continue; } ;; esac
+		while mounted "$dst"; do do_umount "$dst" || break; done
+		do_bind "$src" "$dst" && echo "$dst <- $src" && n=$((n + 1))
+	done
+	[ $n -gt 0 ] || { echo "nothing to apply in $ROOT"; return 1; }
+	echo "$(kv version "$M") $(kv git "$M")" > "$RUN/core-active"
+	return 0
+}
+
+do_off() {
+	for rel in $FILES; do
+		dst=$(target_of "$rel")
+		while mounted "$dst"; do do_umount "$dst" || break; echo "$dst: image"; done
+	done
+	rm -f "$RUN/core-active"
+}
+
+sock_up() { [ -S "$SOCK" ] || { [ -n "$DRY" ] && [ -e "$SOCK" ]; }; }
+launcher_pid() {
+	if [ -n "${ZPOD_CORE_FAKE_PID+x}" ]; then cat "$ZPOD_CORE_FAKE_PID" 2>/dev/null; else pidof zpod-launcher; fi
+}
+
 restart_launcher() {
-	old=$(pidof zpod-launcher)
+	old=$(launcher_pid)
 	[ -n "$old" ] || { echo "launcher not running (init starts it)"; return 0; }
+	if [ -n "$DRY" ]; then echo "do: restart launcher $old"; log "restart launcher (dry)"; return 0; fi
 	# the app on the screen (if the old launcher has a control socket) comes back afterwards
-	app=$(/usr/lib/zpod/bin/zpod-app status 2>/dev/null | sed -n 's/^running \([^ ]*\).*/\1/p')
-	mkdir -p /run/zpod
-	echo restart > /run/zpod/stop-kind
-	rm -f /run/zpod/launcher-starts   # a deliberate restart is not a crash (zpod-launcher-run)
+	app=$("$SYS/bin/zpod-app" status 2>/dev/null | sed -n 's/^running \([^ ]*\).*/\1/p')
+	mkdir -p "$RUN"
+	echo restart > "$RUN/stop-kind"
+	rm -f "$RUN/launcher-starts"   # a deliberate restart is not a crash (zpod-launcher-run)
 	kill -TERM $old
 	i=0
 	while [ $i -lt 100 ]; do
 		new=$(pidof zpod-launcher)
-		if [ -n "$new" ] && [ "$new" != "$old" ] && [ -S /run/zpod/launcher.sock ]; then
+		if [ -n "$new" ] && [ "$new" != "$old" ] && [ -S "$SOCK" ]; then
 			echo "launcher restarted (pid $new)"
-			[ -z "$app" ] || /usr/lib/zpod/bin/zpod-app launch "$app"
+			[ -z "$app" ] || "$SYS/bin/zpod-app" launch "$app"
 			return 0
 		fi
-		sleep 0.1; i=$((i+1))
+		sleep 0.1; i=$((i + 1))
 	done
 	new=$(pidof zpod-launcher)
 	if [ -n "$new" ] && [ "$new" != "$old" ]; then
 		echo "launcher restarted (pid $new, no control socket)"; return 0
 	fi
-	echo "launcher did not come back within 10 s; see /run/zpod/launcher.log" >&2
+	echo "launcher did not come back within 10 s; see $RUN/launcher.log" >&2
 	return 1
 }
 
+give_up() { # reason; keeps the update files, runs the image core
+	echo "$1" | oneline > "$ROOT/failed"; rm -f "$ROOT/boot-attempts"; sync
+	do_off >/dev/null
+	st fallback "$1"
+}
+
+boot() {
+	mkdir -p "$RUN"
+	if grep -qw zpod.nocore "$CMDLINE" 2>/dev/null; then
+		if grep -qw zpod.safe "$CMDLINE"; then st skipped "Home held at power-on"; else st skipped "zpod.nocore on the kernel command line"; fi
+		return 0
+	fi
+	if ! [ -d "$CORE" ]; then st none "no update on the card"; return 0; fi
+	if [ -e "$ROOT/disabled" ]; then st off "loading at boot is off"; return 0; fi
+	if [ -s "$ROOT/failed" ]; then st fallback "$(cat "$ROOT/failed")"; return 0; fi
+	check_update boot; r=$?
+	if [ $r = 2 ]; then st none "$REASON"; return 0; fi
+	if [ $r != 0 ]; then st skipped "$REASON"; return 0; fi
+	n=$(cat "$ROOT/boot-attempts" 2>/dev/null | tr -cd 0-9); n=$(( ${n:-0} + 1 ))
+	if [ $n -gt "$MAX_BOOTS" ]; then
+		give_up "the launcher did not start on $MAX_BOOTS boots with the update"
+		return 0
+	fi
+	echo $n > "$ROOT/boot-attempts"; sync
+	if ! apply_mounts >> "$LOG" 2>&1; then do_off >/dev/null; st skipped "could not apply the update"; return 0; fi
+	st pending "boot $n of $MAX_BOOTS with update $(kv version "$M") $(kv git "$M")"
+	if [ -n "${ZPOD_CORE_NO_GUARD:-}" ]; then return 0; fi
+	# the guard outlives sysinit (setsid: not in init's process group)
+	if command -v setsid >/dev/null 2>&1; then setsid sh "$0" guard </dev/null >>"$LOG" 2>&1 &
+	else sh "$0" guard </dev/null >>"$LOG" 2>&1 & fi
+	return 0
+}
+
+guard() {
+	t=0; pid=; since=0
+	while [ $t -lt $((GUARD_SECS * 2)) ]; do
+		# fell back meanwhile (zpod-launcher-run: crash loop): nothing to judge
+		mounted "$SYS/bin/zpod-launcher" || { log "guard: the update is no longer active"; return 0; }
+		p=$(launcher_pid)
+		if [ -n "$p" ] && sock_up; then
+			if [ "$p" = "$pid" ]; then
+				if [ $((t - since)) -ge $((SETTLE * 2)) ]; then
+					rm -f "$ROOT/boot-attempts"; sync
+					st ok "update $(kv version "$M") $(kv git "$M") running"
+					return 0
+				fi
+			else pid=$p; since=$t; fi
+		else pid=; fi
+		sleep 0.5; t=$((t + 1))
+	done
+	give_up "the launcher was not up within $GUARD_SECS s"
+	restart_launcher >> "$LOG" 2>&1
+	return 0
+}
+
+kv_status() {
+	if [ -e "$ROOT/disabled" ] || [ -s "$ROOT/failed" ]; then echo boot_load=off; else echo boot_load=on; fi
+	if [ -f "$ID" ]; then echo boot_support=1; else echo boot_support=0; fi
+	if mounted "$SYS/bin/zpod-launcher"; then echo active=update; else echo active=image; fi
+	if [ -f "$ID" ]; then echo "image=$(kv version "$ID") $(kv git "$ID") $(kv date "$ID")"; else echo "image=$(image_version) (no boot updates in this image)"; fi
+	if [ -f "$M" ]; then echo "update=$(kv version "$M") $(kv git "$M") $(kv date "$M")"
+	elif [ -f "$CORE/zpod-launcher" ]; then echo "update=unversioned ($(date -r "$CORE/zpod-launcher" +%Y-%m-%d 2>/dev/null))"
+	else echo update=; fi
+	if [ -f "$RUN/core-state" ]; then
+		s=$(kv state "$RUN/core-state"); r=$(kv reason "$RUN/core-state")
+	elif mounted "$SYS/bin/zpod-launcher"; then s=manual; r="applied by hand"
+	else s=none; r=; fi
+	# turned off or failed after this boot's verdict
+	if [ -s "$ROOT/failed" ] && [ "$s" != fallback ]; then s=fallback; r=$(cat "$ROOT/failed"); fi
+	echo "state=$s"
+	echo "reason=$r"
+	echo "attempts=$(cat "$ROOT/boot-attempts" 2>/dev/null)"
+}
+
 case "${1:-status}" in
+boot) boot ;;
+guard) guard ;;
 apply)
-	if [ -e /data/zpod/core/disabled ]; then echo "core overlay disabled (/data/zpod/core/disabled)"; exit 0; fi
-	n=0
-	for b in $NAMES; do
-		[ -f "$CORE/$b" ] && [ -x "$CORE/$b" ] || continue
-		if ! is_arm_elf "$CORE/$b"; then echo "skip $b: $CORE/$b is not an ARM ELF" >&2; continue; fi
-		# lazy: the running launcher keeps its old binary until it restarts
-		while mounted "$b"; do umount -l "$SYS/$b" || break; done
-		mount --bind "$CORE/$b" "$SYS/$b" && echo "$SYS/$b <- $CORE/$b" && n=$((n+1))
-	done
-	for b in $PY_NAMES; do
-		[ -f "$PY_CORE/$b" ] || continue
-		while grep -q " $PY_SYS/$b " /proc/mounts; do umount -l "$PY_SYS/$b" || break; done
-		mount --bind "$PY_CORE/$b" "$PY_SYS/$b" && echo "$PY_SYS/$b <- $PY_CORE/$b" && n=$((n+1))
-	done
-	[ $n -gt 0 ] || echo "nothing in $CORE"
-	if [ "${2:-}" = --restart ]; then
+	shift; restart=; force=
+	for a in "$@"; do case "$a" in --restart) restart=1 ;; --force) force=1 ;; esac; done
+	if [ -f "$M" ]; then
+		check_update manual; r=$?
+		if [ $r != 0 ]; then
+			if [ -n "$force" ]; then echo "warning: $REASON (--force)" >&2; else echo "not applied: $REASON (--force to apply anyway)" >&2; exit 1; fi
+		fi
+	else
+		echo "note: no CORE.manifest; applying unchecked (test3 dev loop)" >&2
+	fi
+	apply_mounts || exit 0
+	rm -f "$ROOT/failed" "$ROOT/boot-attempts"
+	st manual "applied by hand"
+	[ -e "$ROOT/disabled" ] && echo "note: loading at boot is off (zpod-app core on)"
+	if [ -n "$restart" ]; then
 		restart_launcher
 		# pick up a new buttons.py without rebooting
-		if [ -f /run/zpod/buttons.pid ]; then
-			kill -TERM "$(cat /run/zpod/buttons.pid)" 2>/dev/null || true
+		if [ -z "$DRY" ] && [ -f "$RUN/buttons.pid" ]; then
+			kill -TERM "$(cat "$RUN/buttons.pid")" 2>/dev/null || true
 			sleep 0.3
-			start-stop-daemon -S -b -m -p /run/zpod/buttons.pid -a /bin/sh -- -c 				'exec /usr/bin/python3 /usr/lib/zpod/zpod_buttons.py >>/run/zpod/buttons.log 2>&1' 2>/dev/null || true
+			start-stop-daemon -S -b -m -p "$RUN/buttons.pid" -a /bin/sh -- -c \
+				'exec /usr/bin/python3 /usr/lib/zpod/zpod_buttons.py >>/run/zpod/buttons.log 2>&1' 2>/dev/null || true
 			echo "zpod-buttons restarted"
 		fi
 	fi
 	exit 0
 	;;
 off)
-	for b in $NAMES; do while mounted "$b"; do umount -l "$SYS/$b" || break; echo "$SYS/$b: image binary"; done; done
-	for b in $PY_NAMES; do while grep -q " $PY_SYS/$b " /proc/mounts; do umount -l "$PY_SYS/$b" || break; echo "$PY_SYS/$b: image"; done; done
+	do_off
+	st none "turned off by hand"
 	[ "${2:-}" = --restart ] && restart_launcher
 	exit 0
 	;;
+enable)
+	mkdir -p "$ROOT"; rm -f "$ROOT/disabled" "$ROOT/failed" "$ROOT/boot-attempts"; sync
+	log "boot load on"; echo "ok: updates on /data load at the next boot" ;;
+disable)
+	mkdir -p "$ROOT"; : > "$ROOT/disabled"; sync
+	log "boot load off"; echo "ok: the next boot uses the image core" ;;
+fail)
+	shift; give_up "${*:-failed}"; echo "update marked failed: ${*:-failed}" ;;
+verify)
+	check_update boot; r=$?
+	if [ $r = 0 ]; then echo "ok: update $(kv version "$M") $(kv git "$M") would load at boot"; else echo "no: $REASON"; fi
+	exit $r ;;
 status)
-	for b in $NAMES; do
-		if mounted "$b"; then echo "$b: /data overlay ($(ls -l "$CORE/$b" 2>/dev/null | awk '{print $5" bytes "$6" "$7" "$8}'))"; else echo "$b: image"; fi
-	done
-	for b in $PY_NAMES; do
-		if grep -q " $PY_SYS/$b " /proc/mounts; then echo "$b: /data overlay"; else echo "$b: image"; fi
+	if [ "${2:-}" = --kv ]; then kv_status; exit 0; fi
+	kv_status | sed 's/=/: /'
+	for rel in $FILES; do
+		dst=$(target_of "$rel")
+		if mounted "$dst"; then echo "  $dst <- $ROOT/$rel"; fi
 	done
 	;;
 restart-launcher) restart_launcher ;;
-*) sed -n '2,9p' "$0"; exit 2 ;;
+-h | --help | help) sed -n '2,40p' "$0" ;;
+*) sed -n '2,40p' "$0"; exit 2 ;;
 esac

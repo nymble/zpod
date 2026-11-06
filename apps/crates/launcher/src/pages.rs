@@ -15,6 +15,7 @@ use zpod_ui::{
 };
 
 use crate::{
+    coreupd,
     menu::{UsbChoice, WifiRow},
     server, usb, usbrole, wifitools,
 };
@@ -647,7 +648,8 @@ pub fn draw_chan_util(fb: &mut Framebuffer, nets: &[WifiNet], scanning: bool, ag
 /// Tools > USB: the port's role now, the computer link or the plugged-in
 /// devices, Wi-Fi SSH (the way in once the computer link is gone), the boot
 /// role, and three switch rows (Up/Down + OK opens the confirmation).
-pub fn draw_usb(fb: &mut Framebuffer, u: &usb::Info, i: &RoleInfo, sel: usize, busy: Option<&str>) {
+/// `devs`: `i.devices` with the app that handles each one (`[[handles]]`).
+pub fn draw_usb(fb: &mut Framebuffer, u: &usb::Info, i: &RoleInfo, devs: &[String], sel: usize, busy: Option<&str>) {
     clear(fb);
     let role = i.role;
     let (pc, sub) = match role {
@@ -675,7 +677,7 @@ pub fn draw_usb(fb: &mut Framebuffer, u: &usb::Info, i: &RoleInfo, sel: usize, b
         kv("usb0", &format!("{}  {}", if up { "up" } else { "down" }, dash(&u.ip)), if up { FG } else { DIM });
     }
     if role != Some(UsbRole::Gadget) {
-        let devs: Vec<&str> = i.devices.iter().map(String::as_str).collect();
+        let devs: Vec<&str> = devs.iter().map(String::as_str).collect();
         match devs.as_slice() {
             [] => kv("Devices", "none: plug in via OTG adapter / hub", DIM),
             [a] => kv("Devices", a, FG),
@@ -756,4 +758,33 @@ pub fn draw_usb_confirm(fb: &mut Framebuffer, c: UsbChoice, i: &RoleInfo, busy: 
     }
     h.push(("X", "cancel"));
     widgets::hints(fb, &h);
+}
+
+/// Tools > Updates: the boot option (the one row, OK switches it), the
+/// running core, the image's and the card's versions, the last start.
+pub fn draw_updates(fb: &mut Framebuffer, i: &coreupd::Info, sel: bool) {
+    clear(fb);
+    let y = Y0 + 8;
+    if sel {
+        fill(fb, 8, y, 304, 30, SEL);
+    }
+    text::draw(fb, Font::BodyBold, "Load updates at boot", 16, y + 8, if sel { WHITE } else { FG });
+    let (t, c) = if !i.boot_support && i.error.is_none() { ("test3: by hand", DIM) } else if i.boot_load { ("On", OK) } else { ("Off", DIM) };
+    pill(fb, 304 - text::width(Font::BodyBold, t) - 12, y + 7, t, c);
+    let mut yy = y + 38;
+    for (l, warn) in coreupd::summary(i) {
+        text::draw_fit(fb, Font::Body, &l, 14, yy, 292, if warn { WARN } else { FG });
+        yy += 20;
+    }
+    yy = yy.max(y + 102);
+    let mut kv = |k: &str, v: &str| {
+        text::draw(fb, Font::Small, k, 14, yy + 3, DIM);
+        text::draw_fit(fb, Font::Body, if v.is_empty() { "none" } else { v }, 74, yy, 232, if v.is_empty() { DIM } else { FG });
+        yy += 20;
+    };
+    kv("Image", &i.image);
+    kv("Update", &i.update);
+    text::draw_fit(fb, Font::Small, "Takes effect at the next start.", 14, Y0 + H - 30, 296, FAINT);
+    text::draw_fit(fb, Font::Small, "Hold Home while powering on to skip it once.", 14, Y0 + H - 16, 296, FAINT);
+    widgets::hints(fb, &[("OK", "on/off"), ("Lt/X", "back"), ("Home", "top")]);
 }

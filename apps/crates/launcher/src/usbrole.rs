@@ -17,19 +17,21 @@ use zpod_hal::sys;
 use zpod_input::role::{self, RoleInfo};
 use zpod_input::UsbRole;
 
-/// The tool: `ZPOD_USB_ROLE_TOOL`, a newer copy pushed to /data by
-/// `scripts/zpod-dev --core` (root-owned, not writable by others), else the
-/// image's.
+/// The tool: `ZPOD_USB_ROLE_TOOL`, else the image's `/usr/sbin/zpod-usb-role`
+/// (a newer copy from /data is bind-mounted over it by zpod-core-overlay
+/// when core updates are active), else, on test3 (no such file in the
+/// image), the copy `scripts/zpod-dev --core` pushed to /data (root-owned,
+/// not writable by others).
 pub fn tool() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("ZPOD_USB_ROLE_TOOL") {
         return Some(p.into());
     }
-    let dev = PathBuf::from("/data/zpod/core/zpod-usb-role");
-    if trusted(&dev) {
-        return Some(dev);
-    }
     let img = PathBuf::from("/usr/sbin/zpod-usb-role");
-    img.exists().then_some(img)
+    if img.exists() {
+        return Some(img);
+    }
+    let dev = PathBuf::from("/data/zpod/core/zpod-usb-role");
+    trusted(&dev).then_some(dev)
 }
 
 /// Root-owned, executable, and neither it nor its directory writable by

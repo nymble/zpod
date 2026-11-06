@@ -23,8 +23,18 @@ impl std::fmt::Display for Version {
     }
 }
 
+/// Manifest schema this code understands (docs/APP-MANIFEST.md). A manifest
+/// without `schema` is schema 0 (test3 and older). Fields added within a
+/// schema are additive: older readers ignore them. A breaking change bumps
+/// the schema and older readers refuse the manifest.
+pub const SCHEMA: u32 = 1;
+
+/// Launcher API level these crates implement (`requires.launcher_api`).
+/// 1 = test3 launcher, 2 = control socket + USB role (ctl 2), 3 = menu tree,
+/// `[menu]`/`[[handles]]`/`[requires]`, boot-time core updates.
+pub const LAUNCHER_API: u32 = 3;
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct AppSection {
     pub id: String,
     pub name: String,
@@ -42,8 +52,8 @@ pub struct AppSection {
     /// Informational: target the binaries were built for.
     #[serde(default)]
     pub arch: Option<String>,
-    /// "app" (default: home screen) or "tool" (listed under Tools, e.g. GPS).
-    /// Needs a zpod-app / launcher from 2026-11-05 or later.
+    /// Legacy placement (schema 0): "app" = Home, "tool" = Tools. Schema 1
+    /// uses `[menu] path`; when both are given `[menu]` wins.
     #[serde(default)]
     pub category: Option<String>,
     /// Extra things the launcher lets this app do. Known: "usb-host" (ask
@@ -53,10 +63,74 @@ pub struct AppSection {
     pub permissions: Vec<String>,
 }
 
+/// `[menu]`: where the app lives in the launcher's menu tree.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub struct MenuSection {
+    /// Folder path, e.g. "Tools/Radio"; "" = Home. Must start at a built-in
+    /// folder ([`crate::tree::FOLDERS`]); deeper folders are made on demand.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Position inside the folder (lower = higher); default `app.order`.
+    #[serde(default)]
+    pub order: Option<i32>,
+    /// Menu label; default `app.name`.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// Extra placements (the same app listed in more than one folder).
+    #[serde(default)]
+    pub also: Vec<AlsoSection>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub struct AlsoSection {
+    pub path: String,
+    #[serde(default)]
+    pub order: Option<i32>,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+/// `[[handles]]`: other ways to reach the app than its menu entry.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct Handle {
+    /// usb-device | serial | file | input. Unknown kinds are ignored (warning).
+    pub kind: String,
+    /// What it matches: "067b:2303" (usb-device VID:PID, or "class:02"),
+    /// "nmea" (serial protocol), "mid" (file extension), "keyboard" (input).
+    #[serde(rename = "match")]
+    pub matches: Vec<String>,
+    /// Shown in the chooser, e.g. "GPS receiver".
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+/// `[requires]`: what the app needs. Install checks `launcher_api`; the
+/// launcher hides apps it cannot run and lists why under Installed apps.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub struct Requires {
+    /// Minimum launcher API ([`LAUNCHER_API`]).
+    #[serde(default)]
+    pub launcher_api: Option<u32>,
+    /// Needs the USB port in host mode (the app asks before switching).
+    #[serde(default)]
+    pub usb_host: bool,
+    /// Needs a Wi-Fi network (client or hotspot).
+    #[serde(default)]
+    pub wifi: bool,
+    /// Inputs the app works with: buttons, keyboard, mouse, touch.
+    #[serde(default)]
+    pub input: Vec<String>,
+}
+
 /// Values accepted in `permissions`.
 pub const KNOWN_PERMISSIONS: &[&str] = &["usb-host"];
+/// `[[handles]] kind` values this core acts on.
+pub const KNOWN_HANDLES: &[&str] = &["usb-device", "serial", "file", "input"];
+/// `requires.input` values.
+pub const KNOWN_INPUTS: &[&str] = &["buttons", "keyboard", "mouse", "touch"];
 
 impl AppSection {
+    /// Legacy: listed under Tools (schema 0 `category = "tool"`).
     pub fn is_tool(&self) -> bool {
         self.category.as_deref() == Some("tool")
     }
@@ -71,9 +145,20 @@ fn default_order() -> i32 {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct Manifest {
+    /// 0 (absent) or 1.
+    #[serde(default)]
+    pub schema: u32,
     pub app: AppSection,
+    #[serde(default)]
+    pub menu: Option<MenuSection>,
+    #[serde(default)]
+    pub handles: Vec<Handle>,
+    #[serde(default)]
+    pub requires: Requires,
+    /// Keys this reader does not know (ignored), as "table.key".
+    #[serde(skip)]
+    pub unknown: Vec<String>,
 }
 
 pub fn valid_id(id: &str) -> bool {
@@ -92,9 +177,67 @@ pub fn safe_rel(p: &str) -> bool {
         && p.split('/').all(|c| !c.is_empty() && c != ".." && c != ".")
 }
 
+/// Keys each table knows; anything else is reported in `Manifest::unknown`.
+const KNOWN_KEYS: &[(&str, &[&str])] = &[
+    ("", &["schema", "app", "menu", "handles", "requires"]),
+    ("app", &["id", "name", "version", "exec", "args", "icon", "description", "min_core", "order", "arch", "category", "permissions"]),
+    ("menu", &["path", "order", "label", "also"]),
+    ("menu.also", &["path", "order", "label"]),
+    ("handles", &["kind", "match", "label"]),
+    ("requires", &["launcher_api", "usb_host", "wifi", "input"]),
+];
+
+fn unknown_keys(t: &toml::Table, table: &str, out: &mut Vec<String>) {
+    let known = KNOWN_KEYS.iter().find(|(n, _)| *n == table).map(|(_, k)| *k).unwrap_or(&[]);
+    for (k, v) in t {
+        let name = if table.is_empty() { k.clone() } else { format!("{table}.{k}") };
+        if !known.contains(&k.as_str()) {
+            out.push(name);
+            continue;
+        }
+        match v {
+            toml::Value::Table(sub) => unknown_keys(sub, &name, out),
+            toml::Value::Array(a) => {
+                for x in a {
+                    if let toml::Value::Table(sub) = x {
+                        unknown_keys(sub, &name, out);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// `match` accepts a string or a list of strings.
+fn normalise_handles(t: &mut toml::Table) {
+    if let Some(toml::Value::Array(hs)) = t.get_mut("handles") {
+        for h in hs.iter_mut() {
+            if let toml::Value::Table(h) = h {
+                if let Some(toml::Value::String(s)) = h.get("match").cloned() {
+                    h.insert("match".into(), toml::Value::Array(vec![toml::Value::String(s)]));
+                }
+            }
+        }
+    }
+}
+
 impl Manifest {
+    /// Parse and validate. Unknown keys are not errors (they are listed in
+    /// `unknown`); a schema newer than [`SCHEMA`] is.
     pub fn parse(text: &str) -> Result<Manifest, String> {
-        let m: Manifest = toml::from_str(text).map_err(|e| format!("manifest.toml: {}", e.message()))?;
+        let mut t: toml::Table = text.parse().map_err(|e: toml::de::Error| format!("manifest.toml: {}", e.message()))?;
+        if let Some(v) = t.get("schema") {
+            let s = v.as_integer().ok_or("manifest.toml: schema must be a number")?;
+            if s < 0 || s > SCHEMA as i64 {
+                return Err(format!("manifest schema {s} needs a newer ZPOD (this one reads schema <= {SCHEMA})"));
+            }
+        }
+        let mut unknown = Vec::new();
+        unknown_keys(&t, "", &mut unknown);
+        normalise_handles(&mut t);
+        let mut m: Manifest = toml::Value::Table(t).try_into().map_err(|e: toml::de::Error| format!("manifest.toml: {}", e.message()))?;
+        m.unknown = unknown;
         m.validate()?;
         Ok(m)
     }
@@ -127,6 +270,15 @@ impl Manifest {
                 return Err(format!("category must be \"app\" or \"tool\", not '{c}'"));
             }
         }
+        if let Some(m) = &self.menu {
+            if let Some(l) = &m.label {
+                if l.trim().is_empty() || l.len() > 40 {
+                    return Err("menu.label must be 1..40 characters".into());
+                }
+            }
+        }
+        // placement (menu path, also, handles) is checked against the
+        // built-in folders by crate::tree::check, which also warns
         Ok(())
     }
 
@@ -136,6 +288,11 @@ impl Manifest {
 
     pub fn min_core(&self) -> Version {
         Version::parse(&self.app.min_core).unwrap()
+    }
+
+    /// Launcher API the app needs (1 when it does not say).
+    pub fn launcher_api(&self) -> u32 {
+        self.requires.launcher_api.unwrap_or(1)
     }
 }
 
@@ -193,7 +350,6 @@ order = 30
         assert!(bad("bin/tetris", "/bin/sh").contains("exec"));
         assert!(bad("version = \"1.0.0\"", "version = \"one\"").contains("version"));
         assert!(bad("min_core = \"0.5.0\"", "min_core = \"x\"").contains("min_core"));
-        assert!(bad("order = 30", "order = 30\nroot = true").contains("unknown field"));
         assert!(bad("name = \"Tetris\"\n", "").contains("name"));
         assert!(bad("order = 30", "order = 30\npermissions = [\"root\"]").contains("unknown permission"));
     }

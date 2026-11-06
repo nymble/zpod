@@ -19,6 +19,11 @@ start)
 			[ -e "$a" ] && ZPOD_CORE_VERSION_FILE=/etc/zpod/core-version /usr/lib/zpod/bin/zpod-app install --force "$a"
 		done
 	fi
+	# A newer image brings newer bundled apps (e.g. their menu placement):
+	# update the installed ones that are older. Never reinstalls a removed
+	# app, never downgrades a newer one pushed with zpod-dev. Reads only the
+	# manifests when nothing is newer.
+	ZPOD_CORE_VERSION_FILE=/etc/zpod/core-version /usr/lib/zpod/bin/zpod-app update --if-newer /usr/share/zpod/packages/*.zpa >>/data/log/apps-update.log 2>&1
 	# Login user + SSH keys from the FAT boot partition (normally already done
 	# by zpod-data-early before the launcher; no-op then). zpod-wifi.txt: S40wifi
 	/usr/lib/zpod/zpod-firstuser-br >>/data/log/firstuser.log 2>&1

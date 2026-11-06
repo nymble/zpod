@@ -1,7 +1,7 @@
 [package]
 name = "zpod-tetris"
 description = "Tetris for ZPOD: tetris-core engine + ZPOD platform frontend (LCD, evdev buttons, simulator)"
-version = "1.0.0"
+version = "1.1.0"
 edition.workspace = true
 license.workspace = true
 

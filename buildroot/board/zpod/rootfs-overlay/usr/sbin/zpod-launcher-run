@@ -4,7 +4,9 @@
 # Apps run as the "zpod" user.
 while pidof zpod-launcher >/dev/null; do sleep 1; done
 # A launcher from /data (zpod-core-overlay) that dies 4 times within 60 s is
-# dropped for the image's own binary until the next "zpod-core-overlay apply".
+# dropped for the image's own binary, and the update is marked failed so the
+# next boots use the image core too (until it is pushed again or turned back
+# on: Tools > Updates, zpod-app core on). docs/BOOT-UPDATES.md
 L=/usr/lib/zpod/bin/zpod-launcher
 if grep -q " $L " /proc/mounts; then
 	now=$(cut -d. -f1 /proc/uptime)
@@ -13,7 +15,8 @@ if grep -q " $L " /proc/mounts; then
 	while read -r t; do [ $((now - t)) -lt 60 ] && n=$((n+1)); done < /run/zpod/launcher-starts
 	if [ $n -ge 4 ]; then
 		echo "zpod-launcher-run: /data launcher keeps exiting; using the image's launcher" >>/run/zpod/launcher.log
-		umount -l "$L"; rm -f /run/zpod/launcher-starts
+		/usr/sbin/zpod-core-overlay fail "the launcher from the update kept exiting" >>/run/zpod/launcher.log 2>&1 || umount -l "$L"
+		rm -f /run/zpod/launcher-starts
 	fi
 fi
 export ZPOD_APP_USER=zpod ZPOD_DATA_DIR=/data/zpod/appdata HOME=/root PATH=/usr/sbin:/usr/bin:/sbin:/bin

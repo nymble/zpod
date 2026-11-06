@@ -142,7 +142,8 @@ fn walk_files(dir: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
 pub fn validate_tree(dir: &Path, core: Version) -> Result<(Manifest, Vec<String>), String> {
     let text = fs::read_to_string(dir.join("manifest.toml")).map_err(|_| "package has no top-level manifest.toml".to_string())?;
     let m = Manifest::parse(&text)?;
-    let mut warnings = Vec::new();
+    // placement, handles, requires (docs/APP-MANIFEST.md); unknown keys warn
+    let mut warnings = crate::tree::check(&m)?;
     if m.min_core() > core {
         return Err(format!("{} needs ZPOD core >= {}, this device has {}", m.app.id, m.app.min_core, core));
     }
@@ -362,6 +363,22 @@ mod tests {
         let e = install(&p, &root.join("apps"), Mode::Install, CORE).unwrap_err();
         assert!(e.contains("needs ZPOD core >= 9.0.0"), "{e}");
         assert!(!root.join("apps/hello").exists());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn install_validates_placement() {
+        let root = tmp("place");
+        let s = app_src(&root, "1.0.0", "0.5.0");
+        let m = fs::read_to_string(s.join("manifest.toml")).unwrap();
+        fs::write(s.join("manifest.toml"), format!("schema = 1\n{m}[menu]\npath = \"Nowhere\"\n")).unwrap();
+        let p = pack(&s, &root).unwrap();
+        let e = install(&p, &root.join("apps"), Mode::Install, CORE).unwrap_err();
+        assert!(e.contains("built-in folder"), "{e}");
+        fs::write(s.join("manifest.toml"), format!("schema = 1\n{m}shiny = true\n[menu]\npath = \"games\"\n")).unwrap();
+        let p = pack(&s, &root).unwrap();
+        let r = install(&p, &root.join("apps"), Mode::Install, CORE).unwrap();
+        assert!(r.warnings.iter().any(|w| w.contains("app.shiny")), "{:?}", r.warnings);
         fs::remove_dir_all(&root).unwrap();
     }
 
