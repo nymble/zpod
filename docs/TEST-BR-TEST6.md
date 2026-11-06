@@ -27,7 +27,7 @@ cd ~/src/zpod && git pull
 scripts/zpod-ab-push --verify-only ~/Downloads/zpod-v0.11.0-br-ab-test6.zab
 ```
 
-Expect `ok: 0.11.0 <git>`. Install (writes p3 and the boot partition only;
+Expect `ok: v0.11.0-br-ab-test6 <git>`. Install (writes p3 and the boot partition only;
 `/data` is not touched; no reboot):
 
 ```
@@ -36,7 +36,7 @@ scripts/zpod-ab-push ~/Downloads/zpod-v0.11.0-br-ab-test6.zab
 
 Expect "root file system written and verified", "copied the running
 system's boot files to /boot/firmware/slot-a/" (test5 migration) and "next
-boot runs system b (0.11.0) on trial". Then on the ZPOD: **Power > Reboot**.
+boot runs system b (v0.11.0-br-ab-test6) on trial". Then on the ZPOD: **Power > Reboot**.
 
 Check (over SSH):
 
@@ -45,7 +45,7 @@ scripts/zpod-ab-push --status
 ```
 
 Wait 2-3 minutes after boot: expect
-`slot: b`, `result: system b (0.11.0 ...) committed`, and the music and
+`slot: b`, `result: system b (v0.11.0-br-ab-test6 ...) committed`, and the music and
 Wi-Fi unchanged.
 
 Please report: did it boot system B? Committed? Boot time? Anything in

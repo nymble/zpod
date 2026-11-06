@@ -5,8 +5,9 @@ ZPOD runs, without reflashing and without touching `/data` (music, apps,
 accounts, Wi-Fi, SSH keys). Flashing a full `.img` is now only for new cards
 or recovery: **it wipes the card**.
 
-Status: implemented and tested in emulation (`buildroot/tests/test_ab_br.sh`,
-QEMU). **Not yet tried on hardware**; the first real update is the test in
+Status: implemented and tested in emulation (`buildroot/tests/test_ab_br.sh`;
+`test_ab_migrate_br.sh`, which upgrades a copy of the real test5 image with
+the real bundle under the image's own BusyBox; QEMU boot). **Not yet tried on hardware**; the first real update is the test in
 [TEST-BR-TEST6.md](./TEST-BR-TEST6.md).
 
 ## Layout
@@ -73,7 +74,8 @@ from the top-level files).
 
 ## Bundle `.zab`
 
-A tar file built with the image (`zpod-<version>.zab`, ~45 MB):
+A tar file built with the image (`zpod-update.zab` in `output/images`,
+published as `zpod-<version>.zab`, about 56 MB):
 
 ```
 AB.manifest        format=1 board=pi0w version git date abi, file=<sha256> <path>
@@ -129,5 +131,6 @@ update, never the system choice.
   `[gpio12=0]` override, and `cmdline=` in a gpio filter with a prefix.
 - No signing; hash checks only.
 - The FAT partition holds the firmware plus up to three kernel sets (top
-  level, `slot-a`, `slot-b`), about 20 MB of 64 MB.
-- 256 MB per system; the current root is about 90 MB.
+  level, `slot-a`, `slot-b`), about 20 MB of 64 MB
+  (measured after a test5 migration and a second update).
+- 256 MB per system; the current root is about 50 MB.

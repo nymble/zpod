@@ -164,7 +164,7 @@ install() {
 	# 1. the root file system, read back and compared
 	dd if="$B/rootfs.squashfs" of="$dev" bs=1M conv=fsync,notrunc 2>/dev/null || die "writing $dev failed"
 	sync
-	[ -w /proc/sys/vm/drop_caches ] && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
+	{ echo 3 > /proc/sys/vm/drop_caches; } 2>/dev/null || : # read back from the card, not the cache
 	[ "$(head -c "$sz" "$dev" | sha256sum | cut -d' ' -f1)" = "$(sum "$B/rootfs.squashfs")" ] || die "read-back of $dev does not match; the running system is unchanged"
 	echo "  system $t: root file system written and verified"
 	# 2. its boot folder on the FAT partition (built aside, then renamed)
