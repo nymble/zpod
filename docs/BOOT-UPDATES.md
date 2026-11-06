@@ -28,13 +28,13 @@ it off is one toggle: **Tools > Updates**, or `zpod-app core off`.
 format=1
 version=0.10.0
 build=1794000000          # seconds since 1970 (UTC) at the push
-git=51663e8+dirty
+git=491a6b1
 abi=1
 date=2026-11-05T21:00:00Z
-sha256 bin/zpod-launcher <64 hex>
-sha256 bin/zpod-app <64 hex>
-sha256 zpod_buttons.py <64 hex>
-sha256 zpod-usb-role <64 hex>
+file=<sha256> bin/zpod-launcher
+file=<sha256> bin/zpod-app
+file=<sha256> zpod_buttons.py
+file=<sha256> zpod-usb-role
 ```
 
 The image records its own core in `/usr/share/zpod/core.id` (version,
