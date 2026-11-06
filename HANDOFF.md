@@ -75,7 +75,10 @@ Channel use chart, switching back to Client mode.
 
 ## Next jobs, in order
 
-(Done 2026-11-05: app dev loop, ROADMAP-APPS step 1, `docs/DEV-LOOP.md`.)
+(Done 2026-11-05: app dev loop, ROADMAP-APPS step 1, `docs/DEV-LOOP.md`.
+Core 0.10.0: menu tree and manifest schema 1 (`docs/APP-MANIFEST.md`), core
+updates from `/data` loaded at boot with fallback (`docs/BOOT-UPDATES.md`),
+bundled apps updated at boot; test card `docs/TEST-BR-TEST5.md`.)
 
 1. **Non-destructive updates**: A/B system updates (RAUC style) into p2/p3 that
    never touch `/data`, with boot fallback if the new slot fails. Test3 should be

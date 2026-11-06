@@ -29,24 +29,34 @@ flash.
 ```
 
 ```toml
+schema = 1               # manifest schema (docs/APP-MANIFEST.md); absent = 0 (test3)
+
 [app]
 id = "tetris"            # must equal the directory name; a-z 0-9 '-', <= 32
 name = "Tetris"          # menu label, <= 40 chars
-version = "1.0.0"        # semver; update refuses downgrades unless --force
+version = "1.1.0"        # semver; update refuses downgrades unless --force
 exec = "bin/tetris"      # relative to the app dir (no "..", no absolute)
 args = []                # optional
 icon = "icon.png"        # optional
 description = "Falling blocks: SRS, hold, ghost, high scores"
 min_core = "0.5.0"       # oldest ZPOD core (/etc/zpod/core-version) it supports
-order = 30               # optional menu position (lower first, then by name)
-category = "tool"        # optional: "app" (default, top menu) or "tool" (end of Tools,
-                         # e.g. GPS). Needs core 0.9.0 from after test3 (older zpod-app
-                         # rejects unknown keys); on test3 run scripts/zpod-dev --core
+order = 30               # optional default menu position (lower first, then by name)
 arch = "arm-unknown-linux-musleabihf"   # informational
+
+[menu]
+path = "Games"           # folder in the menu tree: "" = Home, Generative, Games,
+                         # Tools, Tools/Radio, Settings, or a sub-folder of one
+order = 10
 ```
 
-Unknown keys are rejected (`deny_unknown_fields`), so a typo cannot silently
-grant anything.
+Optional `[[menu.also]]` (extra placements), `[[handles]]` (USB VID:PID,
+serial protocol, file type, input device) and `[requires]` (launcher API,
+USB host, Wi-Fi, inputs) are described in [APP-MANIFEST.md](./APP-MANIFEST.md),
+with the menu tree. From core 0.10.0 unknown keys are ignored with a warning
+(`zpod-app install`/`check`/`info`), so a newer manifest still installs;
+the old `category = "tool"` still means Tools when there is no `[menu]`.
+Cores up to 0.9.x reject unknown keys: install schema-1 apps on test3 with
+the 0.10.0 `zpod-app` (`scripts/zpod-dev --core`).
 
 ### Runtime contract
 
@@ -114,6 +124,18 @@ in `/etc/zpod/trusted-keys`). Today anyone with sudo can install anything,
 the same as with `scp` + `sudo`.
 
 ## Launcher
+
+From core 0.10.0 the menu is a tree (docs/APP-MANIFEST.md section 1):
+
+```
+Home: Music, Generative > (Mouse Music), Games > (Tetris), Clock, Tools >, Settings >, Power >
+Tools: Wi-Fi, Bluetooth, USB, Battery, File transfer, Radio > (GPS), Updates
+```
+
+Each app's `[menu] path` puts it in a folder; folders without apps are
+hidden. Tools > Updates turns loading core updates from `/data` at boot on
+or off (docs/BOOT-UPDATES.md). The table below is the original M4 layout,
+kept for the item descriptions.
 
 Home lists the apps by `order`, then **System**:
 

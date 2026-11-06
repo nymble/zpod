@@ -2,6 +2,16 @@
 
 Status: **v0 = what the code does today** (core 0.9.0, `apps/crates/zpod-apps`,
 `apps/crates/launcher`); **v1 = proposed** (2026-11-03, not implemented).
+
+> **Update (core 0.10.0, 2026-11-05):** manifest **schema 1** is implemented
+> and specified in [APP-MANIFEST.md](./APP-MANIFEST.md): top-level
+> `schema = 1` (instead of the proposed `format`), `[menu]` (folder path,
+> order, label, extra placements) replacing `category`, `[[handles]]` (USB
+> VID:PID, serial protocol, file type, input) and `[requires]`
+> (`launcher_api`, `usb_host`, `wifi`, `input`). Unknown keys are now
+> **ignored with a warning**, not errors, so newer manifests install on
+> older cores from 0.10.0 on. The container (section 2), install layout and
+> the other [proposed] items below are unchanged.
 Every proposed item is marked **[proposed]**. Anything not marked is
 implemented and has a code reference.
 
@@ -75,9 +85,15 @@ order = 30               # optional, default 100; menu sort (then name)
 arch = "arm-unknown-linux-musleabihf"   # optional, informational only
 ```
 
-Unknown keys and unknown tables are **errors** (`deny_unknown_fields`).
+Unknown keys and unknown tables are **errors** (`deny_unknown_fields`) up to
+core 0.9.x. From core 0.10.0 (schema 1) they are ignored with a warning, and
+`category` is replaced by `[menu] path`: see [APP-MANIFEST.md](./APP-MANIFEST.md).
 
 ### 4.2 v1 additions [proposed]
+
+(Partly superseded: `schema`, `[menu]`, `[[handles]]` and a first
+`[requires]` are implemented as in [APP-MANIFEST.md](./APP-MANIFEST.md);
+where this section differs, APP-MANIFEST.md wins.)
 
 Compatibility rule: a v1 manifest sets `format = 1`, and any v1-only key
 requires `min_core >= 0.10.0` (the first core that would parse v1). A v0 core
