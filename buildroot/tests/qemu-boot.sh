@@ -11,7 +11,7 @@
 #          boot notice (/run/zpod/boot-notice, in the debug dump).
 #   drop-on  switch the drop box + book catalog on in /data (as Tools > Drop
 #          box does through the systemctl shim): the next boot runs zpod-drop.
-#   boot   boot sd.img; serial log to $Q/boot<N>.log. zpod.debug on the cmdline
+#   boot   boot sd.img; serial log to $Q/boot<N>.log (ZPOD_QEMU_CMDLINE: other cmdline.txt). zpod.debug on the cmdline
 #          dumps the boot marks and state after rcS and 20 s later.
 # QEMU has no SPI panel, I2C devices, UDC, Wi-Fi or BT, so those parts are
 # expected to be missing. The DTB copy disables the PM/watchdog node (not
@@ -74,7 +74,8 @@ DF
 	;;
 boot)
 	n=1; while [ -e "$Q/boot$n.log" ]; do n=$((n+1)); done
-	CMD=$(sed 's/console=tty1/console=ttyAMA1/' "$O/rpi-firmware/cmdline.txt")
+	# ZPOD_QEMU_CMDLINE=$O/rpi-firmware/slot-b/cmdline.txt boots system B (p3)
+	CMD=$(sed 's/console=tty1/console=ttyAMA1/' "${ZPOD_QEMU_CMDLINE:-$O/rpi-firmware/cmdline.txt}")
 	timeout "${2:-150}" qemu-system-arm -M raspi0 -m 512 -kernel "$O/zImage" -dtb "$Q/zq.dtb" \
 		-drive file="$Q/sd.img",if=sd,format=raw -append "$CMD zpod.debug" \
 		-nographic -monitor none -serial stdio > "$Q/boot$n.log" 2>&1 || true

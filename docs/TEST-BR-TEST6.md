@@ -4,7 +4,7 @@ Release `v0.11.0-br-ab-test6` (pre-release). Two parts: **A/B update of the
 test5 card without reflashing**, and **typing a Wi-Fi password on the
 device**. Neither has run on hardware yet.
 
-Do **not** flash `zpod-v0.11.0-br-ab-test6.img.xz` onto the test5 card: a
+Do **not** flash `2026-11-06-zpod-pi0w-v0.11.0-br-ab-test6.img.xz` onto the test5 card: a
 full image wipes `/data` (music, Wi-Fi, accounts). The `.img.xz` is only for
 a new or spare card.
 
