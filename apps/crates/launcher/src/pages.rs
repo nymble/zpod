@@ -252,22 +252,25 @@ pub fn draw_meter(fb: &mut Framebuffer, w: &wifitools::WifiTools) {
 
 /// Join network > password (USB keyboard). `kb` = a keyboard is plugged in.
 pub fn draw_password(fb: &mut Framebuffer, pw: &crate::PwEntry, busy: Option<&str>) {
-    use zpod_ui::textfield::{draw_text_entry, EntryNote};
-    let kb = pw.hid.has(zpod_input::SourceKind::Keyboard);
+    use zpod_ui::textfield::EntryNote;
+    let kb = pw.entry.keyboard();
     let note = match (busy, &pw.note) {
         (Some(b), _) => EntryNote::Busy(b),
         (None, Some((true, m))) => EntryNote::Ok(m),
         (None, Some((false, m))) => EntryNote::Error(m),
-        (None, None) if !kb => EntryNote::Info(if pw.role.can_host() { "Plug in a USB keyboard" } else { "Keyboard needs USB host mode" }),
+        (None, None) if !kb && pw.entry.field.is_empty() => EntryNote::Info(if pw.role.can_host() {
+            "Pick with the arrows + OK, or plug in a keyboard"
+        } else if pw.entry.pick.offer_keyboard {
+            "Pick with the arrows + OK (kbd: USB keyboard)"
+        } else {
+            "Pick with the arrows + OK"
+        }),
         (None, None) => EntryNote::None,
     };
-    let help: &[&str] = if kb {
-        &["Enter joins, Esc cancels, Tab shows / hides.", "Checks the address before it says Joined."]
-    } else {
-        &["No keyboard? Put zpod-wifi.txt on the SD card", "boot partition (docs/BOOT-WIFI.md)."]
-    };
-    draw_text_entry(fb, &pw.ssid, "Password", &pw.field, help, note);
-    widgets::hints(fb, &[("OK", "join"), ("Tri", if pw.field.reveal { "hide" } else { "show" }), ("X", "cancel")]);
+    let help: &[&str] = &["Enter joins, Esc cancels, Tab shows / hides.", "Arrows: pick characters on the screen instead.", "Checks the address before it says Joined."];
+    pw.entry.draw(fb, &pw.ssid, "Password", "Join", help, note);
+    let h = pw.entry.hints();
+    widgets::hints(fb, &h);
 }
 
 pub fn draw_hotspot(fb: &mut Framebuffer, h: Option<&Hotspot>, busy: Option<&str>, home: Option<&str>, srv: &server::State, reveal: bool) {

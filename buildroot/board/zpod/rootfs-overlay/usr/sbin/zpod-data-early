@@ -68,6 +68,10 @@ fi
 # within 60 s; 2 failed boots or a crash loop turn it off. Holding Home at
 # power-on (zpod.nocore) skips it once. docs/BOOT-UPDATES.md
 mkdir -p /run/zpod
+# A/B system updates (docs/AB-UPDATES.md): a newly installed system boots on
+# trial; its guard commits it once the launcher is up, or switches back to the
+# previous system and reboots. No trial: nothing to do.
+/usr/sbin/zpod-ab boot >>/run/zpod/ab.log 2>&1
 /usr/sbin/zpod-core-overlay boot >>/run/zpod/core-overlay.log 2>&1
 # Setup files added AFTER the first boot: apply them now, before the launcher
 # starts, so its boot notice (M6) can report them. On the very first boot

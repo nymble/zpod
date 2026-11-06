@@ -3,7 +3,8 @@
 //! Made for secrets first (Wi-Fi passwords): a masked field shows dots, its
 //! `Debug` never prints the content, and the buffer is overwritten with
 //! zeros when cleared, taken or dropped. Input comes from a USB/BT keyboard
-//! (zpod-input); buttons-only entry is a later step.
+//! (zpod-input); buttons-only entry (on-screen characters) is
+//! [`crate::textentry`], which wraps a `TextField`.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -170,44 +171,12 @@ pub fn draw_text_entry<D: Canvas>(d: &mut D, heading: &str, label: &str, field: 
     text::draw_fit(d, Font::Large, heading, FIELD_X, STATUS_H + 10, 296, FG);
     text::draw(d, Font::Small, label, FIELD_X, STATUS_H + 40, DIM);
     let fy = STATUS_H + 56;
-    let _ = RoundedRectangle::with_equal_corners(rect(FIELD_X, fy, FIELD_W, FIELD_H), Size::new(8, 8))
-        .into_styled(PrimitiveStyle::with_fill(PANEL))
-        .draw(d);
     let border = match note {
         EntryNote::Error(_) => WARN,
         EntryNote::Ok(_) => OK,
         _ => SEL,
     };
-    let _ = RoundedRectangle::with_equal_corners(rect(FIELD_X, fy, FIELD_W, FIELD_H), Size::new(8, 8))
-        .into_styled(PrimitiveStyle::with_stroke(border, 2))
-        .draw(d);
-    let inner_x = FIELD_X + 10;
-    let inner_w = FIELD_W as i32 - 26;
-    let caret_x = match field.shown() {
-        Shown::Dots(n) => {
-            let pitch = 10;
-            let fit = (inner_w / pitch) as usize;
-            let first = n.saturating_sub(fit);
-            let mut x = inner_x;
-            for _ in first..n {
-                let _ = Circle::new(Point::new(x, fy + FIELD_H as i32 / 2 - 3), 7).into_styled(PrimitiveStyle::with_fill(FG)).draw(d);
-                x += pitch;
-            }
-            x
-        }
-        Shown::Text(s) => {
-            // show the tail that fits
-            let mut start = 0;
-            let chars: Vec<(usize, char)> = s.char_indices().collect();
-            while start < chars.len() && text::width(Font::Body, &s[chars[start].0..]) > inner_w {
-                start += 1;
-            }
-            let tail = if start < chars.len() { &s[chars[start].0..] } else { "" };
-            inner_x + text::draw(d, Font::Body, tail, inner_x, fy + 10, FG)
-        }
-    };
-    // caret
-    fill(d, caret_x + 1, fy + 8, 2, FIELD_H - 16, ACCENT);
+    draw_field(d, field, FIELD_X, fy, FIELD_W, FIELD_H, border);
     let count = alloc::format!("{} / {}", field.len(), field.max_len);
     text::draw_aligned(d, Font::Tiny, &count, FIELD_X + FIELD_W as i32, fy + FIELD_H as i32 + 4, Align::Right, FAINT);
     let mut y = fy + FIELD_H as i32 + 18;
@@ -226,6 +195,46 @@ pub fn draw_text_entry<D: Canvas>(d: &mut D, heading: &str, label: &str, field: 
         text::draw_fit(d, Font::Small, h, FIELD_X, y, 296, DIM);
         y += 15;
     }
+}
+
+/// The field box alone (rounded panel, border, dots or text tail, caret);
+/// shared by [`draw_text_entry`] and the on-screen picker
+/// (`crate::textentry`).
+pub fn draw_field<D: Canvas>(d: &mut D, field: &TextField, x: i32, fy: i32, w: u32, h: u32, border: Rgb565) {
+    let _ = RoundedRectangle::with_equal_corners(rect(x, fy, w, h), Size::new(8, 8))
+        .into_styled(PrimitiveStyle::with_fill(PANEL))
+        .draw(d);
+    let _ = RoundedRectangle::with_equal_corners(rect(x, fy, w, h), Size::new(8, 8))
+        .into_styled(PrimitiveStyle::with_stroke(border, 2))
+        .draw(d);
+    let inner_x = x + 10;
+    let inner_w = w as i32 - 26;
+    let ty = fy + (h as i32 - 14) / 2;
+    let caret_x = match field.shown() {
+        Shown::Dots(n) => {
+            let pitch = 10;
+            let fit = (inner_w / pitch) as usize;
+            let first = n.saturating_sub(fit);
+            let mut cx = inner_x;
+            for _ in first..n {
+                let _ = Circle::new(Point::new(cx, fy + h as i32 / 2 - 3), 7).into_styled(PrimitiveStyle::with_fill(FG)).draw(d);
+                cx += pitch;
+            }
+            cx
+        }
+        Shown::Text(s) => {
+            // show the tail that fits
+            let mut start = 0;
+            let chars: Vec<(usize, char)> = s.char_indices().collect();
+            while start < chars.len() && text::width(Font::Body, &s[chars[start].0..]) > inner_w {
+                start += 1;
+            }
+            let tail = if start < chars.len() { &s[chars[start].0..] } else { "" };
+            inner_x + text::draw(d, Font::Body, tail, inner_x, ty, FG)
+        }
+    };
+    // caret
+    fill(d, caret_x + 1, fy + 8, 2, h - 16, ACCENT);
 }
 
 #[cfg(test)]

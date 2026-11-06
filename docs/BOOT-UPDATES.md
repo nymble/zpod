@@ -120,7 +120,9 @@ test3 has no `core.id` and no `zpod-core-overlay` in the image, so it
 cannot load an update at boot: `zpod-dev --core` applies it until the next
 reboot, and Tools > Updates says "test3: by hand".
 
-## A/B (RAUC) later
+## A/B system updates (test6)
+
+Implemented without RAUC: [AB-UPDATES.md](./AB-UPDATES.md).
 
 The rules are chosen to stay correct once the image is two RAUC slots: the
 update is keyed to the image by ABI and version, so booting the other slot

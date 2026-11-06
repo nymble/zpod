@@ -79,7 +79,7 @@ both VMs. `--network-address` (vz NAT, `network.address: true` and
 |---|---|---|---|---|---|
 | p1 | ZPODBOOT | FAT32 | 64 MB | `/boot/firmware` (rw, 0700) | firmware, `zImage`, DTB, overlays, `config.txt`, `cmdline.txt`; first-boot files `userconf.txt`, `zpod-ssh.pub`, `zpod-user.txt`, `zpod-wifi.txt`, `zpod-usb.txt` |
 | p2 | rootA | squashfs LZ4 | 256 MB partition (≈49 MB image) | `/` read-only | the OS |
-| p3 | rootB | squashfs | 256 MB | – | **A/B stub**: same image as A, never booted (RAUC not done yet) |
+| p3 | rootB | squashfs | 256 MB | – | **system B**: same image as A when flashed; A/B updates (`zpod-ab`, test6) write the system that is not running, [AB-UPDATES.md](./AB-UPDATES.md) |
 | p4 | zpoddata | ext4 | 256 MB in the image, **grown to the end of the card at first boot** (max 2 TiB) | `/data` | music, playlists, app data, apps, accounts, SSH keys, dropbear host keys, Wi-Fi config, MPD/ALSA/BT state |
 
 `sdcard.img` is 872 MB (832 MiB). Writable state lives only on `/data` and
@@ -296,8 +296,9 @@ Instrumentation on the device:
 
 - **Not tested on hardware.** The DAC overlay/driver, the panel over spidev,
   the buttons, NCM on macOS, Wi-Fi and Bluetooth are unverified on this image.
-- **RAUC A/B updates: not done** (cut for time). p3 is a stub; updates mean
-  re-flashing. Plan below. Exception: `zpod-launcher` and `zpod-app` can be
+- **A/B updates without RAUC** (test6, `zpod-ab`, [AB-UPDATES.md](./AB-UPDATES.md)):
+  `os_prefix` slot folders on p1, trial boot with launcher health check,
+  unsigned (hash-checked) `.zab` bundles; not yet tried on hardware. Exception: `zpod-launcher` and `zpod-app` can be
   replaced from `/data/zpod/core/bin` by bind mount (`zpod-core-overlay`,
   applied at boot from the image after test3; by hand / `scripts/zpod-dev`
   on test3), see [DEV-LOOP.md](./DEV-LOOP.md).
@@ -325,10 +326,8 @@ Instrumentation on the device:
    needed.
 2. Rewrite the buttons daemon in Rust (gpiomem polling, same timing/volume
    rules), so no Python at boot.
-3. **RAUC A/B:** `BR2_PACKAGE_RAUC`, a signed bundle of the squashfs plus a
-   kernel set per slot (`os_prefix=a/|b/` on p1), and a custom bootloader
-   backend using firmware `tryboot` (`reboot "0 tryboot"`, `tryboot.txt`),
-   mark-good from the launcher. **Verify tryboot on BCM2835 first**; the
-   fallback is U-Boot with A/B env.
+3. **A/B:** done without RAUC or tryboot (BCM2835 has no tryboot):
+   `os_prefix` slot folders, [AB-UPDATES.md](./AB-UPDATES.md). Later: signed
+   bundles.
 4. Hardware-test the M6 Wi-Fi tools (connect, hotspot) and the drop server;
    consider a `zpod_pi0w_nexmon` variant pinned to a nexmon-supported kernel.

@@ -141,7 +141,8 @@ const ALL_KEYS: [(Key, &str); 13] = [
 /// Join network > password page state (keyboard reader lives only here).
 pub struct PwEntry {
     pub ssid: String,
-    pub field: zpod_ui::textfield::TextField,
+    /// keyboard or on-screen characters (zpod_ui::textentry)
+    pub entry: zpod_ui::textentry::TextEntry,
     pub hid: zpod_input::HidInput,
     pub role: zpod_input::UsbRole,
     /// (ok, message) from the last attempt / validation
@@ -150,7 +151,7 @@ pub struct PwEntry {
 
 impl PwEntry {
     fn new(ssid: String) -> Self {
-        PwEntry { ssid, field: zpod_ui::textfield::TextField::wifi_password(), hid: zpod_input::HidInput::spawn(), role: zpod_input::role::usb_role(), note: None }
+        PwEntry { ssid, entry: zpod_ui::textentry::TextEntry::wifi_password(), hid: zpod_input::HidInput::spawn(), role: zpod_input::role::usb_role(), note: None }
     }
 }
 
@@ -364,47 +365,106 @@ impl Launcher {
         self.redraw = true;
     }
 
-    /// Keyboard events on the password page (called from the main loop).
+    /// Keyboard events and hotplug on the password page (main loop).
     fn pw_poll(&mut self) {
-        use zpod_input::{HidEvent, KeyCode};
-        use zpod_ui::textfield::Edit;
-        let mut submit = false;
-        let mut cancel = false;
+        use zpod_input::{HidEvent, KeyCode, SourceKind};
+        use zpod_ui::textentry::{KeyIn, Outcome};
+        let mut out = Outcome::None;
+        let joining = self.wt.job.is_some();
+        let can_switch = self.role.can_switch;
         let Some(pw) = self.pw.as_mut() else { return };
         while let Some(h) = pw.hid.poll() {
-            self.redraw = true;
-            let HidEvent::Input(e) = h else { continue };
+            let HidEvent::Input(e) = h else {
+                self.redraw = true; // added / removed
+                continue;
+            };
             let Some(k) = e.key_down() else { continue };
-            if self.wt.job.is_some() {
+            if joining {
                 continue; // joining: ignore typing
             }
-            match k {
-                KeyCode::Enter => submit = true,
-                KeyCode::Esc => cancel = true,
-                KeyCode::Backspace => {
-                    if e.mods.ctrl {
-                        pw.field.apply(Edit::Clear);
-                    } else {
-                        pw.field.apply(Edit::Backspace);
-                    }
+            let ki = match k {
+                KeyCode::Enter => KeyIn::Enter,
+                KeyCode::Esc => KeyIn::Esc,
+                KeyCode::Backspace if e.mods.ctrl => KeyIn::ClearAll,
+                KeyCode::Backspace => KeyIn::Backspace,
+                KeyCode::Tab => KeyIn::Tab,
+                _ => match e.text {
+                    Some(c) => KeyIn::Char(c),
+                    None => continue,
+                },
+            };
+            let o = pw.entry.key(ki);
+            if o != Outcome::None {
+                self.redraw = true;
+                if matches!(ki, KeyIn::Char(_) | KeyIn::Backspace | KeyIn::ClearAll) {
                     pw.note = None;
                 }
-                KeyCode::Tab => {
-                    pw.field.apply(Edit::ToggleReveal);
-                }
-                _ => {
-                    if let Some(c) = e.text {
-                        if pw.field.apply(Edit::Insert(c)) {
-                            pw.note = None;
-                        }
-                    }
-                }
+            }
+            if matches!(o, Outcome::Submit | Outcome::Cancel) {
+                out = o;
+                break;
             }
         }
-        if cancel {
-            self.pw_close();
-        } else if submit {
-            self.pw_submit();
+        // hotplug: a keyboard that appears or goes away switches the view
+        let kb = pw.hid.has(SourceKind::Keyboard);
+        if pw.entry.set_keyboard(kb) {
+            self.redraw = true;
+        }
+        let offer = !kb && !pw.role.can_host() && can_switch;
+        if offer != pw.entry.pick.offer_keyboard {
+            pw.entry.pick.set_offer_keyboard(offer);
+            self.redraw = true;
+        }
+        self.pw_outcome(out);
+    }
+
+    /// Buttons on the password page.
+    fn pw_pad(&mut self, ev: &Event) {
+        use zpod_ui::textentry::{Outcome, Pad};
+        let held = ev.state == KeyState::Repeat;
+        let p = match ev.key {
+            Key::Up => Pad::Up,
+            Key::Down => Pad::Down,
+            Key::Left => Pad::Left,
+            Key::Right => Pad::Right,
+            _ if held => return, // only the arrows repeat
+            Key::Ok | Key::Circle => Pad::Select,
+            Key::Cross => Pad::Back,
+            Key::Square => Pad::NextSet,
+            Key::Triangle => Pad::Reveal,
+            _ => return,
+        };
+        let joining = self.wt.job.is_some();
+        let Some(pw) = self.pw.as_mut() else { return };
+        if joining && !matches!(p, Pad::Reveal) {
+            return;
+        }
+        let o = pw.entry.pad(p);
+        if o != Outcome::None {
+            self.redraw = true;
+            if matches!(p, Pad::Select | Pad::Back) {
+                pw.note = None;
+            }
+        }
+        self.pw_outcome(o);
+    }
+
+    fn pw_outcome(&mut self, o: zpod_ui::textentry::Outcome) {
+        use zpod_ui::textentry::Outcome;
+        match o {
+            Outcome::Submit => self.pw_submit(),
+            Outcome::Cancel => self.pw_close(),
+            Outcome::WantKeyboard => {
+                // the same confirmation as Tools > USB > Host; the entry
+                // (and what was typed) stays underneath
+                if !self.role.can_switch {
+                    self.toast("This image cannot switch USB live", 2200);
+                } else if self.usb_job.is_none() {
+                    self.menus.push(Page::UsbConfirm(menu::UsbChoice::Host));
+                }
+                self.redraw = true;
+            }
+            _ => {}
         }
     }
 
@@ -413,11 +473,11 @@ impl Launcher {
         if self.wt.job.is_some() {
             return;
         }
-        if let Err(e) = zpod_hal::wifijoin::check_passphrase(pw.field.as_str()) {
+        if let Err(e) = zpod_hal::wifijoin::check_passphrase(pw.entry.field.as_str()) {
             pw.note = Some((false, e.to_string()));
             return;
         }
-        let pass = pw.field.take();
+        let pass = pw.entry.field.take();
         pw.note = None;
         let ssid = pw.ssid.clone();
         if let Some(m) = self.wt.join_password(ssid, pass) {
@@ -996,17 +1056,7 @@ impl Launcher {
             return None;
         }
         if page == Page::WifiPassword && ev.state != KeyState::Release && !matches!(ev.key, Key::Home | Key::VolUp | Key::VolDown | Key::PlayPause) {
-            self.redraw = true;
-            match ev.key {
-                Key::Cross | Key::Left => self.pw_close(),
-                Key::Ok | Key::Circle => self.pw_submit(),
-                Key::Triangle => {
-                    if let Some(pw) = self.pw.as_mut() {
-                        pw.field.apply(zpod_ui::textfield::Edit::ToggleReveal);
-                    }
-                }
-                _ => {}
-            }
+            self.pw_pad(&ev);
             return None;
         }
         if let Page::UsbConfirm(c) = page {
@@ -1166,6 +1216,7 @@ impl Launcher {
                             self.toast(m, 2200);
                         } else if self.wt.want_password {
                             self.wt.want_password = false;
+                            self.role = usbrole::status(); // can it offer USB host for a keyboard?
                             self.pw = Some(PwEntry::new(self.wt.detail.ssid.clone()));
                             self.menus.push(Page::WifiPassword);
                             self.redraw = true;
@@ -1370,6 +1421,9 @@ impl Launcher {
         }
         self.p.status.net_changed();
         self.refresh_usb();
+        if let Some(pw) = self.pw.as_mut() {
+            pw.role = zpod_input::role::usb_role();
+        }
     }
 
     /// Play/Pause away from the top menu: pause music that is playing,
@@ -2005,6 +2059,8 @@ fn main() {
         }
         if l.menus.page() == Page::WifiPassword {
             l.pw_poll();
+        } else if l.pw.is_some() && !l.menus.stack.iter().any(|(p, _)| *p == Page::WifiPassword) {
+            l.pw = None; // left (e.g. Home from the USB confirmation): wipe the field
         }
         if let Some(msg) = l.wt.poll_job() {
             l.p.status.net_changed();

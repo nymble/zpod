@@ -57,3 +57,12 @@ include zpod-usb-role.txt
 dtparam=dr_mode=peripheral
 cmdline=cmdline-safe.txt
 [all]
+
+# --- A/B systems (docs/AB-UPDATES.md); keep this last ---
+# zpod-slot.txt (written by zpod-ab) sets os_prefix=slot-a/ or slot-b/: the
+# kernel, device tree, overlays and cmdline.txt come from that folder, whose
+# cmdline boots p2 (A) or p3 (B). Holding Square (GPIO12) while powering on
+# boots the other system. Without zpod-slot.txt (or if the named folder has
+# no kernel + .dtb) the files at the top of this partition boot system A.
+[all]
+include zpod-slot.txt

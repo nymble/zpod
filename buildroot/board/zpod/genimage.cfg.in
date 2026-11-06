@@ -2,7 +2,7 @@
 #  p1 boot  FAT32 64M  firmware, kernel, dtb, overlays, config.txt, cmdline.txt
 #                      (+ zpod-wifi.txt / zpod-ssh.pub drop-ins; mounted at /boot/firmware)
 #  p2 rootA squashfs (LZ4, read-only), 256M partition
-#  p3 rootB squashfs, 256M partition (A/B stub: same image as A, not booted yet)
+#  p3 rootB squashfs, 256M partition (system B for A/B updates; docs/AB-UPDATES.md)
 #  p4 data  ext4 "zpoddata" 256M in the image: /data (music, apps, accounts,
 #           ssh keys, Wi-Fi, state). Grown to the end of the card at first boot
 #           (zpod-data-grow: sfdisk + partx + online resize2fs, max 2 TiB).

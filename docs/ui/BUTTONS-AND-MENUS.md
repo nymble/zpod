@@ -109,7 +109,7 @@ Tools (test3 layout, Paul's spec 2026-11-01; M5/M6 screens regrouped):
 | --- | --- | --- |
 | **Wi-Fi** | test3 | One screen. **Status card**: mode pill (Off grey / Client cyan / Hotspot amber), SSID, IP, channel, signal (dBm + words, link rate), MAC; refreshed every 5 s on a background thread. Rows by mode — **Off**: Mode, Wi-Fi tools. **Client**: Mode, Networks nearby, Saved networks, Wi-Fi tools. **Hotspot**: Mode, Connected devices (count), Password, Wi-Fi tools |
 | Wi-Fi > Mode | test3 | **Off / Client / Hotspot**, current one marked. Off = `nmcli radio wifi off` (no wpa_supplicant/hostapd left); Client = radio on, hotspot down, rejoin saved networks; Hotspot = radio on + hotspot (made on first use, least busy of 1/6/11). Leaving Hotspot goes to whatever you pick |
-| Wi-Fi > Networks nearby | M5 scanner, test3 | the scanner list (Square = rescan, Triangle = sort). **OK = network details** with the **live signal meter** (the standalone Signal meter is gone). **OK on the details = join**: a saved network connects; an **open** network is joined and saved (`nmcli device wifi connect`); a network with a password says "add it with zpod-wifi.txt" (no on-device text entry yet) |
+| Wi-Fi > Networks nearby | M5 scanner, test3 | the scanner list (Square = rescan, Triangle = sort). **OK = network details** with the **live signal meter** (the standalone Signal meter is gone). **OK on the details = join**: a saved network connects; an **open** network is joined and saved (`nmcli device wifi connect`); a network with a password opens **password entry** (test6: USB keyboard if plugged in, otherwise the button character grid; [TEXT-ENTRY.md](./TEXT-ENTRY.md)) |
 | Wi-Fi > Saved networks | M6, test3 | profiles; **OK = details + meter (OK there = connect)**, **Triangle twice = forget** (`nmcli connection delete`), Square = refresh |
 | Wi-Fi > Connected devices | test3 | hotspot clients: name (DHCP host name) or IP, MAC, connected time, signal (`iw dev wlan0 station dump` + DHCP leases + ARP). Refreshes every 5 s |
 | Wi-Fi > Password | M6 hotspot, test3 | SSID, password hidden until **OK = show/hide**, **Triangle = new password** (clients must re-join), address and drop box URL. Stored only in the root-only hotspot profile (`/etc/NetworkManager/system-connections/zpod-hotspot.nmconnection`; on Buildroot that is `/data/etc/NetworkManager/...`), never in the repo or image |
@@ -167,6 +167,7 @@ Other planned items (not in the menu yet):
 | Devices & addresses (test3) | move | OK = rescan | back | — |
 | Saved networks (M6, test3) | move | OK = details | back | Square = refresh, Triangle twice = forget |
 | Connected devices (test3) | move | OK = refresh | back | every 5 s |
+| Wi-Fi password entry (test6) | move in the grid, repeat | OK/Circle = type / run cell (Done = join) | X = delete, cancel when empty | Square = next set, Triangle = show/hide; USB keyboard: Enter/Esc/Backspace/Tab |
 | Hotspot password (M6, test3) | — | OK = show/hide | back | Triangle = new password (clients must reconnect) |
 | USB (test3) | — | OK = refresh | back | every 3 s |
 | Drop box, Book catalog (M6) | — | OK = on/off | back | — |

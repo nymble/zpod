@@ -1,0 +1,39 @@
+#!/bin/sh
+# Install a system update on a running ZPOD without reflashing; /data (music,
+# apps, accounts, Wi-Fi) is kept (docs/AB-UPDATES.md).
+#   scripts/zpod-ab-push [-H host] [--verify-only] <zpod-....zab>
+#   scripts/zpod-ab-push [-H host] --status     zpod-ab status + its log
+# Copies the bundle to /data/zpod/ab on the device over SSH, checks its sha256
+# there, unpacks it and runs the zpod-ab inside it (so a test5 card, which has
+# no zpod-ab yet, can be migrated): the new system goes to the partition that
+# is not running and boots next time on trial. It does NOT reboot: reboot
+# yourself (Power > Reboot) when ready. Holding Square while powering on
+# boots the previous system.
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/zpod-ssh.sh"
+verify=
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-H | --host) ZPOD_HOST=$2; shift 2 ;;
+	--verify-only) verify=1; shift ;;
+	--status) zpod_resolve_host
+		zpod_ssh "$(zpod_target)" "$ZPOD_RPATH cat /etc/zpod-release; if [ -x /usr/sbin/zpod-ab ]; then $(zpod_sudo)zpod-ab status; $(zpod_sudo)cat /run/zpod/ab.log 2>/dev/null; else echo 'no zpod-ab (single-system image, e.g. test5)'; fi"
+		exit ;;
+	-h | --help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+	*) break ;;
+	esac
+done
+[ $# = 1 ] && [ -f "$1" ] || { echo "usage: $0 [-H host] [--verify-only] <bundle.zab>" >&2; exit 2; }
+zab=$1
+sha=$(shasum -a 256 "$zab" | cut -d' ' -f1)
+zpod_resolve_host; T=$(zpod_target); S=$(zpod_sudo)
+echo "bundle $(basename "$zab") ($(wc -c < "$zab" | tr -d ' ') bytes) -> $T"
+zpod_ssh "$T" "$ZPOD_RPATH ${S}mkdir -p /data/zpod/ab && ${S}sh -c 'cat > /data/zpod/ab/incoming.zab.part'" < "$zab"
+cmd=install; [ -n "$verify" ] && cmd=verify
+zpod_ssh -t "$T" "$ZPOD_RPATH set -e; cd /data/zpod/ab
+	[ \"\$(sha256sum incoming.zab.part | cut -d' ' -f1)\" = $sha ] || { echo 'copy damaged (sha256 differs); nothing changed'; exit 1; }
+	${S}mv incoming.zab.part incoming.zab
+	${S}rm -rf bundle && ${S}mkdir bundle && ${S}tar -xf incoming.zab -C bundle
+	if ${S}sh bundle/zpod-ab $cmd /data/zpod/ab/bundle; then r=0; else r=\$?; fi
+	${S}rm -rf bundle incoming.zab; exit \$r"

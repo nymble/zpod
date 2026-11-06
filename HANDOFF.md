@@ -80,11 +80,14 @@ Core 0.10.0: menu tree and manifest schema 1 (`docs/APP-MANIFEST.md`), core
 updates from `/data` loaded at boot with fallback (`docs/BOOT-UPDATES.md`),
 bundled apps updated at boot; test card `docs/TEST-BR-TEST5.md`.)
 
-1. **Non-destructive updates**: A/B system updates (RAUC style) into p2/p3 that
-   never touch `/data`, with boot fallback if the new slot fails. Test3 should be
-   the last image that needs a full reflash.
+1. **Non-destructive updates**: done in emulation for test6 (core 0.11.0):
+   `zpod-ab`, `.zab` bundles, `scripts/zpod-ab-push`, trial boot + fallback,
+   in-place migration of a test5 card ([AB-UPDATES.md](docs/AB-UPDATES.md),
+   [TEST-BR-TEST6.md](docs/TEST-BR-TEST6.md)). Next: Paul runs the first
+   real update on test5; then signing.
 2. **App manager** under Tools: add/remove apps packaged under `/data/apps`.
 3. Hotspot web console for the iPad (music upload, Wi-Fi setup, status).
 4. USB landing page that interrogates whatever is plugged in (Bash Bunny-style
-   tools later); active Wi-Fi tools; typing a Wi-Fi password on the device; mDNS.
+   tools later); active Wi-Fi tools; mDNS. (Typing a Wi-Fi password on the
+   device: done in 0.11.0, USB keyboard or buttons, [TEXT-ENTRY.md](docs/ui/TEXT-ENTRY.md).)
 5. Merge PR #33 into `main`.
