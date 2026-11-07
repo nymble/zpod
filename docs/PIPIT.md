@@ -165,4 +165,6 @@ voice mapping, the file checks and navigation.
 The offline demo render (Mac) peaks between −2.3 and −3.6 dBFS, with RMS
 between −18.7 and −20.4 dBFS, no samples over the ceiling, and DC about 0.
 
-Device CPU (Pi Zero W): see the 0.1.0 install notes below.
+Device CPU (Pi Zero W): not measured yet. Run `pipit --bench 10` on the
+device to measure it (as the zpod user). The command prints the render
+CPU % for each demo and fails if a demo goes over 70 %.
