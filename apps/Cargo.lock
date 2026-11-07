@@ -689,6 +689,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "zpod-pipit"
+version = "0.1.0"
+dependencies = [
+ "embedded-graphics",
+ "libc",
+ "zpod-core",
+ "zpod-hal",
+ "zpod-music-core",
+ "zpod-seq",
+ "zpod-ui",
+ "zpod-voices",
+]
+
+[[package]]
+name = "zpod-seq"
+version = "0.11.0"
+dependencies = [
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "zpod-tetris"
 version = "1.1.0"
 dependencies = [
@@ -717,4 +739,13 @@ dependencies = [
  "embedded-graphics",
  "u8g2-fonts",
  "zpod-core",
+]
+
+[[package]]
+name = "zpod-voices"
+version = "0.11.0"
+dependencies = [
+ "serde",
+ "toml",
+ "zpod-seq",
 ]

@@ -311,6 +311,24 @@ impl AudioRuntime {
     where
         F: FnMut(&mut Engine, usize) -> bool + Send + 'static,
     {
+        let mut eng = Engine::new(DEFAULT_SR);
+        Self::start_render(move |buf, frames| {
+            if !f(&mut eng, frames) {
+                return false;
+            }
+            eng.render_i16(buf, frames);
+            true
+        })
+    }
+
+    /// Lowest-level sink: `f` fills one period of interleaved stereo i16
+    /// (`PERIOD_FRAMES` frames) from any renderer (e.g. zpod-voices); false
+    /// ends the stream after a short silent drain. MPD is paused and its
+    /// output disabled while running, re-enabled (left paused) at shutdown.
+    pub fn start_render<F>(mut f: F) -> Result<Self, AudioError>
+    where
+        F: FnMut(&mut [i16], usize) -> bool + Send + 'static,
+    {
         let mpd = MpdExclusive::acquire();
         thread::sleep(Duration::from_millis(80));
         let stop = Arc::new(AtomicBool::new(false));
@@ -322,14 +340,12 @@ impl AudioRuntime {
             .spawn(move || {
                 let mut run = || -> Result<(), AudioError> {
                     let mut out = AplayOut::open()?;
-                    let mut eng = Engine::new(DEFAULT_SR);
                     let mut buf = vec![0i16; PERIOD_FRAMES * CHANNELS];
                     let mut errs = 0u32;
                     while !stop_t.load(Ordering::Relaxed) {
-                        if !f(&mut eng, PERIOD_FRAMES) {
+                        if !f(&mut buf, PERIOD_FRAMES) {
                             break;
                         }
-                        eng.render_i16(&mut buf, PERIOD_FRAMES);
                         match out.write_i16(&buf) {
                             Ok(()) => {
                                 frames_t.fetch_add(PERIOD_FRAMES as u64, Ordering::Relaxed);
