@@ -1,0 +1,20 @@
+# ZPOD app manifest, schema 1: docs/APP-MANIFEST.md
+schema = 1
+
+[app]
+id = "tidepool"
+name = "Tidepool"
+version = "0.1.0"
+exec = "bin/tidepool"
+icon = "icon.png"
+description = "Calm, slowly drifting Euclidean ambient generator"
+min_core = "0.5.0"
+order = 45
+arch = "arm-unknown-linux-musleabihf"
+
+[menu]
+path = "Generative"
+order = 20
+
+[requires]
+input = ["buttons"]

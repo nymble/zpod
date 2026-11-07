@@ -2,9 +2,11 @@
 //!
 //! * [`harmony`] — scales, modes, voicing, Music Mouse grid → MIDI
 //! * [`synth`] — subtractive voices + allocator
+//! * [`generate`] — deterministic Euclidean sequencer (Tidepool), pure logic
 //! * [`audio`] — exclusive ALSA (via aplay), MPD pause/restore, fast-arrows request, `--bench`
 
 pub mod audio;
+pub mod generate;
 pub mod harmony;
 pub mod synth;
 
@@ -15,4 +17,4 @@ pub use audio::{
 pub use harmony::{
     format_note, Chord4, Mapper, Mode, Pattern, Root, Voicing, AXIS_STEPS, C2, C4, C6,
 };
-pub use synth::{Engine, MAX_VOICES};
+pub use synth::{Adsr, Engine, MAX_VOICES};

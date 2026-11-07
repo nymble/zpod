@@ -302,6 +302,73 @@ impl AudioRuntime {
     }
 }
 
+impl AudioRuntime {
+    /// Generic audio thread for other generators: `f` runs once per period
+    /// (256 frames) before the engine renders it and may send notes or
+    /// change `master`; returning false ends the stream (after a short
+    /// silent drain). Same MPD pause / exclusive DAC handling as `start`.
+    pub fn start_with<F>(mut f: F) -> Result<Self, AudioError>
+    where
+        F: FnMut(&mut Engine, usize) -> bool + Send + 'static,
+    {
+        let mpd = MpdExclusive::acquire();
+        thread::sleep(Duration::from_millis(80));
+        let stop = Arc::new(AtomicBool::new(false));
+        let xruns = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let frames_written = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let (stop_t, xruns_t, frames_t) = (Arc::clone(&stop), Arc::clone(&xruns), Arc::clone(&frames_written));
+        let join = thread::Builder::new()
+            .name("zpod-audio".into())
+            .spawn(move || {
+                let mut run = || -> Result<(), AudioError> {
+                    let mut out = AplayOut::open()?;
+                    let mut eng = Engine::new(DEFAULT_SR);
+                    let mut buf = vec![0i16; PERIOD_FRAMES * CHANNELS];
+                    let mut errs = 0u32;
+                    while !stop_t.load(Ordering::Relaxed) {
+                        if !f(&mut eng, PERIOD_FRAMES) {
+                            break;
+                        }
+                        eng.render_i16(&mut buf, PERIOD_FRAMES);
+                        match out.write_i16(&buf) {
+                            Ok(()) => {
+                                frames_t.fetch_add(PERIOD_FRAMES as u64, Ordering::Relaxed);
+                                errs = 0;
+                            }
+                            Err(e) => {
+                                if stop_t.load(Ordering::Relaxed) {
+                                    break;
+                                }
+                                xruns_t.fetch_add(1, Ordering::Relaxed);
+                                errs += 1;
+                                if errs > 20 {
+                                    return Err(e);
+                                }
+                                thread::sleep(Duration::from_millis(5));
+                            }
+                        }
+                    }
+                    buf.iter_mut().for_each(|s| *s = 0);
+                    for _ in 0..BUFFER_PERIODS {
+                        let _ = out.write_i16(&buf);
+                    }
+                    out.close();
+                    Ok(())
+                };
+                if let Err(e) = run() {
+                    eprintln!("music-core: audio thread end: {e}");
+                }
+            })
+            .map_err(|e| AudioError::Spawn(format!("audio thread: {e}")))?;
+        Ok(Self { stop, join: Some(join), mpd: Some(mpd), xruns, frames_written })
+    }
+
+    /// True while the audio thread is still running.
+    pub fn alive(&self) -> bool {
+        self.join.as_ref().is_some_and(|j| !j.is_finished())
+    }
+}
+
 impl Drop for AudioRuntime {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);

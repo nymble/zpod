@@ -699,6 +699,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "zpod-tidepool"
+version = "0.1.0"
+dependencies = [
+ "embedded-graphics",
+ "libc",
+ "zpod-core",
+ "zpod-hal",
+ "zpod-music-core",
+ "zpod-ui",
+]
+
+[[package]]
 name = "zpod-ui"
 version = "0.11.0"
 dependencies = [
