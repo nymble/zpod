@@ -301,18 +301,30 @@ fn main() {
         }
     }
 
+    // Count write errors before the exit starts: the app manager stops an app
+    // by signalling its whole process group, so aplay is already gone then
+    // and later write errors are part of stopping, not underruns.
+    let by_signal = STOP.load(Ordering::Relaxed);
+    let run_errors = audio.as_ref().map(|a| a.xruns.load(Ordering::Relaxed)).unwrap_or(0);
     let _ = write_pattern("current.toml", &ed.pat);
     if let Ok(mut s) = shared.lock() {
         s.exit = true;
     }
     if let Some(a) = audio {
         let t = Instant::now();
-        while a.alive() && t.elapsed() < Duration::from_millis(1500) {
+        // Home: let the fade play out. Signal: the output is closed, stop now.
+        while !by_signal && a.alive() && t.elapsed() < Duration::from_millis(1500) {
             std::thread::sleep(Duration::from_millis(10));
         }
         let audio_s = a.frames_written.load(Ordering::Relaxed) as f64 / SAMPLE_RATE as f64;
         let cpu = busy.load(Ordering::Relaxed) as f64 / 1e9;
-        eprintln!("pipit: audio {:.1} s, xruns {}, render cpu {:.1} %", audio_s, a.xruns.load(Ordering::Relaxed), 100.0 * cpu / audio_s.max(0.001));
+        eprintln!(
+            "pipit: audio {:.1} s, write errors while running {}, render cpu {:.1} %{}",
+            audio_s,
+            run_errors,
+            100.0 * cpu / audio_s.max(0.001),
+            if by_signal { " (stopped by signal)" } else { "" }
+        );
         a.shutdown();
     }
     eprintln!("pipit: exit after {:.0} s", started.elapsed().as_secs_f32());

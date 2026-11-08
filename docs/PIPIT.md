@@ -165,6 +165,17 @@ voice mapping, the file checks and navigation.
 The offline demo render (Mac) peaks between −2.3 and −3.6 dBFS, with RMS
 between −18.7 and −20.4 dBFS, no samples over the ceiling, and DC about 0.
 
-Device CPU (Pi Zero W): not measured yet. Run `pipit --bench 10` on the
-device to measure it (as the zpod user). The command prints the render
-CPU % for each demo and fails if a demo goes over 70 %.
+Device measurements (Pi Zero W, test6, Pipit 0.1.1, 2026-11-07):
+
+| Check | Result |
+|---|---|
+| `pipit --bench 10` (offline render) | 34–40 % of one core per demo (worst: Night Drive 39.7 %), up to 6 voices |
+| `pipit --selftest 6` (real DAC, Soft) | 56.6 % render CPU while playing through aplay, 0 write errors |
+| Opened from the app manager and left stopped for 20 s | about 8 % CPU for pipit and 8 % for aplay, 0 write errors while running |
+
+* "Write errors" counts failed writes to aplay. Real ALSA underruns are not
+  measured, because aplay runs with `-q`.
+* `zpod-app stop` signals the app's whole process group, so aplay quits
+  first. The `xruns=N` that music-core logs after "stopped by signal" are
+  that shutdown, not dropouts. Pipit 0.1.1 logs the count from before the
+  stop separately.
