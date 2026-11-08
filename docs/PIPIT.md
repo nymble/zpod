@@ -1,9 +1,11 @@
-# Pipit — user manual (0.2)
+# Pipit — user manual (0.3)
 
 Pipit is a pocket groove box. It has 5 lanes (KICK, SNARE, HAT, BASS, LEAD)
 of up to 16 steps, and 20 synthesized voices. A LIVE screen gives you tempo,
 tap tempo, beat rate and mute/solo. You can also shape each lane with
-Tone/Decay/Pitch/Drive macros and a ping-pong echo. Find it under
+Tone/Decay/Pitch/Drive macros and a ping-pong echo. It can also send the
+pattern to a MIDI port (off by default; see [MIDI out](#midi-out)). Find it
+under
 **Generative → Pipit**. Design and file formats:
 [PIPIT-DESIGN.md](PIPIT-DESIGN.md).
 
@@ -171,6 +173,7 @@ Only these actions replace things, and **Undo** reverts the last one.
 | Load | slot 1–8 | |
 | Demo | Night Drive, Four Floor, Dusty, Electro, Boom Trip | Loads an editable demo. |
 | **Drum kit** | Deep, Tight, Boom, Toms, Soft | Sets the KICK/SNARE/HAT voices together and resets their macros. Steps are kept. |
+| **MIDI out** | current route | Opens the MIDI setup (below). |
 | Euclid | hits 1–16 | Spreads hits evenly over the current lane. |
 | Notes | seed 1–9999 | New scale notes for the lane's active steps (seeded, repeatable). |
 | Clear | | Clears the current lane. |
@@ -184,6 +187,63 @@ Only these actions replace things, and **Undo** reverts the last one.
 | Boom | kick.boom | snare.rim | shaker |
 | Toms | tom.low | tom.high | hat.open |
 | Soft | kick.deep | snare.soft | shaker |
+
+### MIDI out
+
+![MIDI setup](screenshots/pipit-midi.png) ![MIDI tag, no port](screenshots/pipit-midi-header.png)
+
+**Square → MIDI out → OK** opens the setup.
+
+* **Up/Down:** choose a row. **Left/Right:** change it.
+* Route, Device, No device and Clock change only on a press, never on key
+  repeat.
+* **OK on Route:** jump straight back to Internal.
+* **X:** close and save to `midi.toml`.
+* **Play** still starts and stops.
+
+| Row | Values | Default |
+|---|---|---|
+| Route | **Internal** (Pipit's own sound only), **MIDI** (send to the port only), **Both** | Internal |
+| Device | `auto` (first MIDI port found) or a port by name. A chosen port that is not plugged in stays selected and is shown as missing. | auto |
+| No device | What *MIDI* does without a port: **internal** (play Pipit's sound until a port appears) or **silent** | internal |
+| Clock out | MIDI Clock (24 per beat) plus Start/Stop. They follow Pipit's tempo and transport. | off |
+| Bend range | Must match your synth's pitch-bend range (±1…24 semitones). Used for the cents of the Pitch macro. | ±2 |
+| KICK…LEAD ch | MIDI channel 1–16 per lane | 10, 10, 10, 2, 3 |
+| KICK/SNARE/HAT note | Fixed note per drum lane (General MIDI names shown) | 36 kick, 38 snare, 42 closed hat |
+
+* **Status:** the bottom line of the setup shows the state, for example
+  `MIDI to <port>`, `no MIDI port: playing internal`, or `…: SILENT`.
+* **Title-bar tag:** when the route is not Internal, a tag next to the
+  title shows `MIDI ok` (green) or `MIDI? int` / `MIDI? silent` (amber, no
+  port).
+* **Hotplug:** Pipit looks for the port again every second. Sequencing never
+  stops or stutters because of MIDI.
+* **What is sent:**
+  * Drum lanes send their fixed note.
+  * BASS and LEAD send the nearest note. The Pitch macro's cents go out as a
+    pitch bend on that lane's channel.
+  * Velocity is sent as is. Mute and solo apply; muted lanes still get their
+    note-offs.
+  * Drum tuning (Note in STEP, the Pitch macro on drum lanes) is not sent.
+* **Stuck notes:** Pipit ends every note it started (note-off, then All Notes
+  Off on each channel) on stop, when you leave, when you change the route,
+  port or a channel, and after any send error.
+* **Timing:** MIDI is delayed about 110 ms to line up with Pipit's own audio
+  output. That figure is an estimate; it has not been measured against an
+  external device.
+* **Audition** in the voice browser is always Pipit's own sound.
+
+**Where MIDI can go today:**
+
+* **ZPOD as USB host** (Tools → USB role switch, done on the device): a
+  class-compliant USB MIDI synth or interface plugged into the ZPOD shows up
+  as a port.
+  * The Trill controller is send-only: it ignores MIDI sent to it and makes
+    no sound.
+* **ZPOD as a MIDI device for the computer:** this needs the composite
+  network + MIDI USB mode. It is prepared in the image scripts but **not
+  active on the current system** (see the design doc).
+* **Not tested:** no external MIDI device has been tested with Pipit yet.
 
 ### Help
 
@@ -234,6 +294,10 @@ These are in `/data/zpod/appdata/pipit/`:
   on exit.
 * `slot-1.toml` … `slot-8.toml` are saved patterns.
 * `output` is the output level.
+* `midi.toml` holds the MIDI setup. It is written only when you close the
+  MIDI setup, so without it Pipit uses the defaults (Internal). An invalid
+  file is ignored with a message (MIDI stays off) and is not overwritten
+  until you change the setup. MIDI settings are not part of patterns.
 
 Patterns are plain TOML, version 2 (the format is in the design doc).
 
@@ -246,12 +310,30 @@ Patterns are plain TOML, version 2 (the format is in the design doc).
 
 * One pattern of 1–16 steps and 5 lanes in a fixed order. There is no
   chaining, live recording or per-step parameter locks yet.
-* There is no MIDI yet; it is planned (see the design doc).
+* MIDI is output only: no MIDI input, no external clock sync, no recording.
+* MIDI out has been tested only with a recording test port and a FIFO, not
+  with a real synth.
 * Pipit takes over the audio output: it cannot play at the same time as
   Music or other audio apps.
 * Undo has one level and covers the Actions menu only.
 
 ## Measurements
+
+### 0.3.0 (2026-11-07, 21:45–21:52 PST, same device)
+
+| Check | Result |
+|---|---|
+| `pipit --bench 10` | 12.1–21.3 % (unchanged by MIDI) |
+| `pipit --selftest 6 N`, all 5 demos | 0 ALSA underruns, 0 write errors, render 17.9–31.2 % |
+| `pipit --midi-test 8` (recording test port: real time, mute/solo/tempo changes, unplug and replug, stop) | PASS. Engine 11.1 %; 73 note-ons, 290 clock pulses, Start/Stop, 0 hanging notes, 0 queue drops. Internal sound played for all 346 blocks without a port. |
+| `pipit --midi-test 4 alsa` (real ALSA scan) | `no MIDI port` (the device has none); sequencing continued, internal fallback for every block |
+| Same, with `ZPOD_MIDI_PATH` pointing at a FIFO with a reader | 320 messages, 540 bytes received (Start `FA`, `99 24 …` kick on channel 10, clock `F8`, note-offs) |
+| Opened from the app manager, left stopped 8 s | route Internal, `midi.toml` not created, 0 underruns |
+
+The FIFO check exercises the non-blocking writer, but it is not an ALSA
+rawmidi device. No real MIDI port or synth was tested.
+
+### 0.2.0
 
 Device: Pi Zero W, test6, core 0.11.0, Pipit 0.2.0, 2026-11-07, 21:20–21:30
 PST. These are measurements only; they say nothing about how good it sounds.

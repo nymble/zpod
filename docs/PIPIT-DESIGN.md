@@ -23,8 +23,8 @@ User manual: [PIPIT.md](PIPIT.md).
 | Data-driven | Versioned TOML for patterns and voice banks, validated strictly |
 | Reusable engine | `zpod-seq` (clock and events) and `zpod-voices` (synthesis) know nothing about the UI or ALSA |
 
-Not in 0.2 (see [Deferred](#deferred)): song chaining, live recording,
-per-step parameter locks, MIDI (designed below, not built), sample playback,
+Not in 0.3 (see [Deferred](#deferred)): song chaining, live recording,
+per-step parameter locks, MIDI input and sync, sample playback,
 a voice editor screen, and running at the same time as other audio apps.
 
 0.2 adds the LIVE screen (tempo, tap, rate, swing, mute/solo), beat rates,
@@ -390,60 +390,70 @@ kept.
 
 Device numbers are in [PIPIT.md](PIPIT.md#measurements).
 
-## MIDI output (stage 4): designed, not built
+## MIDI output (0.3)
 
-The goal is to send Pipit's events, and later MouseMusic's and Tidepool's,
-to an external synth over USB MIDI.
+Library: `apps/crates/zpod-midi`, reusable, see [ZPOD-MIDI.md](ZPOD-MIDI.md).
+It depends on no app, UI or audio code.
 
-**Library:** a reusable `zpod-midi` crate. It knows nothing about Pipit, raw
-HID or audio.
+* **Pipit hookup:** after `clock.process`, the engine converts its events
+  (except the audition) into `zpod_midi::In` and calls `Router::block`.
+  * The rack renders the full events when
+    `config.internal_audible(connected)` is true.
+  * Otherwise it renders only the audition, and one AllNotesOff when the
+    internal sound turns off.
+* **Config:** the UI thread owns `MidiConfig` and passes it through
+  `Shared` with a version number. The router applies it at the next block
+  and panics first if routing changed.
+* **Files:** `midi.toml` sits beside the patterns and is written only when
+  the setup closes. Patterns are not touched; pattern v1 and v2 load as
+  before.
+* **Defaults:** route Internal; fallback internal; port auto; clock off;
+  bend ±2; channels 10/10/10/2/3; drum notes 36/38/42.
+  * A missing or invalid file means Internal, with a toast.
+  * Nothing switches the route by itself.
+* **Pitch:** fixed-note drum lanes ignore pitch. Tuned lanes send the
+  nearest note plus a per-channel 14-bit bend for the cents macro.
+  * This is exact because the detune is per lane and each lane has its own
+    channel. Lanes that share a channel share one bend.
+  * Polyphonic per-note detune would need MPE, which is not implemented and
+    not claimed.
+* **Latency:** MIDI is due 110 ms after the block, the estimated render lead
+  (pipe plus ALSA buffer). This is not measured against hardware.
+* **Not built:**
+  * MIDI input
+  * external clock sync
+  * Song Position Pointer
+  * per-step parameter locks
+  * MPE
 
-* **Input:** the existing `Event` stream. **Output:** a `MidiSink` trait.
-* **Sinks:** ALSA rawmidi through sanctioned ALSA APIs, a fake sink for tests,
-  and a local monitor.
-* If no MIDI port exists, it reports "unavailable" and the app carries on.
+### USB composite network + MIDI (staged, not active)
 
-**Routing:**
+`overlay/usr/lib/zpod/zpod-usb-gadget.sh` (image side) accepts `midi=on` in
+`/boot/firmware/zpod-usb.txt`. With it, the script adds `functions/midi.usb0`
+(1 in, 1 out port) beside `ncm.usb0`, and sets the product name to "ZPOD USB
+Ethernet + MIDI".
 
-* Per app: Internal / MIDI / Both.
-* A channel per lane (default drums on ch10, BASS ch2, LEAD ch3).
-* A configurable drum note map (defaults kick 36, snare 38, hat 42/46).
+* Without that line the gadget is exactly as before, and `tests/usb-gadget-midi.sh`
+  checks this in a fake tree: no configfs, nothing bound.
+* The running device's gadget was not touched.
 
-**Notes and timing:**
+Activating it is **pending** and needs:
 
-* **Note lifetimes:** a table of sounding (channel, note) entries tracks
-  overlaps and retriggers. A retrigger sends a note-off before the new
-  note-on.
-* **Panic** (all notes off on every used channel) on stop, on exit and on any
-  routing change.
-* **Queue:** bounded and non-blocking from the audio thread to a writer
-  thread. On overflow it drops, counts and reports; it never blocks render.
-  Hotplug reopens the port.
-* **Clock:** MIDI Clock (24 ppqn) and Start/Stop as opt-in output. Following
-  an external clock is deferred.
-* **Pitch:** Pipit's tuned macros are cents. MIDI note numbers carry
-  semitones only, so cents become per-channel pitch bend. That assumes the
-  receiver's bend range (default ±2 semitones).
-  * One bend per channel is correct only when one note at a time sounds on it.
-  * Polyphonic per-note detune would need MPE. Pipit will not claim MPE for
-    a plain channel bend.
+1. A system image or core update that ships the new script. The installed
+   test6 image has the old one.
+2. An on-device GUI switch in Tools → USB to write `midi=on` and rebuild the
+   gadget the same way the live role switch does. Until that exists,
+   enabling it is a manual edit of `zpod-usb.txt` followed by a role switch
+   or reboot done on the device.
+3. A cable test with macOS. It is untested whether macOS keeps the NCM link
+   up with the extra MIDI interface, which is why the mode is opt-in.
 
-**USB:** the device side needs a composite NCM + MIDI gadget (`usb_f_midi`
-is present in the kernel).
-
-* It would be an image-side configfs script, tested offline.
-* It is activated only from the on-device USB role screen or by a cable
-  action. It never reconfigures the active USB link remotely.
-* In host mode, a class-compliant controller appears as an ALSA rawmidi
-  port. For example, the Trill (send-only: ch1 notes, pressure, CC) would be
-  an input source.
-
-**Not built:** none of this exists yet, and nothing has been tested with
-external MIDI hardware.
+In host mode no change is needed: a class-compliant MIDI device appears as
+`/dev/snd/midiC*D*`, and Pipit lists it.
 
 ## Deferred
 
-* **MIDI:** the section above.
+* **MIDI:** input, external sync, the composite activation GUI (above), and MouseMusic/Tidepool hookup.
 * **Per-step parameter locks** and live recording.
 * **Song mode:** pattern chaining and a per-pattern bar count.
 * **Voice bank screen:** loading other `pipit-voices` files and editing the

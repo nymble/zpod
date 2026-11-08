@@ -6,7 +6,8 @@ use zpod_seq::demos::DEMOS;
 use zpod_seq::pattern::{Rate, ECHO_TIMES, ROOT_NAMES, MAX_STEPS, TRACKS};
 use zpod_ui::{fill, rect, status::draw_status_bar, text, text::Align, theme::*, Font, Framebuffer};
 
-use crate::editor::{Action, Editor, Lane, Mode, KITS, LIVE_LANE0, OUTPUTS};
+use crate::editor::{gm_drum, Action, Editor, Lane, Mode, KITS, LIVE_LANE0, MIDI_CH0, MIDI_NOTE0, MIDI_ROWS, OUTPUTS};
+use zpod_midi::{Fallback, Route};
 
 pub const TRACK_NAMES: [&str; TRACKS] = ["KICK", "SNARE", "HAT", "BASS", "LEAD"];
 const TRACK_COL: [Rgb565; TRACKS] = [rgb(255, 110, 70), rgb(255, 196, 0), rgb(120, 220, 255), rgb(150, 120, 255), rgb(80, 230, 150)];
@@ -60,6 +61,17 @@ const PAGE: usize = 6;
 pub fn draw(fb: &mut Framebuffer, st: &StatusInfo, e: &Editor, playhead: Option<u8>, toast: Option<&str>, silent: bool) {
     fill(fb, 0, 0, 320, 240, BG);
     draw_status_bar(fb, "Pipit", st);
+    // MIDI tag next to the title (only when routing is not Internal)
+    if e.midi.route != Route::Internal {
+        let (t, c) = if e.midi_connected {
+            ("MIDI ok", OK)
+        } else if e.midi.route == Route::Midi && e.midi.fallback == Fallback::Silent {
+            ("MIDI? silent", WARN)
+        } else {
+            ("MIDI? int", WARN)
+        };
+        text::draw(fb, Font::Tiny, t, 64, 7, c);
+    }
     // header: mode tabs + transport
     for (i, m) in Mode::ALL.iter().enumerate() {
         let x = 2 + i as i32 * 37;
@@ -199,6 +211,9 @@ pub fn draw(fb: &mut Framebuffer, st: &StatusInfo, e: &Editor, playhead: Option<
     if let Some(b) = &e.browser {
         draw_browser(fb, e, b);
     }
+    if let Some(row) = e.midi_panel {
+        draw_midi(fb, e, row);
+    }
     if e.help {
         draw_help(fb);
     }
@@ -273,6 +288,63 @@ fn draw_browser(fb: &mut Framebuffer, e: &Editor, b: &crate::editor::Browser) {
     text::draw_aligned(fb, Font::Tiny, "Up/Dn choose · Rt hear · OK use · X back", x + w / 2, y + h - 16, Align::Center, DIM);
 }
 
+fn draw_midi(fb: &mut Framebuffer, e: &Editor, row: usize) {
+    let (x, y, w, h) = (6, 24, 308, 214);
+    rr(fb, x, y, w, h, 8, BAR);
+    frame(fb, x, y, w, h, CYAN, 2);
+    text::draw(fb, Font::Title, "MIDI out", x + 10, y + 6, CYAN);
+    let c = &e.midi;
+    let val = |r: usize| -> String {
+        match r {
+            0 => c.route.label().into(),
+            1 => if c.port.is_auto() { "auto".into() } else { c.port.as_str().chars().take(14).collect() },
+            2 => match c.fallback {
+                Fallback::Internal => "internal".into(),
+                Fallback::Silent => "silent".into(),
+            },
+            3 => if c.clock { "on".into() } else { "off".into() },
+            4 => format!("±{} st", c.bend_range),
+            r if (MIDI_CH0..MIDI_CH0 + TRACKS).contains(&r) => format!("{}", c.lanes[r - MIDI_CH0].channel),
+            r if (MIDI_NOTE0..MIDI_NOTE0 + 3).contains(&r) => match c.lanes[r - MIDI_NOTE0].note {
+                Some(n) => format!("{n} {}", gm_drum(n)),
+                None => "lane pitch".into(),
+            },
+            _ => String::new(),
+        }
+    };
+    // left column: routing (rows 0-4); right: channels (5-9) and notes (10-12)
+    for (r, name) in MIDI_ROWS.iter().enumerate() {
+        let (cx, cy, cw) = match r {
+            0..=4 => (x + 6, y + 30 + r as i32 * 26, 140),
+            5..=9 => (x + 152, y + 30 + (r - 5) as i32 * 16, 150),
+            _ => (x + 152, y + 30 + (r - 5) as i32 * 16 + 4, 150),
+        };
+        let rh = if r <= 4 { 24 } else { 15 };
+        let sel = r == row;
+        rr(fb, cx, cy, cw, rh, 4, if sel { SEL } else { PANEL });
+        let lc = if (MIDI_CH0..MIDI_CH0 + TRACKS).contains(&r) {
+            TRACK_COL[r - MIDI_CH0]
+        } else if r >= MIDI_NOTE0 {
+            TRACK_COL[r - MIDI_NOTE0]
+        } else if sel {
+            WHITE
+        } else {
+            DIM
+        };
+        if r <= 4 {
+            text::draw(fb, Font::Tiny, name, cx + 5, cy + 2, lc);
+            text::draw_aligned(fb, Font::Small, &val(r), cx + cw - 5, cy + 9, Align::Right, if sel { WHITE } else { FG });
+        } else {
+            text::draw(fb, Font::Tiny, name, cx + 5, cy + 3, lc);
+            text::draw_aligned(fb, Font::Tiny, &val(r), cx + cw - 5, cy + 3, Align::Right, if sel { WHITE } else { FG });
+        }
+    }
+    let sc = if c.route == Route::Internal { DIM } else if e.midi_connected { OK } else { WARN };
+    let status: String = e.midi_status.chars().take(46).collect();
+    text::draw(fb, Font::Small, &status, x + 10, y + h - 34, sc);
+    text::draw_aligned(fb, Font::Tiny, "Up/Dn row · Lt/Rt change · OK on Route = Internal · X save", x + w / 2, y + h - 14, Align::Center, DIM);
+}
+
 fn draw_menu(fb: &mut Framebuffer, e: &Editor, m: &crate::editor::Menu) {
     let (x, y, w, h) = (30, 22, 260, 216);
     rr(fb, x, y, w, h, 8, BAR);
@@ -280,10 +352,10 @@ fn draw_menu(fb: &mut Framebuffer, e: &Editor, m: &crate::editor::Menu) {
     text::draw(fb, Font::Title, "Actions", x + 10, y + 6, ACCENT);
     text::draw_aligned(fb, Font::Tiny, &format!("track: {}", TRACK_NAMES[e.track]), x + w - 10, y + 10, Align::Right, DIM);
     for (i, a) in Action::ALL.iter().enumerate() {
-        let yy = y + 26 + i as i32 * 19;
+        let yy = y + 26 + i as i32 * 17;
         let sel = i == m.sel;
         if sel {
-            rr(fb, x + 6, yy - 2, w - 12, 18, 4, SEL);
+            rr(fb, x + 6, yy - 2, w - 12, 17, 4, SEL);
         }
         let (label, arg) = match a {
             Action::Save => ("Save to slot", format!("< {}{} >", m.slot, if e.slot_used[m.slot as usize - 1] { " used" } else { " empty" })),
@@ -294,6 +366,7 @@ fn draw_menu(fb: &mut Framebuffer, e: &Editor, m: &crate::editor::Menu) {
             Action::Notes => ("New notes for track", format!("< seed {} >", m.seed)),
             Action::Clear => ("Clear track", String::new()),
             Action::New => ("New empty pattern", String::new()),
+            Action::Midi => ("MIDI out", format!("{} >", e.midi.route.label())),
             Action::Undo => ("Undo last action", if e.undo.is_some() { String::new() } else { "(none)".into() }),
         };
         text::draw(fb, Font::Small, label, x + 12, yy + 1, if sel { WHITE } else { FG });
@@ -319,7 +392,7 @@ pub fn draw_help(fb: &mut Framebuffer) {
         ("", "TRACK Voice: OK = browser"),
         ("X", "back to GRID / this help"),
         ("Sq", "save, load, demo, kit, Euclid,"),
-        ("", "notes, clear, new, undo"),
+        ("", "notes, clear, new, MIDI out, undo"),
         ("Home", "save and exit (music paused)"),
         ("", "green = playhead, white = cursor"),
     ];

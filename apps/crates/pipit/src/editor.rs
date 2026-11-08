@@ -5,6 +5,8 @@ use zpod_core::{Key, KeyState};
 use zpod_seq::demos::DEMOS;
 use zpod_seq::gen;
 use zpod_seq::pattern::{Macros, Pattern, Rate, Scale, Step, DRUM_PITCH_MAX, ECHO_TIMES, FX_MAX, MACRO_MAX, MACRO_MIN, MAX_STEPS, TRACKS, TUNE_CENTS_MAX};
+use zpod_midi::config::BEND_RANGE_MAX;
+use zpod_midi::{Fallback, Lane as MidiLane, MidiConfig, PortName, Route};
 use zpod_voices::Bank;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,11 +86,52 @@ pub enum Action {
     Notes,
     Clear,
     New,
+    Midi,
     Undo,
 }
 
 impl Action {
-    pub const ALL: [Action; 9] = [Action::Save, Action::Load, Action::Demo, Action::Kit, Action::Euclid, Action::Notes, Action::Clear, Action::New, Action::Undo];
+    pub const ALL: [Action; 10] = [Action::Save, Action::Load, Action::Demo, Action::Kit, Action::Euclid, Action::Notes, Action::Clear, Action::New, Action::Midi, Action::Undo];
+}
+
+/// MIDI setup rows (Actions > MIDI out).
+pub const MIDI_ROWS: [&str; 13] = ["Route", "Device", "No device", "Clock out", "Bend range", "KICK ch", "SNARE ch", "HAT ch", "BASS ch", "LEAD ch", "KICK note", "SNARE note", "HAT note"];
+pub const MIDI_CH0: usize = 5;
+pub const MIDI_NOTE0: usize = 10;
+
+/// Pipit's default MIDI map: drums on channel 10 (GM kick 36, snare 38,
+/// closed hat 42), BASS on 2, LEAD on 3. Route Internal.
+pub fn midi_default() -> MidiConfig {
+    MidiConfig::new(&[
+        MidiLane { channel: 10, note: Some(36) },
+        MidiLane { channel: 10, note: Some(38) },
+        MidiLane { channel: 10, note: Some(42) },
+        MidiLane { channel: 2, note: None },
+        MidiLane { channel: 3, note: None },
+    ])
+}
+
+/// General MIDI drum names for the note rows (subset).
+pub fn gm_drum(n: u8) -> &'static str {
+    match n {
+        35 | 36 => "kick",
+        37 => "rim",
+        38 | 40 => "snare",
+        39 => "clap",
+        41 | 43 => "low tom",
+        45 | 47 => "mid tom",
+        48 | 50 => "hi tom",
+        42 => "closed hat",
+        44 => "pedal hat",
+        46 => "open hat",
+        49 | 57 => "crash",
+        51 | 59 => "ride",
+        54 => "tambourine",
+        56 => "cowbell",
+        70 => "maracas",
+        82 => "shaker",
+        _ => "",
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -114,6 +157,8 @@ pub enum Effect {
     LoadSlot(u8),
     /// play bank voice `index` once on the audition slot with these macros
     Audition { voice: usize, macros: Macros, pitched: bool, octave: i8 },
+    /// MIDI routing changed (apply now); `save` when the setup closes
+    Midi { save: bool },
     Toast(String),
     Exit,
 }
@@ -138,6 +183,16 @@ pub struct Editor {
     pub now_ms: u64,
     taps: [u64; TAP_AVG + 1],
     ntaps: usize,
+    /// MIDI routing (saved in midi.toml, not in patterns)
+    pub midi: MidiConfig,
+    /// MIDI setup overlay open: selected row
+    pub midi_panel: Option<usize>,
+    /// ports seen by the MIDI worker (labels), filled in by main
+    pub midi_ports: Vec<String>,
+    /// one-line MIDI status, filled in by main
+    pub midi_status: String,
+    /// MIDI connected right now (filled in by main)
+    pub midi_connected: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -149,7 +204,7 @@ pub struct Browser {
 
 impl Editor {
     pub fn new(pat: Pattern, bank: Bank) -> Self {
-        Editor { pat, undo: None, mode: Mode::Live, track: 0, step: 0, param: 0, menu: None, help: false, playing: false, output: 0, slot_used: [false; SLOTS as usize], bank, browser: None, now_ms: 0, taps: [0; TAP_AVG + 1], ntaps: 0 }
+        Editor { pat, undo: None, mode: Mode::Live, track: 0, step: 0, param: 0, menu: None, help: false, playing: false, output: 0, slot_used: [false; SLOTS as usize], bank, browser: None, now_ms: 0, taps: [0; TAP_AVG + 1], ntaps: 0, midi: midi_default(), midi_panel: None, midi_ports: Vec::new(), midi_status: String::new(), midi_connected: false }
     }
 
     pub fn lane(&self, t: usize) -> Lane {
@@ -240,6 +295,9 @@ impl Editor {
         }
         if self.browser.is_some() {
             return self.browser_key(key, press);
+        }
+        if self.midi_panel.is_some() {
+            return self.midi_key(key, press);
         }
         let ok = matches!(key, Key::Circle | Key::Ok);
         match key {
@@ -570,6 +628,11 @@ impl Editor {
                         close(self);
                         Effect::Edited
                     }
+                    Action::Midi => {
+                        close(self);
+                        self.midi_panel = Some(0);
+                        Effect::None
+                    }
                     Action::Undo => match self.undo.take() {
                         Some(u) => {
                             self.undo = Some(self.pat);
@@ -580,6 +643,80 @@ impl Editor {
                         None => Effect::Toast("Nothing to undo".into()),
                     },
                 }
+            }
+            _ => Effect::None,
+        }
+    }
+}
+
+impl Editor {
+    /// Device choices: auto, then the ports seen, then the configured one if
+    /// it is not present right now (so it is never silently replaced).
+    pub fn midi_devices(&self) -> Vec<String> {
+        let mut v = vec!["auto".to_string()];
+        v.extend(self.midi_ports.iter().cloned());
+        let cur = self.midi.port;
+        if !cur.is_auto() && !v.iter().any(|p| p == cur.as_str()) {
+            v.push(cur.as_str().to_string());
+        }
+        v
+    }
+
+    fn midi_key(&mut self, key: Key, press: bool) -> Effect {
+        let row = self.midi_panel.unwrap_or(0);
+        let n = MIDI_ROWS.len();
+        match key {
+            Key::Cross | Key::Square if press => {
+                self.midi_panel = None;
+                Effect::Midi { save: true }
+            }
+            Key::Up => {
+                self.midi_panel = Some((row + n - 1) % n);
+                Effect::None
+            }
+            Key::Down => {
+                self.midi_panel = Some((row + 1) % n);
+                Effect::None
+            }
+            Key::Left | Key::Right => {
+                let d: i32 = if key == Key::Right { 1 } else { -1 };
+                let c = &mut self.midi;
+                let before = *c;
+                match row {
+                    // switches change on a press only, never on key repeat
+                    0 if press => {
+                        let i = Route::ALL.iter().position(|&r| r == c.route).unwrap_or(0) as i32;
+                        c.route = Route::ALL[(i + d).clamp(0, 2) as usize];
+                    }
+                    1 if press => {
+                        let devs = self.midi_devices();
+                        let cur = if self.midi.port.is_auto() { "auto" } else { self.midi.port.as_str() };
+                        let i = devs.iter().position(|p| p == cur).unwrap_or(0) as i32;
+                        let next = &devs[(i + d).rem_euclid(devs.len() as i32) as usize];
+                        self.midi.port = PortName::new(next).unwrap_or(PortName::AUTO);
+                    }
+                    2 if press => c.fallback = if d > 0 { Fallback::Silent } else { Fallback::Internal },
+                    3 if press => c.clock = d > 0,
+                    4 => c.bend_range = (c.bend_range as i32 + d).clamp(1, BEND_RANGE_MAX as i32) as u8,
+                    r if (MIDI_CH0..MIDI_CH0 + TRACKS).contains(&r) => {
+                        let l = &mut c.lanes[r - MIDI_CH0];
+                        l.channel = (l.channel as i32 + d).clamp(1, 16) as u8;
+                    }
+                    r if (MIDI_NOTE0..MIDI_NOTE0 + 3).contains(&r) => {
+                        let l = &mut c.lanes[r - MIDI_NOTE0];
+                        l.note = Some((l.note.unwrap_or(36) as i32 + d).clamp(0, 127) as u8);
+                    }
+                    _ => {}
+                }
+                if self.midi != before { Effect::Midi { save: false } } else { Effect::None }
+            }
+            Key::Circle | Key::Ok if press && row == 0 => {
+                // OK on Route: quick way back to Internal
+                if self.midi.route != Route::Internal {
+                    self.midi.route = Route::Internal;
+                    return Effect::Midi { save: false };
+                }
+                Effect::None
             }
             _ => Effect::None,
         }
@@ -970,5 +1107,68 @@ mod tests {
         e.key(Key::Up, Press);
         e.key(Key::Ok, Press);
         assert_eq!(e.pat, orig);
+    }
+
+    #[test]
+    fn midi_setup_defaults_internal_and_edits_are_bounded() {
+        let mut e = ed();
+        assert_eq!(e.midi.route, Route::Internal, "never on by default");
+        // open from the Actions menu
+        e.key(Key::Square, Press);
+        let i = Action::ALL.iter().position(|a| *a == Action::Midi).unwrap();
+        for _ in 0..i {
+            e.key(Key::Down, Press);
+        }
+        assert_eq!(e.key(Key::Ok, Press), Effect::None);
+        assert_eq!(e.midi_panel, Some(0));
+        // route: press changes, repeat does not
+        assert_eq!(e.key(Key::Right, Press), Effect::Midi { save: false });
+        assert_eq!(e.midi.route, Route::Midi);
+        assert_eq!(e.key(Key::Right, Repeat), Effect::None);
+        assert_eq!(e.midi.route, Route::Midi);
+        e.key(Key::Right, Press);
+        assert_eq!(e.midi.route, Route::Both);
+        e.key(Key::Right, Press);
+        assert_eq!(e.midi.route, Route::Both, "clamped");
+        // OK on Route goes straight back to Internal
+        assert_eq!(e.key(Key::Ok, Press), Effect::Midi { save: false });
+        assert_eq!(e.midi.route, Route::Internal);
+        // device list: auto + seen ports; a configured missing port stays listed
+        e.midi_ports = vec!["Synth: MIDI 1".into()];
+        e.key(Key::Down, Press);
+        e.key(Key::Right, Press);
+        assert_eq!(e.midi.port.as_str(), "Synth: MIDI 1");
+        e.midi_ports.clear();
+        assert_eq!(e.midi_devices(), vec!["auto".to_string(), "Synth: MIDI 1".to_string()]);
+        e.key(Key::Right, Press);
+        assert!(e.midi.port.is_auto());
+        // channels clamp 1..16, notes 0..127
+        e.midi_panel = Some(MIDI_CH0 + 3);
+        for _ in 0..30 {
+            e.key(Key::Right, Repeat);
+        }
+        assert_eq!(e.midi.lanes[3].channel, 16);
+        for _ in 0..30 {
+            e.key(Key::Left, Repeat);
+        }
+        assert_eq!(e.midi.lanes[3].channel, 1);
+        e.midi_panel = Some(MIDI_NOTE0);
+        for _ in 0..200 {
+            e.key(Key::Right, Repeat);
+        }
+        assert_eq!(e.midi.lanes[0].note, Some(127));
+        e.midi_panel = Some(4);
+        for _ in 0..40 {
+            e.key(Key::Right, Repeat);
+        }
+        assert_eq!(e.midi.bend_range, 24);
+        // everything still validates as a file
+        let back = MidiConfig::from_toml(&e.midi.to_toml(), &midi_default()).unwrap();
+        assert_eq!(back, e.midi);
+        // Play is still the transport inside the setup
+        assert_eq!(e.key(Key::PlayPause, Press), Effect::Transport(true));
+        // X closes and asks to save
+        assert_eq!(e.key(Key::Cross, Press), Effect::Midi { save: true });
+        assert_eq!(e.midi_panel, None);
     }
 }

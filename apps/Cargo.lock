@@ -638,6 +638,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "zpod-midi"
+version = "0.11.0"
+dependencies = [
+ "libc",
+ "serde",
+ "toml",
+ "zpod-seq",
+]
+
+[[package]]
 name = "zpod-mousemusic"
 version = "0.2.0"
 dependencies = [
@@ -690,12 +700,13 @@ dependencies = [
 
 [[package]]
 name = "zpod-pipit"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "embedded-graphics",
  "libc",
  "zpod-core",
  "zpod-hal",
+ "zpod-midi",
  "zpod-music-core",
  "zpod-seq",
  "zpod-ui",

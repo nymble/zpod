@@ -4,10 +4,10 @@ schema = 1
 [app]
 id = "pipit"
 name = "Pipit"
-version = "0.2.0"
+version = "0.3.0"
 exec = "bin/pipit"
 icon = "icon.png"
-description = "Pocket groove box: live tempo/tap/rate, mute/solo, 20 synthesized voices, macros, echo"
+description = "Pocket groove box: live tempo/tap/rate, mute/solo, 20 synth voices, macros, echo, optional MIDI out"
 min_core = "0.5.0"
 order = 46
 arch = "arm-unknown-linux-musleabihf"

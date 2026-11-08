@@ -756,5 +756,7 @@ impl Rack {
         tiny(&mut self.echo_lp.0);
         tiny(&mut self.echo_lp.1);
         tiny(&mut self.lim);
+        // output level smoothing towards 0 (exit fade, muted output)
+        tiny(&mut self.out_cur);
     }
 }

@@ -1,5 +1,6 @@
 # Pipit 0.2: LIVE (stopped, then playing with solo/mute), GRID, STEP, TRACK
-# (both pages), voice browser, SONG (both pages), actions (kit), help
+# (both pages), voice browser, SONG (both pages), actions (kit), help,
+# MIDI setup (route MIDI, clock on, no port in the simulator) and its header tag
 wait 300
 shot pipit-live
 key down
@@ -76,6 +77,26 @@ key x
 wait 150
 shot pipit-help
 key x
+key square
+key down
+key down
+key down
+key down
+key down
+key down
+key down
+key down
+key ok
+key right
+key down
+key down
+key down
+key right
+wait 1500
+shot pipit-midi
+key x
+wait 300
+shot pipit-midi-header
 key play
 wait 200
 exit

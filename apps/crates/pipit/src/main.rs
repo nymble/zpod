@@ -26,7 +26,16 @@ const PIPE: usize = 16384;
 use zpod_seq::demos::DEMOS;
 use zpod_seq::pattern::{Macros, Step};
 use zpod_seq::{Clock, Event, EventBuf, EventKind, Pattern, Pitch};
+use zpod_midi::router::{In, InEvent};
+use zpod_midi::{MidiConfig, MidiOut, Router, State as MidiState, Status as MidiStatus};
+use zpod_seq::event::EVENT_CAP;
 use zpod_voices::{Bank, Rack, AUDITION};
+
+/// How far the DAC lags the render: the aplay pipe (16 KiB = 92.9 ms at
+/// 44.1 kHz stereo 16-bit, kept full by the blocking writer) plus the 768-frame
+/// ALSA buffer (17.4 ms). MIDI is delayed by this much so it lines up with
+/// the internal sound (estimate; not measured against external hardware).
+const MIDI_LATENCY_NS: u64 = 110_000_000;
 
 static STOP: AtomicBool = AtomicBool::new(false);
 extern "C" fn on_sigterm(_: libc::c_int) {
@@ -42,6 +51,8 @@ struct Shared {
     exit: bool,
     /// one browser audition: (bank voice index, macros, pitch)
     audition: Option<(usize, Macros, Pitch)>,
+    midi: MidiConfig,
+    midi_ver: u64,
 }
 
 /// Audition note length.
@@ -101,11 +112,36 @@ struct Engine {
     /// audition note: id and frames until its note-off
     aud: Option<(u32, u32)>,
     aud_next: u32,
+    /// MIDI out (None in benchmarks without MIDI)
+    midi: Option<EngineMidi>,
+    /// events for the rack when the internal sound is off (audition only)
+    rack_ev: EventBuf,
+    internal_was: bool,
+}
+
+struct EngineMidi {
+    router: Router,
+    status: Arc<MidiStatus>,
+    epoch: Instant,
+    ver: u64,
+    inb: [InEvent; EVENT_CAP],
+}
+
+impl EngineMidi {
+    fn new(out: &MidiOut, cfg: MidiConfig) -> EngineMidi {
+        EngineMidi {
+            router: Router::new(out.ring.clone(), cfg, SAMPLE_RATE, MIDI_LATENCY_NS),
+            status: out.status.clone(),
+            epoch: out.epoch(),
+            ver: 0,
+            inb: [InEvent { offset: 0, ev: In::AllOff }; EVENT_CAP],
+        }
+    }
 }
 
 impl Engine {
     fn new(bank: Bank, playhead: Arc<AtomicU32>, busy_ns: Arc<AtomicU64>) -> Self {
-        Engine { clock: Clock::new(SAMPLE_RATE), rack: Rack::new(SAMPLE_RATE, bank), ev: EventBuf::new(), buf: vec![0.0; zpod_voices::MAX_BLOCK * 2], pat: Pattern::empty(), ver: u64::MAX, exiting: 0, playhead, busy_ns, aud: None, aud_next: 0 }
+        Engine { clock: Clock::new(SAMPLE_RATE), rack: Rack::new(SAMPLE_RATE, bank), ev: EventBuf::new(), buf: vec![0.0; zpod_voices::MAX_BLOCK * 2], pat: Pattern::empty(), ver: u64::MAX, exiting: 0, playhead, busy_ns, aud: None, aud_next: 0, midi: None, rack_ev: EventBuf::new(), internal_was: true }
     }
 
     fn apply(&mut self, p: Pattern) {
@@ -129,10 +165,17 @@ impl Engine {
     fn period(&mut self, sh: &Mutex<Shared>, out: &mut [i16], frames: usize) -> bool {
         let t0 = Instant::now();
         self.ev.clear();
+        let now_ns = self.midi.as_ref().map(|m| m.epoch.elapsed().as_nanos() as u64).unwrap_or(0);
         if let Ok(mut s) = sh.try_lock() {
             if s.version != self.ver {
                 self.ver = s.version;
                 self.apply(s.pat);
+            }
+            if let Some(m) = self.midi.as_mut() {
+                if m.ver != s.midi_ver {
+                    m.ver = s.midi_ver;
+                    m.router.set_config(now_ns, s.midi);
+                }
             }
             match s.transport.take() {
                 Some(true) => self.clock.start(&self.pat),
@@ -165,7 +208,43 @@ impl Engine {
         }
         self.clock.process(&self.pat, frames as u32, &mut self.ev);
         self.ev.sort();
-        self.rack.render(self.ev.as_slice(), &mut self.buf, frames);
+        let mut internal = true;
+        if let Some(m) = self.midi.as_mut() {
+            // the audition always stays internal
+            let mut n = 0;
+            for e in self.ev.as_slice() {
+                let ev = match e.kind {
+                    EventKind::NoteOn { track, .. } | EventKind::NoteOff { track, .. } if track as usize == AUDITION => continue,
+                    EventKind::NoteOn { track, id, pitch, vel } => In::On { lane: track, id, note: pitch.note(), vel },
+                    EventKind::NoteOff { track, id } => In::Off { lane: track, id },
+                    EventKind::AllNotesOff => In::AllOff,
+                };
+                m.inb[n] = InEvent { offset: e.offset, ev };
+                n += 1;
+            }
+            m.router.block(now_ns, frames as u32, &m.inb[..n], self.pat.tempo, self.clock.playing());
+            internal = m.router.config().internal_audible(m.status.state() == MidiState::Connected);
+        }
+        if internal {
+            self.rack.render(self.ev.as_slice(), &mut self.buf, frames);
+        } else {
+            // MIDI only: keep the rack for the audition; end internal notes once
+            self.rack_ev.clear();
+            if self.internal_was {
+                self.rack_ev.push(Event { offset: 0, kind: EventKind::AllNotesOff });
+            }
+            for e in self.ev.as_slice() {
+                let keep = match e.kind {
+                    EventKind::NoteOn { track, .. } | EventKind::NoteOff { track, .. } => track as usize == AUDITION,
+                    EventKind::AllNotesOff => true,
+                };
+                if keep {
+                    self.rack_ev.push(*e);
+                }
+            }
+            self.rack.render(self.rack_ev.as_slice(), &mut self.buf, frames);
+        }
+        self.internal_was = internal;
         for (o, x) in out.iter_mut().zip(self.buf[..frames * 2].iter()) {
             *o = (x * 32767.0) as i16;
         }
@@ -185,7 +264,7 @@ fn main() {
     PIPE_BYTES.store(pipe, Ordering::Relaxed);
     match args.first().map(String::as_str) {
         Some("--help") => {
-            eprintln!("pipit [--bench SECS [DEMO 1-5: cost per lane] | --selftest SECS [DEMO 1-5] | --xrun-test]");
+            eprintln!("pipit [--midi-test SECS [alsa] | --bench SECS [DEMO 1-5: cost per lane] | --selftest SECS [DEMO 1-5] | --xrun-test]");
             return;
         }
         Some("--bench") => std::process::exit(bench(
@@ -197,6 +276,10 @@ fn main() {
             args.get(2).and_then(|s| s.parse::<usize>().ok()).unwrap_or(1).clamp(1, DEMOS.len()) - 1,
         )),
         Some("--xrun-test") => std::process::exit(xrun_test()),
+        Some("--midi-test") => std::process::exit(midi_test(
+            args.get(1).and_then(|s| s.parse().ok()).unwrap_or(6).clamp(2, 60),
+            args.get(2).map(String::as_str) == Some("alsa"),
+        )),
         _ => {}
     }
     let mut p = match Platform::open() {
@@ -229,13 +312,29 @@ fn main() {
         ed.output = s.trim().parse::<usize>().unwrap_or(0).min(OUTPUTS.len() - 1);
     }
 
-    let shared = Arc::new(Mutex::new(Shared { pat: ed.pat, version: 0, transport: None, out_gain: OUTPUTS[ed.output].1, exit: false, audition: None }));
+    let mut midi_note: Option<String> = None;
+    // no file (first run) = Internal
+    if let Ok(s) = std::fs::read_to_string(data_file("midi.toml")) {
+        match MidiConfig::from_toml(&s, &editor::midi_default()) {
+            Ok(c) => ed.midi = c,
+            // keep Internal; the file is left alone until the user changes MIDI
+            Err(e) => midi_note = Some(format!("midi.toml ignored ({e}); MIDI off")),
+        }
+    }
+    if let Some(m) = &midi_note {
+        eprintln!("pipit: {m}");
+    }
+    eprintln!("pipit: MIDI route {} port {:?}", ed.midi.route.label(), ed.midi.port);
+    let mut midi_out = MidiOut::start(Box::new(zpod_midi::AlsaOpener::default()));
+    midi_out.set_wanted(ed.midi.route.sends(), ed.midi.port);
+    let shared = Arc::new(Mutex::new(Shared { pat: ed.pat, version: 0, transport: None, out_gain: OUTPUTS[ed.output].1, exit: false, audition: None, midi: ed.midi, midi_ver: 0 }));
     let playhead = Arc::new(AtomicU32::new(NO_STEP));
     let busy = Arc::new(AtomicU64::new(0));
     let audio = if p.is_sim() {
         None
     } else {
         let mut eng = Engine::new(bank, Arc::clone(&playhead), Arc::clone(&busy));
+        eng.midi = Some(EngineMidi::new(&midi_out, ed.midi));
         let sh = Arc::clone(&shared);
         match AudioRuntime::start_render(move |out, frames| eng.period(&sh, out, frames)) {
             Ok(a) => Some(a),
@@ -251,7 +350,9 @@ fn main() {
 
     let mut version = 0u64;
     let mut status: StatusInfo = p.status.poll();
-    let mut toast: Option<(String, Instant)> = None;
+    let mut toast: Option<(String, Instant)> = midi_note.map(|m| (m, Instant::now()));
+    let mut midi_ver = 0u64;
+    let mut midi_poll = Instant::now() - Duration::from_secs(1);
     let mut save_due: Option<Instant> = None;
     let mut last_head = NO_STEP;
     let mut dirty = true;
@@ -278,6 +379,17 @@ fn main() {
         if st != status {
             status = st;
             dirty = true;
+        }
+        if midi_poll.elapsed() >= Duration::from_millis(300) {
+            midi_poll = Instant::now();
+            let (st, txt) = midi_status_line(&ed.midi, &midi_out);
+            let ports = midi_out.status.ports.lock().map(|p| p.clone()).unwrap_or_default();
+            if txt != ed.midi_status || ports != ed.midi_ports || st != ed.midi_connected {
+                ed.midi_status = txt;
+                ed.midi_ports = ports;
+                ed.midi_connected = st;
+                dirty = true;
+            }
         }
         if toast.as_ref().is_some_and(|(_, t)| t.elapsed() > Duration::from_millis(1600)) {
             toast = None;
@@ -362,8 +474,30 @@ fn main() {
                     s.audition = Some((voice, macros, pitch));
                 }
             }
+            Effect::Midi { save } => {
+                midi_ver += 1;
+                midi_out.set_wanted(ed.midi.route.sends(), ed.midi.port);
+                if let Ok(mut s) = shared.lock() {
+                    s.midi = ed.midi;
+                    s.midi_ver = midi_ver;
+                }
+                midi_poll = Instant::now() - Duration::from_secs(1);
+                if save {
+                    let r = std::fs::write(data_file("midi.toml"), ed.midi.to_toml());
+                    toast = Some((
+                        match r {
+                            Ok(()) => format!("MIDI: {} (saved)", ed.midi.route.label()),
+                            Err(e) => format!("MIDI not saved: {e}"),
+                        },
+                        Instant::now(),
+                    ));
+                }
+            }
             Effect::Toast(m) => toast = Some((m, Instant::now())),
         }
+    }
+    if ed.midi_panel.is_some() {
+        let _ = std::fs::write(data_file("midi.toml"), ed.midi.to_toml());
     }
 
     // Count write errors before the exit starts: the app manager stops an app
@@ -394,7 +528,42 @@ fn main() {
         );
         a.shutdown();
     }
+    // after the audio thread: its last messages (stop, panic) are queued
+    midi_out.shutdown();
+    let ms = &midi_out.status;
+    if ed.midi.route.sends() {
+        eprintln!(
+            "pipit: MIDI sent {} unsent {} write errors {} late {} queue drops {} cleanups {}",
+            ms.sent.load(Ordering::Relaxed),
+            ms.unsent.load(Ordering::Relaxed),
+            ms.write_errors.load(Ordering::Relaxed),
+            ms.late.load(Ordering::Relaxed),
+            midi_out.ring.dropped.load(Ordering::Relaxed),
+            ms.cleanups.load(Ordering::Relaxed)
+        );
+    }
     eprintln!("pipit: exit after {:.0} s", started.elapsed().as_secs_f32());
+}
+
+/// (connected, one-line status) for the header and the MIDI setup.
+fn midi_status_line(c: &MidiConfig, out: &MidiOut) -> (bool, String) {
+    use zpod_midi::Fallback;
+    let st = out.status.state();
+    let connected = st == MidiState::Connected;
+    let txt = match (c.route.sends(), st) {
+        (false, _) => "MIDI off: internal sound".to_string(),
+        (true, MidiState::Connected) => format!("MIDI to {}", out.status.detail()),
+        (true, _) => {
+            let why = out.status.detail();
+            let why = if why.is_empty() { "searching".to_string() } else { why };
+            match (c.route, c.fallback) {
+                (zpod_midi::Route::Both, _) => format!("{why}: internal only"),
+                (_, Fallback::Internal) => format!("{why}: playing internal"),
+                (_, Fallback::Silent) => format!("{why}: SILENT"),
+            }
+        }
+    };
+    (connected, txt)
 }
 
 /// Render the densest demo offline (no audio device) and report CPU use.
@@ -437,7 +606,7 @@ fn bench(secs: f32, parts: Option<usize>) -> i32 {
     for (name, p) in runs {
         let name = name.as_str();
         let mut eng = Engine::new(bank.clone(), Arc::new(AtomicU32::new(0)), Arc::new(AtomicU64::new(0)));
-        let sh = Mutex::new(Shared { pat: p, version: 1, transport: Some(true), out_gain: 1.0, exit: false, audition: None });
+        let sh = Mutex::new(Shared { pat: p, version: 1, transport: Some(true), out_gain: 1.0, exit: false, audition: None, midi: editor::midi_default(), midi_ver: 0 });
         let mut out = vec![0i16; 512];
         let n = (secs * SAMPLE_RATE as f32 / 256.0) as usize;
         let t0 = Instant::now();
@@ -465,7 +634,7 @@ fn selftest(secs: u64, demo: usize) -> i32 {
     let playhead = Arc::new(AtomicU32::new(NO_STEP));
     let busy = Arc::new(AtomicU64::new(0));
     let mut eng = Engine::new(bank, Arc::clone(&playhead), Arc::clone(&busy));
-    let sh = Arc::new(Mutex::new(Shared { pat: p, version: 1, transport: Some(true), out_gain: OUTPUTS[0].1, exit: false, audition: None }));
+    let sh = Arc::new(Mutex::new(Shared { pat: p, version: 1, transport: Some(true), out_gain: OUTPUTS[0].1, exit: false, audition: None, midi: editor::midi_default(), midi_ver: 0 }));
     let sh2 = Arc::clone(&sh);
     let a = match AudioRuntime::start_render(move |out, frames| eng.period(&sh2, out, frames)) {
         Ok(a) => a,
@@ -522,4 +691,143 @@ fn xrun_test() -> i32 {
     a.shutdown();
     println!("xrun-test: induced one 1 s stall; ALSA underruns counted: {under}");
     if under >= 1 { 0 } else { 1 }
+}
+
+/// MIDI routing test without sound: plays Night Drive in real time through
+/// the engine (internal render included, output discarded) with MIDI routed
+/// to a recording fake port, or with `alsa` to the real ALSA rawmidi ports
+/// (`ZPOD_MIDI_PATH` may point at a FIFO). Mutes, solos and changes tempo
+/// on the way; the fake port is unplugged and replugged. Then checks the
+/// byte stream: every note ended, clock pulses present, no queue drops.
+fn midi_test(secs: u64, alsa: bool) -> i32 {
+    use zpod_midi::{FakeOpener, Route};
+    zpod_music_core::flush_denormals(); // as on the real audio thread
+    let (bank, _) = load_bank();
+    let fake = FakeOpener::default();
+    fake.present.store(true, Ordering::Relaxed);
+    let mut out = if alsa { MidiOut::start(Box::new(zpod_midi::AlsaOpener::default())) } else { MidiOut::start(Box::new(fake.clone())) };
+    let mut cfg = editor::midi_default();
+    cfg.route = Route::Midi; // fallback Internal: exercised while unplugged
+    cfg.clock = true;
+    out.set_wanted(true, cfg.port);
+    let t_wait = Instant::now();
+    while !out.connected() && t_wait.elapsed() < Duration::from_millis(1500) {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    println!("midi-test: port {:?} {}", out.status.state(), out.status.detail());
+    let mut pat = (DEMOS[0].build)();
+    let mut eng = Engine::new(bank, Arc::new(AtomicU32::new(0)), Arc::new(AtomicU64::new(0)));
+    eng.midi = Some(EngineMidi::new(&out, editor::midi_default()));
+    let sh = Mutex::new(Shared { pat, version: 1, transport: Some(true), out_gain: OUTPUTS[0].1, exit: false, audition: None, midi: cfg, midi_ver: 1 });
+    let mut buf = vec![0i16; 512];
+    let blocks = (secs as f64 * SAMPLE_RATE as f64 / 256.0) as u64;
+    let period = Duration::from_nanos(256 * 1_000_000_000 / SAMPLE_RATE as u64);
+    let t0 = Instant::now();
+    let mut busy = Duration::ZERO;
+    let (mut fallback_blocks, mut unplugged_blocks) = (0u32, 0u32);
+    for b in 0..blocks + 40 {
+        let f = b as f64 / blocks as f64;
+        let mut edit = |g: &dyn Fn(&mut Pattern)| {
+            g(&mut pat);
+            if let Ok(mut s) = sh.lock() {
+                s.pat = pat;
+                s.version += 1;
+            }
+        };
+        if b == blocks / 4 {
+            edit(&|p| p.tracks[4].mute = true);
+        }
+        if b == blocks * 2 / 5 {
+            edit(&|p| p.tracks[3].solo = true);
+        }
+        if b == blocks / 2 {
+            edit(&|p| {
+                p.tracks[3].solo = false;
+                p.tracks[4].mute = false;
+                p.tempo *= 1.5;
+            });
+        }
+        if !alsa && b == blocks * 6 / 10 {
+            fake.present.store(false, Ordering::Relaxed);
+            fake.sink.gone.store(true, Ordering::Relaxed);
+        }
+        if !alsa && b == blocks * 3 / 4 {
+            fake.present.store(true, Ordering::Relaxed);
+        }
+        if b == blocks {
+            if let Ok(mut s) = sh.lock() {
+                s.transport = Some(false);
+            }
+        }
+        let _ = f;
+        let t = Instant::now();
+        eng.period(&sh, &mut buf, 256);
+        busy += t.elapsed();
+        if !out.connected() && b < blocks {
+            unplugged_blocks += 1;
+            if eng.internal_was {
+                fallback_blocks += 1;
+            }
+        }
+        // real time: messages are due ~110 ms after their block
+        let due = t0 + period * (b as u32 + 1);
+        if let Some(d) = due.checked_duration_since(Instant::now()) {
+            std::thread::sleep(d);
+        }
+    }
+    std::thread::sleep(Duration::from_millis(250));
+    out.shutdown();
+    let st = &out.status;
+    let (sent, unsent, werr, late, drops, cleanups) = (
+        st.sent.load(Ordering::Relaxed),
+        st.unsent.load(Ordering::Relaxed),
+        st.write_errors.load(Ordering::Relaxed),
+        st.late.load(Ordering::Relaxed),
+        out.ring.dropped.load(Ordering::Relaxed),
+        st.cleanups.load(Ordering::Relaxed),
+    );
+    let el = t0.elapsed().as_secs_f64();
+    println!(
+        "midi-test: {:.1} s, engine cpu {:.1} % (render + routing), sent {sent} unsent {unsent} write errors {werr} late {late} queue drops {drops} cleanups {cleanups}",
+        el,
+        100.0 * busy.as_secs_f64() / el
+    );
+    println!("midi-test: blocks without a port {unplugged_blocks}, of which internal fallback played {fallback_blocks}");
+    if alsa {
+        println!("midi-test: real ALSA output; bytes are not checked here (no loopback)");
+        return if drops == 0 { 0 } else { 1 };
+    }
+    // replay what the fake port received
+    let bytes = fake.sink.bytes.lock().unwrap().clone();
+    let mut on = [[0i32; 128]; 16];
+    let (mut ons, mut clocks, mut starts, mut stops, mut i) = (0u64, 0u64, 0, 0, 0);
+    while i < bytes.len() {
+        let b0 = bytes[i];
+        match b0 {
+            0xF8 => clocks += 1,
+            0xFA => starts += 1,
+            0xFC => stops += 1,
+            _ => {}
+        }
+        if b0 >= 0xF0 {
+            i += 1;
+            continue;
+        }
+        let (c, n) = ((b0 & 15) as usize, bytes[i + 1] as usize);
+        match b0 & 0xf0 {
+            0x90 => {
+                ons += 1;
+                on[c][n] += 1;
+            }
+            0x80 => on[c][n] = (on[c][n] - 1).max(0),
+            0xB0 if n == 123 => on[c] = [0; 128],
+            _ => {}
+        }
+        i += 3;
+    }
+    let hanging: i32 = on.iter().flatten().sum();
+    println!("midi-test: fake port got {} bytes: note-ons {ons}, clock {clocks}, start {starts}, stop {stops}, hanging notes {hanging}", bytes.len());
+    let ok = hanging == 0 && ons >= 4 * secs && clocks >= 15 * secs && starts >= 1 && stops >= 1 && drops == 0 && unplugged_blocks > 0 && fallback_blocks == unplugged_blocks;
+    println!("midi-test: {}", if ok { "PASS (fake port: byte-level only, no external device)" } else { "FAIL" });
+    if ok { 0 } else { 1 }
 }
