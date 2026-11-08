@@ -3,10 +3,10 @@
 use embedded_graphics::{pixelcolor::Rgb565, prelude::*, primitives::{PrimitiveStyle, RoundedRectangle}};
 use zpod_core::StatusInfo;
 use zpod_seq::demos::DEMOS;
-use zpod_seq::pattern::{ROOT_NAMES, MAX_STEPS, TRACKS};
+use zpod_seq::pattern::{Rate, ECHO_TIMES, ROOT_NAMES, MAX_STEPS, TRACKS};
 use zpod_ui::{fill, rect, status::draw_status_bar, text, text::Align, theme::*, Font, Framebuffer};
 
-use crate::editor::{Action, Editor, Mode, OUTPUTS};
+use crate::editor::{Action, Editor, Lane, Mode, KITS, LIVE_LANE0, OUTPUTS};
 
 pub const TRACK_NAMES: [&str; TRACKS] = ["KICK", "SNARE", "HAT", "BASS", "LEAD"];
 const TRACK_COL: [Rgb565; TRACKS] = [rgb(255, 110, 70), rgb(255, 196, 0), rgb(120, 220, 255), rgb(150, 120, 255), rgb(80, 230, 150)];
@@ -40,24 +40,41 @@ pub fn gate_label(g: u8) -> String {
     }
 }
 
+/// Short beat-division tag for the header.
+pub fn rate_tag(r: Rate) -> &'static str {
+    match r {
+        Rate::Half => "1/2x",
+        Rate::Normal => "1x",
+        Rate::Double => "2x",
+        Rate::Triplet => "3:2",
+    }
+}
+
+fn signed(v: i8) -> String {
+    if v == 0 { "0".into() } else { format!("{v:+}") }
+}
+
+/// Parameters shown per panel page (3 rows × 2 columns).
+const PAGE: usize = 6;
+
 pub fn draw(fb: &mut Framebuffer, st: &StatusInfo, e: &Editor, playhead: Option<u8>, toast: Option<&str>, silent: bool) {
     fill(fb, 0, 0, 320, 240, BG);
     draw_status_bar(fb, "Pipit", st);
     // header: mode tabs + transport
     for (i, m) in Mode::ALL.iter().enumerate() {
-        let x = 2 + i as i32 * 46;
+        let x = 2 + i as i32 * 37;
         let on = *m == e.mode;
-        rr(fb, x, 22, 44, 14, 4, if on { SEL } else { PANEL });
-        text::draw_aligned(fb, Font::Tiny, m.name(), x + 22, 25, Align::Center, if on { WHITE } else { DIM });
+        rr(fb, x, 22, 35, 14, 4, if on { SEL } else { PANEL });
+        text::draw_aligned(fb, Font::Tiny, m.name(), x + 17, 25, Align::Center, if on { WHITE } else { DIM });
     }
     let tcol = if e.playing { OK } else { DIM };
-    text::draw_aligned(fb, Font::Small, &format!("{} {:.0} bpm", if e.playing { "PLAY" } else { "STOP" }, e.pat.tempo), 316, 24, Align::Right, tcol);
+    text::draw_aligned(fb, Font::Small, &format!("{} {:.0} bpm {}", if e.playing { "PLAY" } else { "STOP" }, e.pat.tempo, rate_tag(e.pat.rate)), 316, 24, Align::Right, tcol);
 
     // grid
     let len = e.pat.length as usize;
     for (t, tr) in e.pat.tracks.iter().enumerate() {
         let y = GY + t as i32 * RH;
-        let col = if tr.mute { FAINT } else { TRACK_COL[t] };
+        let col = if e.pat.audible(t) { TRACK_COL[t] } else { FAINT };
         let sel = t == e.track;
         if sel {
             rr(fb, 1, y - 1, 43, RH - 1, 3, PANEL);
@@ -65,6 +82,8 @@ pub fn draw(fb: &mut Framebuffer, st: &StatusInfo, e: &Editor, playhead: Option<
         text::draw(fb, Font::Small, TRACK_NAMES[t], 4, y + 3, col);
         if tr.mute {
             text::draw(fb, Font::Tiny, "M", 36, y + 4, WARN);
+        } else if tr.solo {
+            text::draw(fb, Font::Tiny, "S", 36, y + 4, OK);
         }
         for i in 0..MAX_STEPS {
             let x = GX + i as i32 * CW;
@@ -108,11 +127,12 @@ pub fn draw(fb: &mut Framebuffer, st: &StatusInfo, e: &Editor, playhead: Option<
     let tr = &e.pat.tracks[e.track];
     let s = e.cur();
     match e.mode {
+        Mode::Live => draw_live(fb, e, py),
         Mode::Grid => {
             let state = if s.on { "on" } else { "off" };
             text::draw(fb, Font::BodyBold, &format!("{} · step {} · {}", TRACK_NAMES[e.track], e.step + 1, state), 10, py + 6, TRACK_COL[e.track]);
             text::draw(fb, Font::Small, &format!("{}  vel {}  gate {}  chance {}%", e.pat.note_name(e.track, s), s.vel, gate_label(s.gate), s.prob), 10, py + 24, FG);
-            let hints = [("Arrows", "move"), ("OK/Cir", "step on/off"), ("Tri", "edit modes"), ("Sq", "actions"), ("Play", "start/stop"), ("X", "help")];
+            let hints = [("Arrows", "move"), ("OK/Cir", "step on/off"), ("Tri", "next mode"), ("Sq", "actions"), ("Play", "start/stop"), ("X", "help")];
             for (i, (k, a)) in hints.iter().enumerate() {
                 let x = 10 + (i as i32 % 3) * 104;
                 let y = py + 46 + (i as i32 / 3) * 18;
@@ -126,6 +146,8 @@ pub fn draw(fb: &mut Framebuffer, st: &StatusInfo, e: &Editor, playhead: Option<
                 Mode::Track => format!("TRACK · {}", TRACK_NAMES[e.track]),
                 _ => format!("SONG · {}", e.pat.name.as_str()),
             };
+            let np = e.mode.params().len();
+            let title = if np > PAGE { format!("{title}  {}/{}", e.param / PAGE + 1, np.div_ceil(PAGE)) } else { title };
             text::draw(fb, Font::BodyBold, &title, 10, py + 5, if e.mode == Mode::Song { ACCENT } else { TRACK_COL[e.track] });
             let vals: Vec<String> = match e.mode {
                 Mode::Step => vec![e.pat.note_name(e.track, s), format!("{}{}", s.vel, if s.vel >= 110 { " accent" } else { "" }), gate_label(s.gate), format!("{}%", s.prob)],
@@ -134,31 +156,37 @@ pub fn draw(fb: &mut Framebuffer, st: &StatusInfo, e: &Editor, playhead: Option<
                     format!("{}", tr.level),
                     if tr.mute { "muted".into() } else { "on".into() },
                     if tr.pitched { format!("{}", tr.octave) } else { "—".into() },
+                    signed(tr.macros.tone),
+                    signed(tr.macros.decay),
+                    if tr.pitched { format!("{} ct", signed(tr.macros.pitch)) } else { format!("{} st", signed(tr.macros.pitch)) },
+                    format!("{}", tr.macros.drive),
+                    if tr.send == 0 { "off".into() } else { format!("{}", tr.send) },
                 ],
                 _ => vec![
                     format!("{:.0} bpm", e.pat.tempo),
-                    format!("{}%{}", e.pat.swing, if e.pat.swing == 50 { " straight" } else { "" }),
+                    format!("{}%{}", e.pat.swing, if e.pat.swing == 50 { " straight" } else if e.pat.rate == Rate::Triplet { " (off: 3:2)" } else { "" }),
+                    e.pat.rate.label().into(),
                     e.pat.scale.name().into(),
                     ROOT_NAMES[e.pat.root as usize % 12].into(),
                     format!("{} steps", e.pat.length),
+                    if e.pat.drive == 0 { "off".into() } else { format!("{}", e.pat.drive) },
+                    if e.pat.echo == 0 { "off".into() } else { format!("{}", e.pat.echo) },
+                    format!("{} note", ECHO_TIMES[e.pat.echo_time as usize % ECHO_TIMES.len()].0),
                     OUTPUTS[e.output].0.into(),
                 ],
             };
-            for (i, (name, v)) in e.mode.params().iter().zip(vals.iter()).enumerate() {
-                let x = 8 + (i as i32 % 2) * 156;
-                let y = py + 21 + (i as i32 / 2) * 21;
+            let first = e.param / PAGE * PAGE;
+            for (i, (name, v)) in e.mode.params().iter().zip(vals.iter()).enumerate().skip(first).take(PAGE) {
+                let j = (i - first) as i32;
+                let x = 8 + (j % 2) * 156;
+                let y = py + 21 + (j / 2) * 21;
                 let selp = i == e.param;
                 rr(fb, x, y, 150, 19, 4, if selp { SEL } else { BAR });
                 text::draw(fb, Font::Tiny, name, x + 6, y + 5, if selp { WHITE } else { DIM });
                 text::draw_aligned(fb, Font::Small, v, x + 144, y + 4, Align::Right, FG);
             }
-            let hint = match e.mode {
-                Mode::Step => "Up/Dn param · Lt/Rt value · OK on/off · X grid",
-                Mode::Track => "Up/Dn param · Lt/Rt value · OK mute · X grid",
-                _ => "Up/Dn param · Lt/Rt value · X grid",
-            };
-            if e.mode != Mode::Song {
-                text::draw_aligned(fb, Font::Tiny, hint, 160, py + 66, Align::Center, DIM);
+            if e.mode == Mode::Step {
+                text::draw_aligned(fb, Font::Tiny, "Up/Dn param · Lt/Rt value · OK on/off · X grid", 160, py + 66, Align::Center, DIM);
             }
         }
     }
@@ -167,6 +195,9 @@ pub fn draw(fb: &mut Framebuffer, st: &StatusInfo, e: &Editor, playhead: Option<
     }
     if let Some(m) = &e.menu {
         draw_menu(fb, e, m);
+    }
+    if let Some(b) = &e.browser {
+        draw_browser(fb, e, b);
     }
     if e.help {
         draw_help(fb);
@@ -178,8 +209,72 @@ pub fn draw(fb: &mut Framebuffer, st: &StatusInfo, e: &Editor, playhead: Option<
     }
 }
 
+fn draw_live(fb: &mut Framebuffer, e: &Editor, py: i32) {
+    let rows = [
+        ("Tempo", format!("{:.0} bpm", e.pat.tempo)),
+        ("Rate", e.pat.rate.label().to_string()),
+        ("Swing", if e.pat.rate == Rate::Triplet { format!("{}% (off)", e.pat.swing) } else { format!("{}%", e.pat.swing) }),
+    ];
+    for (i, (k, v)) in rows.iter().enumerate() {
+        let y = py + 5 + i as i32 * 23;
+        let sel = e.param == i;
+        rr(fb, 8, y, 146, 21, 4, if sel { SEL } else { BAR });
+        text::draw(fb, Font::Tiny, k, 14, y + 6, if sel { WHITE } else { DIM });
+        text::draw_aligned(fb, if i == 0 { Font::BodyBold } else { Font::Small }, v, 148, y + 4, Align::Right, FG);
+    }
+    let hint = match e.param {
+        0 => "OK: tap tempo · Lt/Rt: ±1",
+        1 | 2 => "Lt/Rt: change",
+        _ => "Lt mute · Rt solo · OK mute",
+    };
+    text::draw(fb, Font::Tiny, hint, 12, py + 75, CYAN);
+    if e.taps() >= 1 && e.param == 0 {
+        text::draw_aligned(fb, Font::Tiny, &format!("taps {}", e.taps()), 150, py + 75, Align::Right, DIM);
+    }
+    for t in 0..TRACKS {
+        let y = py + 4 + t as i32 * 16;
+        let sel = e.param == LIVE_LANE0 + t;
+        rr(fb, 160, y, 152, 15, 3, if sel { SEL } else { BAR });
+        let audible = e.pat.audible(t);
+        text::draw(fb, Font::Tiny, TRACK_NAMES[t], 166, y + 3, if audible { TRACK_COL[t] } else { FAINT });
+        let (label, c) = match e.lane(t) {
+            Lane::Mute => ("MUTE", WARN),
+            Lane::Solo => ("SOLO", OK),
+            Lane::On if !audible => ("(solo)", FAINT),
+            Lane::On => ("on", DIM),
+        };
+        text::draw_aligned(fb, Font::Tiny, label, 306, y + 3, Align::Right, c);
+    }
+}
+
+fn draw_browser(fb: &mut Framebuffer, e: &Editor, b: &crate::editor::Browser) {
+    let (x, y, w, h) = (14, 24, 292, 214);
+    rr(fb, x, y, w, h, 8, BAR);
+    frame(fb, x, y, w, h, TRACK_COL[e.track], 2);
+    text::draw(fb, Font::Title, &format!("Voice · {}", TRACK_NAMES[e.track]), x + 10, y + 6, TRACK_COL[e.track]);
+    text::draw_aligned(fb, Font::Tiny, &format!("{}/{}", b.sel + 1, b.list.len()), x + w - 10, y + 10, Align::Right, DIM);
+    let rows = 8usize;
+    let first = b.sel.saturating_sub(rows / 2).min(b.list.len().saturating_sub(rows));
+    let cur = e.pat.tracks[e.track].voice;
+    for (r, &vi) in b.list.iter().enumerate().skip(first).take(rows) {
+        let yy = y + 28 + (r - first) as i32 * 18;
+        let sel = r == b.sel;
+        if sel {
+            rr(fb, x + 6, yy - 2, w - 12, 17, 4, SEL);
+        }
+        let v = &e.bank.voices[vi];
+        let info = &e.bank.info[vi];
+        text::draw(fb, Font::Tiny, &info.category, x + 12, yy + 2, if sel { WHITE } else { CYAN });
+        let mark = if v.id == cur { " *" } else { "" };
+        text::draw(fb, Font::Small, &format!("{}{}", v.name.as_str(), mark), x + 62, yy, if sel { WHITE } else { FG });
+    }
+    let d = &e.bank.info[b.list[b.sel]].desc;
+    text::draw(fb, Font::Small, d, x + 12, y + h - 40, FG);
+    text::draw_aligned(fb, Font::Tiny, "Up/Dn choose · Rt hear · OK use · X back", x + w / 2, y + h - 16, Align::Center, DIM);
+}
+
 fn draw_menu(fb: &mut Framebuffer, e: &Editor, m: &crate::editor::Menu) {
-    let (x, y, w, h) = (30, 30, 260, 200);
+    let (x, y, w, h) = (30, 22, 260, 216);
     rr(fb, x, y, w, h, 8, BAR);
     frame(fb, x, y, w, h, ACCENT, 2);
     text::draw(fb, Font::Title, "Actions", x + 10, y + 6, ACCENT);
@@ -194,6 +289,7 @@ fn draw_menu(fb: &mut Framebuffer, e: &Editor, m: &crate::editor::Menu) {
             Action::Save => ("Save to slot", format!("< {}{} >", m.slot, if e.slot_used[m.slot as usize - 1] { " used" } else { " empty" })),
             Action::Load => ("Load slot", format!("< {}{} >", m.slot, if e.slot_used[m.slot as usize - 1] { "" } else { " empty" })),
             Action::Demo => ("Load demo", format!("< {} >", DEMOS[m.demo].name)),
+            Action::Kit => ("Drum kit", format!("< {} >", KITS[m.kit].0)),
             Action::Euclid => ("Euclid fill track", format!("< {} hits >", m.hits)),
             Action::Notes => ("New notes for track", format!("< seed {} >", m.seed)),
             Action::Clear => ("Clear track", String::new()),
@@ -213,21 +309,22 @@ pub fn draw_help(fb: &mut Framebuffer) {
     frame(fb, x, y, w, h, CYAN, 2);
     text::draw(fb, Font::Title, "Pipit buttons", x + 10, y + 6, CYAN);
     text::draw_aligned(fb, Font::Tiny, "any key closes", x + w - 10, y + 10, Align::Right, DIM);
-    let rows: [(&str, &str); 11] = [
+    let rows: [(&str, &str); 12] = [
         ("Play", "start at step 1 / stop"),
-        ("Arrows", "GRID: move the cursor"),
-        ("", "modes: Up/Dn param, Lt/Rt value"),
+        ("Tri", "LIVE>GRID>STEP>TRACK>SONG"),
+        ("LIVE", "OK on Tempo = tap; lanes:"),
+        ("", "Lt mute, Rt solo, OK mute"),
+        ("Arrows", "GRID: move; else Up/Dn, Lt/Rt"),
         ("OK/Cir", "step on/off (TRACK: mute)"),
-        ("Tri", "GRID > STEP > TRACK > SONG"),
+        ("", "TRACK Voice: OK = browser"),
         ("X", "back to GRID / this help"),
-        ("Sq", "actions: save, load, demos,"),
-        ("", "Euclid, new notes, clear, undo"),
+        ("Sq", "save, load, demo, kit, Euclid,"),
+        ("", "notes, clear, new, undo"),
         ("Home", "save and exit (music paused)"),
-        ("Vol", "headphone volume"),
         ("", "green = playhead, white = cursor"),
     ];
     for (i, (k, a)) in rows.iter().enumerate() {
-        let yy = y + 28 + i as i32 * 16;
+        let yy = y + 28 + i as i32 * 15;
         text::draw(fb, Font::BodyBold, k, x + 12, yy, ACCENT);
         text::draw(fb, Font::Small, a, x + 78, yy + 1, FG);
     }

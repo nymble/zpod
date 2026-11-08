@@ -11,6 +11,7 @@ pub mod harmony;
 pub mod synth;
 
 pub use audio::{
+    flush_denormals, PIPE_BYTES,
     bench_cpu, AudioRuntime, BenchResult, FastArrowsGuard, MpdExclusive, PerfState, SharedPerf,
     BUTTONS_MODE_PATH, PERIOD_FRAMES, SAMPLE_RATE,
 };

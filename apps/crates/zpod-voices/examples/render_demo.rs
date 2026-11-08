@@ -1,5 +1,6 @@
 //! Render the built-in demo grooves to a 16-bit stereo WAV and print level
-//! statistics:  cargo run --release -p zpod-voices --example render_demo -- out.wav [bars]
+//! statistics:  cargo run --release -p zpod-voices --example render_demo -- out.wav [bars] [drums]
+//! "drums" solos the three drum lanes (kick, snare, hat) of every demo.
 use std::io::Write;
 use std::time::Instant;
 use zpod_seq::demos::DEMOS;
@@ -11,20 +12,24 @@ const SR: u32 = 44_100;
 fn main() {
     let path = std::env::args().nth(1).unwrap_or_else(|| "pipit-demo.wav".into());
     let bars: f32 = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(4.0);
+    let drums_only = std::env::args().nth(3).as_deref() == Some("drums");
     let mut all: Vec<f32> = Vec::new();
     let t0 = Instant::now();
     for d in DEMOS {
-        let p = (d.build)();
+        let mut p = (d.build)();
+        if drums_only {
+            for t in 0..3 {
+                p.tracks[t].solo = true;
+            }
+        }
         let mut r = Rack::new(SR, Bank::builtin());
         r.out_gain = 1.0;
-        for (t, tr) in p.tracks.iter().enumerate() {
-            r.set_track(t, tr.voice.as_str(), tr.level as f32 / 127.0, tr.mute);
-        }
+        r.apply_pattern(&p, SR);
         let mut c = Clock::new(SR);
         c.start(&p);
         let mut eb = EventBuf::new();
         let mut out = vec![0.0f32; 512];
-        let frames = (bars * 16.0 * SR as f32 * 60.0 / (p.tempo * 4.0)) as usize;
+        let frames = (bars * p.length as f32 * SR as f32 * 60.0 / (p.tempo * p.rate.steps_per_beat() as f32)) as usize;
         let start = all.len();
         for _ in 0..frames / 256 {
             eb.clear();

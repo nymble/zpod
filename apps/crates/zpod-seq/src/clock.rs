@@ -2,12 +2,12 @@
 //!
 //! Step `n` (absolute, counted since Play) starts at
 //! `anchor_frame + (n - anchor_step) * step_len + swing(n)` frames, computed
-//! from the index every time, so long runs do not drift. A tempo change
-//! re-anchors at the next step. Each note-on schedules its note-off
+//! from the index every time, so long runs do not drift. A tempo or rate
+//! change re-anchors at the next step (no jump back, no lost notes). Each note-on schedules its note-off
 //! (`gate` quarter steps later); `stop` ends every scheduled note.
 
 use crate::event::{Event, EventBuf, EventKind};
-use crate::pattern::{Pattern, TRACKS};
+use crate::pattern::{Pattern, Rate, TRACKS};
 
 pub const OFF_CAP: usize = 48;
 
@@ -27,6 +27,7 @@ pub struct Clock {
     anchor_step: u64,
     step_len: f64,
     tempo: f32,
+    rate: Rate,
     next_step: u64,
     offs: [Option<Off>; OFF_CAP],
     next_id: u32,
@@ -36,9 +37,9 @@ pub struct Clock {
     pub steps_played: u64,
 }
 
-/// Frames per 1/16 step.
-pub fn step_frames(sr: f64, bpm: f32) -> f64 {
-    sr * 60.0 / (bpm as f64 * 4.0)
+/// Frames per step at a tempo and rate.
+pub fn step_frames(sr: f64, bpm: f32, rate: Rate) -> f64 {
+    sr * 60.0 / (bpm as f64 * rate.steps_per_beat())
 }
 
 fn hash(mut x: u32) -> u32 {
@@ -57,8 +58,9 @@ impl Clock {
             pos: 0,
             anchor_frame: 0.0,
             anchor_step: 0,
-            step_len: step_frames(sample_rate as f64, 100.0),
+            step_len: step_frames(sample_rate as f64, 100.0, Rate::Normal),
             tempo: 100.0,
+            rate: Rate::Normal,
             next_step: 0,
             offs: [None; OFF_CAP],
             next_id: 1,
@@ -82,7 +84,8 @@ impl Clock {
         self.anchor_frame = 0.0;
         self.anchor_step = 0;
         self.tempo = pat.tempo;
-        self.step_len = step_frames(self.sr, pat.tempo);
+        self.rate = pat.rate;
+        self.step_len = step_frames(self.sr, pat.tempo, pat.rate);
         self.next_step = 0;
         self.steps_played = 0;
     }
@@ -102,7 +105,7 @@ impl Clock {
     fn step_time(&self, n: u64, pat: &Pattern) -> u64 {
         let straight = self.anchor_frame + (n - self.anchor_step) as f64 * self.step_len;
         let idx = n % pat.length.max(1) as u64;
-        let swing = if idx % 2 == 1 { (pat.swing as f64 / 50.0 - 1.0) * self.step_len } else { 0.0 };
+        let swing = if idx % 2 == 1 && pat.rate != Rate::Triplet { (pat.swing as f64 / 50.0 - 1.0) * self.step_len } else { 0.0 };
         (straight + swing).round() as u64
     }
 
@@ -111,11 +114,14 @@ impl Clock {
         if !self.playing {
             return;
         }
-        if pat.tempo != self.tempo {
-            self.anchor_frame += (self.next_step - self.anchor_step) as f64 * self.step_len;
+        if pat.tempo != self.tempo || pat.rate != self.rate {
+            // the next step keeps its straight time under the old grid but
+            // never lands before "now"
+            self.anchor_frame = (self.anchor_frame + (self.next_step - self.anchor_step) as f64 * self.step_len).max(self.pos as f64);
             self.anchor_step = self.next_step;
             self.tempo = pat.tempo;
-            self.step_len = step_frames(self.sr, pat.tempo);
+            self.rate = pat.rate;
+            self.step_len = step_frames(self.sr, pat.tempo, pat.rate);
         }
         let end = self.pos + frames as u64;
         loop {
@@ -149,7 +155,7 @@ impl Clock {
         for tr in 0..TRACKS {
             let track = &pat.tracks[tr];
             let s = track.steps[idx];
-            if track.mute || !s.on || s.vel == 0 {
+            if !pat.audible(tr) || !s.on || s.vel == 0 {
                 continue;
             }
             if s.prob < 100 {

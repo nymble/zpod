@@ -7,7 +7,7 @@
 
 use std::io::Write;
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -128,13 +128,23 @@ impl Drop for FastArrowsGuard {
     }
 }
 
+/// Requested size of the pipe into aplay, in bytes; 0 keeps the kernel
+/// default (64 KiB = ~370 ms of 44.1 kHz stereo, which is also the control
+/// latency: a blocking writer keeps the pipe full). An app that wants
+/// faster response to tempo or mute changes sets a smaller size before
+/// starting audio. Linux rounds up to a page multiple.
+pub static PIPE_BYTES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 struct AplayOut {
     child: Child,
     stdin: ChildStdin,
 }
 
 impl AplayOut {
-    fn open() -> Result<Self, AudioError> {
+    /// `underruns` counts the "underrun!!!" reports aplay writes to stderr
+    /// (it prints them even with -q). stderr is drained by a small thread so
+    /// a long run of reports can never fill the pipe and block aplay.
+    fn open(underruns: Arc<AtomicU64>) -> Result<Self, AudioError> {
         let mut child = Command::new("aplay")
             .args([
                 "-t",
@@ -160,6 +170,13 @@ impl AplayOut {
             .stdin
             .take()
             .ok_or_else(|| AudioError::Spawn("aplay stdin".into()))?;
+        let want = PIPE_BYTES.load(Ordering::Relaxed);
+        if want > 0 {
+            use std::os::fd::AsRawFd;
+            // SAFETY: plain fcntl on a pipe fd we own; failure leaves the default.
+            let got = unsafe { libc::fcntl(stdin.as_raw_fd(), libc::F_SETPIPE_SZ, want as libc::c_int) };
+            eprintln!("music-core: aplay pipe {} bytes (~{} ms)", got, if got > 0 { got as usize * 1000 / (4 * SAMPLE_RATE as usize) } else { 0 });
+        }
         // Give aplay a moment; if it dies immediately the device is busy.
         thread::sleep(Duration::from_millis(30));
         if let Ok(Some(status)) = child.try_wait() {
@@ -175,6 +192,20 @@ impl AplayOut {
             return Err(AudioError::Spawn(format!(
                 "aplay exited early ({status}): {err}"
             )));
+        }
+        if let Some(err) = child.stderr.take() {
+            let _ = thread::Builder::new().name("aplay-stderr".into()).spawn(move || {
+                use std::io::BufRead;
+                let mut shown = 0u32;
+                for line in std::io::BufReader::new(err).lines().map_while(Result::ok) {
+                    if line.contains("underrun") || line.contains("overrun") {
+                        underruns.fetch_add(1, Ordering::Relaxed);
+                    } else if shown < 20 {
+                        shown += 1;
+                        eprintln!("aplay: {line}");
+                    }
+                }
+            });
         }
         eprintln!(
             "music-core: ALSA open via aplay {CARD_DEV} 44100/S16_LE/2 period=256 buffer=768 (~17 ms)"
@@ -249,8 +280,11 @@ pub struct AudioRuntime {
     stop: Arc<AtomicBool>,
     join: Option<JoinHandle<()>>,
     mpd: Option<MpdExclusive>,
+    /// failed writes to aplay (the pipe), e.g. aplay ended; not ALSA xruns
     pub xruns: Arc<std::sync::atomic::AtomicU64>,
     pub frames_written: Arc<std::sync::atomic::AtomicU64>,
+    /// ALSA underruns reported by aplay (real dropouts at the DAC)
+    pub alsa_underruns: Arc<AtomicU64>,
 }
 
 impl AudioRuntime {
@@ -261,14 +295,17 @@ impl AudioRuntime {
         let stop = Arc::new(AtomicBool::new(false));
         let xruns = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let frames_written = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let alsa_underruns = Arc::new(AtomicU64::new(0));
         let stop_t = Arc::clone(&stop);
         let xruns_t = Arc::clone(&xruns);
         let frames_t = Arc::clone(&frames_written);
+        let under_t = Arc::clone(&alsa_underruns);
 
         let join = thread::Builder::new()
             .name("zpod-audio".into())
             .spawn(move || {
-                if let Err(e) = audio_thread(perf, stop_t, xruns_t, frames_t) {
+                flush_denormals();
+                if let Err(e) = audio_thread(perf, stop_t, xruns_t, frames_t, under_t) {
                     eprintln!("music-core: audio thread end: {e}");
                 }
             })
@@ -280,6 +317,7 @@ impl AudioRuntime {
             mpd: Some(mpd),
             xruns,
             frames_written,
+            alsa_underruns,
         })
     }
 
@@ -295,9 +333,10 @@ impl AudioRuntime {
             m.release();
         }
         eprintln!(
-            "music-core: shutdown; frames={} xruns={}",
+            "music-core: shutdown; frames={} xruns={} alsa_underruns={}",
             self.frames_written.load(Ordering::Relaxed),
-            self.xruns.load(Ordering::Relaxed)
+            self.xruns.load(Ordering::Relaxed),
+            self.alsa_underruns.load(Ordering::Relaxed)
         );
     }
 }
@@ -335,11 +374,14 @@ impl AudioRuntime {
         let xruns = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let frames_written = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let (stop_t, xruns_t, frames_t) = (Arc::clone(&stop), Arc::clone(&xruns), Arc::clone(&frames_written));
+        let alsa_underruns = Arc::new(AtomicU64::new(0));
+        let under_t = Arc::clone(&alsa_underruns);
         let join = thread::Builder::new()
             .name("zpod-audio".into())
             .spawn(move || {
-                let mut run = || -> Result<(), AudioError> {
-                    let mut out = AplayOut::open()?;
+                flush_denormals();
+                let run = || -> Result<(), AudioError> {
+                    let mut out = AplayOut::open(under_t)?;
                     let mut buf = vec![0i16; PERIOD_FRAMES * CHANNELS];
                     let mut errs = 0u32;
                     while !stop_t.load(Ordering::Relaxed) {
@@ -376,7 +418,7 @@ impl AudioRuntime {
                 }
             })
             .map_err(|e| AudioError::Spawn(format!("audio thread: {e}")))?;
-        Ok(Self { stop, join: Some(join), mpd: Some(mpd), xruns, frames_written })
+        Ok(Self { stop, join: Some(join), mpd: Some(mpd), xruns, frames_written, alsa_underruns })
     }
 
     /// True while the audio thread is still running.
@@ -402,8 +444,9 @@ fn audio_thread(
     stop: Arc<AtomicBool>,
     xruns: Arc<std::sync::atomic::AtomicU64>,
     frames_written: Arc<std::sync::atomic::AtomicU64>,
+    underruns: Arc<AtomicU64>,
 ) -> Result<(), AudioError> {
-    let mut out = AplayOut::open()?;
+    let mut out = AplayOut::open(underruns)?;
     let mut eng = Engine::new(DEFAULT_SR);
     let mut buf = vec![0i16; PERIOD_FRAMES * CHANNELS];
     // fix held init
@@ -606,5 +649,23 @@ mod tests {
         assert!(r.wall_secs > 0.0);
         assert!(r.cpu_frac_per_voice > 0.0);
         assert!(r.recommended_poly >= 6);
+    }
+}
+
+/// Puts the calling thread's FPU in flush-to-zero / default-NaN mode
+/// ("RunFast" on ARM VFP). The Pi Zero's ARM1176 handles subnormal floats
+/// very slowly; decaying filter, envelope and echo tails reach them and
+/// can multiply render cost. Subnormals are below -700 dBFS, so flushing
+/// them changes nothing audible. Called at the start of every music-core
+/// audio thread; apps rendering on another thread (benchmarks) call it too.
+/// No-op on other targets.
+pub fn flush_denormals() {
+    #[cfg(all(target_arch = "arm", target_abi = "eabihf"))]
+    // SAFETY: sets FPSCR bits 24 (FZ) and 25 (DN) for this thread only.
+    unsafe {
+        let mut r: u32;
+        core::arch::asm!("vmrs {0}, fpscr", out(reg) r, options(nomem, nostack));
+        r |= (1 << 24) | (1 << 25);
+        core::arch::asm!("vmsr fpscr, {0}", in(reg) r, options(nomem, nostack));
     }
 }

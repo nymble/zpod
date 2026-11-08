@@ -1,7 +1,7 @@
 [package]
 name = "zpod-pipit"
 description = "Pipit for ZPOD: 16-step, 5-track pocket sequencer over zpod-seq + zpod-voices"
-version = "0.1.1"
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 

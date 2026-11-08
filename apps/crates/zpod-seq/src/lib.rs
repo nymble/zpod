@@ -22,6 +22,6 @@ pub mod pattern;
 
 pub use clock::Clock;
 pub use event::{Event, EventBuf, EventKind, Pitch};
-pub use pattern::{Pattern, Scale, Step, Track, MAX_STEPS, TRACKS};
+pub use pattern::{Macros, Pattern, Rate, Scale, Step, Track, MAX_STEPS, TRACKS};
 #[cfg(test)]
 mod tests;

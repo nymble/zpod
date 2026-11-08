@@ -3,7 +3,9 @@
 use serde::Deserialize;
 
 pub const FORMAT: &str = "pipit-voices";
-pub const VERSION: u32 = 1;
+/// Written/understood version. Version 2 adds optional `category` and
+/// `desc` per voice; version 1 banks still load (category from the kind).
+pub const VERSION: u32 = 2;
 pub const DEFAULT_BANK: &str = include_str!("../banks/default.toml");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,6 +40,19 @@ impl Kind {
     }
     pub fn is_drum(self) -> bool {
         matches!(self, Kind::Kick | Kind::Snare | Kind::Hat | Kind::Clap)
+    }
+    /// Browser group used when a voice file gives no `category`.
+    pub fn default_category(self) -> &'static str {
+        match self {
+            Kind::Kick => "kick",
+            Kind::Snare => "snare",
+            Kind::Hat => "hat",
+            Kind::Clap => "clap",
+            Kind::Mono => "bass",
+            Kind::Poly => "lead",
+            Kind::Pluck => "pluck",
+            Kind::Fm => "keys",
+        }
     }
     /// voices per track for this kind
     pub fn polyphony(self) -> usize {
@@ -92,6 +107,10 @@ macro_rules! file_voice {
             id: String,
             name: String,
             kind: String,
+            #[serde(default)]
+            category: Option<String>,
+            #[serde(default)]
+            desc: Option<String>,
             $( #[serde(default)] $f: Option<f32>, )*
         }
         fn build(v: &FileVoice) -> Result<VoiceDef, String> {
@@ -101,7 +120,7 @@ macro_rules! file_voice {
             }
             $(
                 let $f = v.$f.unwrap_or($d);
-                if !($f.is_finite() && $f >= $lo && $f <= $hi) {
+                if !($f.is_finite() && ($lo..=$hi).contains(&$f)) {
                     return Err(format!("voice '{}': {} = {} (allowed {}..{})", v.id, stringify!($f), $f, $lo, $hi));
                 }
             )*
@@ -140,6 +159,20 @@ pub const MAX_VOICES_IN_BANK: usize = 64;
 #[derive(Clone, Debug)]
 pub struct Bank {
     pub voices: Vec<VoiceDef>,
+    /// browser text per voice (same order as `voices`); not used by audio
+    pub info: Vec<VoiceInfo>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct VoiceInfo {
+    /// 1-10 chars a-z (browser group)
+    pub category: String,
+    /// up to 34 printable ASCII chars
+    pub desc: String,
+}
+
+fn text_ok(s: &str, max: usize) -> bool {
+    s.len() <= max && s.chars().all(|c| c.is_ascii_graphic() || c == ' ')
 }
 
 impl Bank {
@@ -155,20 +188,50 @@ impl Bank {
             return Err(format!("{} voices (1..={MAX_VOICES_IN_BANK})", f.voice.len()));
         }
         let mut voices = Vec::with_capacity(f.voice.len());
+        let mut info = Vec::with_capacity(f.voice.len());
         for v in &f.voice {
             let d = build(v)?;
             if voices.iter().any(|x: &VoiceDef| x.id == d.id) {
                 return Err(format!("duplicate voice id '{}'", v.id));
             }
+            let category = v.category.clone().unwrap_or_else(|| d.kind.default_category().into());
+            if category.is_empty() || category.len() > 10 || !category.chars().all(|c| c.is_ascii_lowercase()) {
+                return Err(format!("voice '{}': category '{category}' must be 1-10 letters a-z", v.id));
+            }
+            let desc = v.desc.clone().unwrap_or_default();
+            if !text_ok(&desc, 34) || !text_ok(&v.name, 24) {
+                return Err(format!("voice '{}': name (24) or desc (34) too long or not plain ASCII", v.id));
+            }
+            if f.version < 2 && (v.category.is_some() || v.desc.is_some()) {
+                return Err(format!("voice '{}': category/desc need version = 2", v.id));
+            }
             voices.push(d);
+            info.push(VoiceInfo { category, desc });
         }
-        Ok(Bank { voices })
+        Ok(Bank { voices, info })
     }
     pub fn builtin() -> Bank {
         Bank::parse(DEFAULT_BANK).expect("built-in bank is valid")
     }
     pub fn find(&self, id: &str) -> Option<usize> {
         self.voices.iter().position(|v| v.id.as_str() == id)
+    }
+    /// Voices for the browser: drums or tuned only, grouped by category
+    /// (first appearance order), file order inside a group.
+    pub fn browse(&self, drums: bool) -> Vec<usize> {
+        let list: Vec<usize> = (0..self.voices.len()).filter(|&i| self.voices[i].kind.is_drum() == drums).collect();
+        let mut cats: Vec<&str> = Vec::new();
+        for &i in &list {
+            let c = self.info[i].category.as_str();
+            if !cats.contains(&c) {
+                cats.push(c);
+            }
+        }
+        let mut out = Vec::with_capacity(list.len());
+        for c in cats {
+            out.extend(list.iter().copied().filter(|&i| self.info[i].category == c));
+        }
+        out
     }
     /// next/previous voice id (wrapping), optionally only drums or only tuned
     pub fn cycle(&self, id: &str, dir: i32, drums: bool) -> Option<usize> {

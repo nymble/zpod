@@ -6,11 +6,80 @@ use serde::{Deserialize, Serialize};
 pub const MAX_STEPS: usize = 16;
 pub const TRACKS: usize = 5;
 pub const FORMAT: &str = "pipit-pattern";
-pub const VERSION: u32 = 1;
+/// Written version. Version 1 files (Pipit 0.1.x) still load: the fields
+/// added in 2 take their defaults (rate 1/16, no solo, neutral macros, no FX).
+pub const VERSION: u32 = 2;
 pub const TEMPO_MIN: f32 = 50.0;
 pub const TEMPO_MAX: f32 = 200.0;
 pub const SWING_MIN: u8 = 50;
 pub const SWING_MAX: u8 = 75;
+pub const FX_MAX: u8 = 10;
+pub const MACRO_MIN: i8 = -10;
+pub const MACRO_MAX: i8 = 10;
+/// macro pitch: semitones on drum tracks, cents on tuned tracks
+pub const DRUM_PITCH_MAX: i8 = 12;
+pub const TUNE_CENTS_MAX: i8 = 50;
+
+/// Step length ("beat division"). Steps per quarter note: 2, 4, 8 or 6.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rate {
+    /// ½×: eighth notes
+    Half,
+    /// 1×: sixteenth notes (default)
+    Normal,
+    /// 2×: thirty-second notes
+    Double,
+    /// sixteenth-note triplets (6 per beat); swing is not applied
+    Triplet,
+}
+
+impl Rate {
+    pub const ALL: [Rate; 4] = [Rate::Half, Rate::Normal, Rate::Double, Rate::Triplet];
+    pub fn steps_per_beat(self) -> f64 {
+        match self {
+            Rate::Half => 2.0,
+            Rate::Normal => 4.0,
+            Rate::Double => 8.0,
+            Rate::Triplet => 6.0,
+        }
+    }
+    pub fn key(self) -> &'static str {
+        match self {
+            Rate::Half => "1/8",
+            Rate::Normal => "1/16",
+            Rate::Double => "1/32",
+            Rate::Triplet => "1/16t",
+        }
+    }
+    /// short label for the screen
+    pub fn label(self) -> &'static str {
+        match self {
+            Rate::Half => "1/2x 8th",
+            Rate::Normal => "1x 16th",
+            Rate::Double => "2x 32nd",
+            Rate::Triplet => "3:2 16tr",
+        }
+    }
+    pub fn from_key(s: &str) -> Option<Rate> {
+        Self::ALL.iter().copied().find(|r| r.key() == s)
+    }
+}
+
+/// Delay ("echo") time in beats.
+pub const ECHO_TIMES: [(&str, f64); 4] = [("1/8", 0.5), ("3/16", 0.75), ("1/4", 1.0), ("3/8", 1.5)];
+
+/// Per-track sound macros applied on top of the voice definition.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Macros {
+    /// brightness -10..10 (filter cutoff / click)
+    pub tone: i8,
+    /// length -10..10 (decay and release time, ×0.3..×3.2)
+    pub decay: i8,
+    /// drums: -12..12 semitones; tuned tracks: -50..50 cents
+    pub pitch: i8,
+    /// extra saturation 0..10
+    pub drive: i8,
+}
 
 /// Short fixed-size name (voice ids, pattern names) so a Pattern is `Copy`
 /// and can be handed to the audio thread without allocation.
@@ -131,6 +200,11 @@ pub struct Track {
     /// octave of degree 0 on pitched tracks (C4 = octave 4)
     pub octave: i8,
     pub steps: [Step; MAX_STEPS],
+    /// performance solo: when any track is soloed, only soloed tracks play
+    pub solo: bool,
+    pub macros: Macros,
+    /// echo send 0..10
+    pub send: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -144,13 +218,20 @@ pub struct Pattern {
     pub root: u8,
     /// seed for step probabilities (same seed = same variations)
     pub seed: u32,
+    pub rate: Rate,
+    /// master drive 0..10
+    pub drive: u8,
+    /// echo return level 0..10 (0 = off)
+    pub echo: u8,
+    /// index into [`ECHO_TIMES`]
+    pub echo_time: u8,
     pub tracks: [Track; TRACKS],
 }
 
 impl Pattern {
     /// Empty pattern with the default kit (kick, snare, hat, bass, lead).
     pub fn empty() -> Self {
-        let t = |v: &str, pitched: bool, octave: i8, level: u8| Track { voice: Name::new(v), level, mute: false, pitched, octave, steps: [Step::OFF; MAX_STEPS] };
+        let t = |v: &str, pitched: bool, octave: i8, level: u8| Track { voice: Name::new(v), level, mute: false, pitched, octave, steps: [Step::OFF; MAX_STEPS], solo: false, macros: Macros::default(), send: 0 };
         Pattern {
             name: Name::new("Untitled"),
             tempo: 100.0,
@@ -159,20 +240,32 @@ impl Pattern {
             scale: Scale::Minor,
             root: 9,
             seed: 1,
+            rate: Rate::Normal,
+            drive: 0,
+            echo: 0,
+            echo_time: 1,
             tracks: [t("kick.deep", false, 0, 112), t("snare.crack", false, 0, 96), t("hat.closed", false, 0, 80), t("bass.round", true, 2, 100), t("lead.pluck", true, 4, 88)],
         }
     }
 
-    /// Pitch of a step (pitched: scale degree; drums: C4 + tuning, the
+    /// Pitch of a step (pitched: scale degree + the track's fine tune in
+    /// cents; drums: C4 + step tuning + track pitch macro in semitones, the
     /// voice treats 261.63 Hz as "untransposed").
     pub fn pitch(&self, track: usize, step: &Step) -> Pitch {
         let t = &self.tracks[track];
         if t.pitched {
             let n = 12 * (t.octave as i32 + 1) + self.root as i32 + self.scale.semis(step.note as i32);
-            Pitch::from_note(n as f32)
+            Pitch::from_note(n as f32 + t.macros.pitch as f32 / 100.0)
         } else {
-            Pitch::from_note(60.0 + step.note as f32)
+            Pitch::from_note(60.0 + step.note as f32 + t.macros.pitch as f32)
         }
+    }
+
+    /// Whether a track sounds right now (mute, and solo of any track).
+    pub fn audible(&self, track: usize) -> bool {
+        let any_solo = self.tracks.iter().any(|t| t.solo);
+        let t = &self.tracks[track];
+        !t.mute && (!any_solo || t.solo)
     }
 
     pub fn note_name(&self, track: usize, step: &Step) -> String {
@@ -190,9 +283,19 @@ impl Pattern {
         self.swing = self.swing.clamp(SWING_MIN, SWING_MAX);
         self.length = self.length.clamp(1, MAX_STEPS as u8);
         self.root %= 12;
+        self.drive = self.drive.min(FX_MAX);
+        self.echo = self.echo.min(FX_MAX);
+        self.echo_time = self.echo_time.min(ECHO_TIMES.len() as u8 - 1);
         for t in self.tracks.iter_mut() {
             t.level = t.level.min(127);
             t.octave = t.octave.clamp(0, 7);
+            t.send = t.send.min(FX_MAX);
+            let m = &mut t.macros;
+            m.tone = m.tone.clamp(MACRO_MIN, MACRO_MAX);
+            m.decay = m.decay.clamp(MACRO_MIN, MACRO_MAX);
+            m.drive = m.drive.clamp(0, MACRO_MAX);
+            let pm = if t.pitched { TUNE_CENTS_MAX } else { DRUM_PITCH_MAX };
+            m.pitch = m.pitch.clamp(-pm, pm);
             for s in t.steps.iter_mut() {
                 s.note = s.note.clamp(Step::NOTE_MIN, Step::NOTE_MAX);
                 s.vel = s.vel.clamp(1, 127);
@@ -215,6 +318,10 @@ impl Pattern {
             scale: self.scale.key().into(),
             root: self.root,
             seed: self.seed,
+            rate: self.rate.key().into(),
+            drive: self.drive,
+            echo: self.echo,
+            echo_time: self.echo_time,
             track: self
                 .tracks
                 .iter()
@@ -229,6 +336,12 @@ impl Pattern {
                     vel: t.steps.iter().map(|s| s.vel).collect(),
                     gate: t.steps.iter().map(|s| s.gate).collect(),
                     prob: t.steps.iter().map(|s| s.prob).collect(),
+                    solo: t.solo,
+                    tone: t.macros.tone,
+                    decay: t.macros.decay,
+                    pitch: t.macros.pitch,
+                    drive: t.macros.drive,
+                    send: t.send,
                 })
                 .collect(),
         };
@@ -251,6 +364,10 @@ impl Pattern {
         rng((1..=MAX_STEPS as u8).contains(&f.length), "length")?;
         rng(f.root < 12, "root")?;
         let scale = Scale::from_key(&f.scale).ok_or_else(|| format!("unknown scale '{}'", f.scale))?;
+        let rate = Rate::from_key(&f.rate).ok_or_else(|| format!("unknown rate '{}' (1/8 1/16 1/32 1/16t)", f.rate))?;
+        rng(f.drive <= FX_MAX, "drive")?;
+        rng(f.echo <= FX_MAX, "echo")?;
+        rng((f.echo_time as usize) < ECHO_TIMES.len(), "echo_time")?;
         if f.track.len() != TRACKS {
             return Err(format!("{} tracks, expected {TRACKS}", f.track.len()));
         }
@@ -262,6 +379,10 @@ impl Pattern {
         p.scale = scale;
         p.root = f.root;
         p.seed = f.seed;
+        p.rate = rate;
+        p.drive = f.drive;
+        p.echo = f.echo;
+        p.echo_time = f.echo_time;
         for (i, ft) in f.track.iter().enumerate() {
             for (n, l) in [("on", ft.on.len()), ("note", ft.note.len()), ("vel", ft.vel.len()), ("gate", ft.gate.len()), ("prob", ft.prob.len())] {
                 if l != MAX_STEPS {
@@ -279,6 +400,16 @@ impl Pattern {
             t.mute = ft.mute;
             t.pitched = ft.pitched;
             t.octave = ft.octave;
+            let mr = MACRO_MIN..=MACRO_MAX;
+            rng(mr.contains(&ft.tone), "tone")?;
+            rng(mr.contains(&ft.decay), "decay")?;
+            rng((0..=MACRO_MAX).contains(&ft.drive), "track drive")?;
+            let pm = if ft.pitched { TUNE_CENTS_MAX } else { DRUM_PITCH_MAX };
+            rng((-pm..=pm).contains(&ft.pitch), "pitch")?;
+            rng(ft.send <= FX_MAX, "send")?;
+            t.solo = ft.solo;
+            t.macros = Macros { tone: ft.tone, decay: ft.decay, pitch: ft.pitch, drive: ft.drive };
+            t.send = ft.send;
             for k in 0..MAX_STEPS {
                 rng(ft.on[k] <= 1, "on")?;
                 rng((Step::NOTE_MIN..=Step::NOTE_MAX).contains(&ft.note[k]), "note")?;
@@ -304,7 +435,23 @@ struct File {
     scale: String,
     root: u8,
     seed: u32,
+    // ---- version 2 (defaults keep version 1 files loading) ----
+    #[serde(default = "default_rate")]
+    rate: String,
+    #[serde(default)]
+    drive: u8,
+    #[serde(default)]
+    echo: u8,
+    #[serde(default = "default_echo_time")]
+    echo_time: u8,
     track: Vec<FileTrack>,
+}
+
+fn default_rate() -> String {
+    Rate::Normal.key().into()
+}
+fn default_echo_time() -> u8 {
+    1
 }
 
 #[derive(Serialize, Deserialize)]
@@ -320,4 +467,16 @@ struct FileTrack {
     vel: Vec<u8>,
     gate: Vec<u8>,
     prob: Vec<u8>,
+    #[serde(default)]
+    solo: bool,
+    #[serde(default)]
+    tone: i8,
+    #[serde(default)]
+    decay: i8,
+    #[serde(default)]
+    pitch: i8,
+    #[serde(default)]
+    drive: i8,
+    #[serde(default)]
+    send: u8,
 }

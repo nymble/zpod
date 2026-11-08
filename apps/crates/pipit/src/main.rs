@@ -17,10 +17,16 @@ use std::time::{Duration, Instant};
 use editor::{Editor, Effect, OUTPUTS, SLOTS};
 use zpod_core::StatusInfo;
 use zpod_hal::Platform;
-use zpod_music_core::{AudioRuntime, FastArrowsGuard, SAMPLE_RATE};
+use zpod_music_core::{AudioRuntime, FastArrowsGuard, PIPE_BYTES, SAMPLE_RATE};
+
+/// Pipe into aplay: 16 KiB = ~93 ms instead of the default ~370 ms, so tempo,
+/// tap, mute and audition respond quickly while keeping 5x the ALSA buffer
+/// as scheduling headroom.
+const PIPE: usize = 16384;
 use zpod_seq::demos::DEMOS;
-use zpod_seq::{Clock, EventBuf, Pattern};
-use zpod_voices::{Bank, Rack};
+use zpod_seq::pattern::{Macros, Step};
+use zpod_seq::{Clock, Event, EventBuf, EventKind, Pattern, Pitch};
+use zpod_voices::{Bank, Rack, AUDITION};
 
 static STOP: AtomicBool = AtomicBool::new(false);
 extern "C" fn on_sigterm(_: libc::c_int) {
@@ -34,7 +40,12 @@ struct Shared {
     transport: Option<bool>,
     out_gain: f32,
     exit: bool,
+    /// one browser audition: (bank voice index, macros, pitch)
+    audition: Option<(usize, Macros, Pitch)>,
 }
+
+/// Audition note length.
+const AUDITION_S: f32 = 0.7;
 
 const NO_STEP: u32 = 255;
 
@@ -87,17 +98,30 @@ struct Engine {
     exiting: u32,
     playhead: Arc<AtomicU32>,
     busy_ns: Arc<AtomicU64>,
+    /// audition note: id and frames until its note-off
+    aud: Option<(u32, u32)>,
+    aud_next: u32,
 }
 
 impl Engine {
     fn new(bank: Bank, playhead: Arc<AtomicU32>, busy_ns: Arc<AtomicU64>) -> Self {
-        Engine { clock: Clock::new(SAMPLE_RATE), rack: Rack::new(SAMPLE_RATE, bank), ev: EventBuf::new(), buf: vec![0.0; zpod_voices::MAX_BLOCK * 2], pat: Pattern::empty(), ver: u64::MAX, exiting: 0, playhead, busy_ns }
+        Engine { clock: Clock::new(SAMPLE_RATE), rack: Rack::new(SAMPLE_RATE, bank), ev: EventBuf::new(), buf: vec![0.0; zpod_voices::MAX_BLOCK * 2], pat: Pattern::empty(), ver: u64::MAX, exiting: 0, playhead, busy_ns, aud: None, aud_next: 0 }
     }
 
     fn apply(&mut self, p: Pattern) {
         self.pat = p;
-        for (t, tr) in p.tracks.iter().enumerate() {
-            self.rack.set_track(t, tr.voice.as_str(), tr.level as f32 / 127.0, tr.mute);
+        self.rack.apply_pattern(&p, SAMPLE_RATE);
+    }
+
+    fn audition(&mut self, voice: usize, m: Macros, pitch: Pitch) {
+        if let Some((id, _)) = self.aud.take() {
+            self.ev.push(Event { offset: 0, kind: EventKind::NoteOff { track: AUDITION as u8, id } });
+        }
+        if self.rack.set_audition(voice, m) {
+            self.aud_next = self.aud_next.wrapping_add(1);
+            let id = 0x8000_0000 | self.aud_next; // never collides with clock ids
+            self.ev.push(Event { offset: 0, kind: EventKind::NoteOn { track: AUDITION as u8, id, pitch, vel: 0.85 } });
+            self.aud = Some((id, (AUDITION_S * SAMPLE_RATE as f32) as u32));
         }
     }
 
@@ -112,8 +136,16 @@ impl Engine {
             }
             match s.transport.take() {
                 Some(true) => self.clock.start(&self.pat),
-                Some(false) => self.clock.stop(&mut self.ev),
+                Some(false) => {
+                    self.clock.stop(&mut self.ev);
+                    self.aud = None; // AllNotesOff from stop ends it too
+                }
                 None => {}
+            }
+            if let Some((v, m, p)) = s.audition.take() {
+                if !s.exit {
+                    self.audition(v, m, p);
+                }
             }
             self.rack.out_gain = if s.exit { 0.0 } else { s.out_gain };
             if s.exit && self.exiting == 0 {
@@ -123,7 +155,16 @@ impl Engine {
                 }
             }
         }
+        if let Some((id, left)) = self.aud {
+            if left <= frames as u32 {
+                self.ev.push(Event { offset: left, kind: EventKind::NoteOff { track: AUDITION as u8, id } });
+                self.aud = None;
+            } else {
+                self.aud = Some((id, left - frames as u32));
+            }
+        }
         self.clock.process(&self.pat, frames as u32, &mut self.ev);
+        self.ev.sort();
         self.rack.render(self.ev.as_slice(), &mut self.buf, frames);
         for (o, x) in out.iter_mut().zip(self.buf[..frames * 2].iter()) {
             *o = (x * 32767.0) as i16;
@@ -140,13 +181,22 @@ impl Engine {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let pipe = std::env::var("PIPIT_PIPE_BYTES").ok().and_then(|v| v.parse().ok()).unwrap_or(PIPE);
+    PIPE_BYTES.store(pipe, Ordering::Relaxed);
     match args.first().map(String::as_str) {
         Some("--help") => {
-            eprintln!("pipit [--bench SECS | --selftest SECS]");
+            eprintln!("pipit [--bench SECS [DEMO 1-5: cost per lane] | --selftest SECS [DEMO 1-5] | --xrun-test]");
             return;
         }
-        Some("--bench") => std::process::exit(bench(args.get(1).and_then(|s| s.parse().ok()).unwrap_or(10.0))),
-        Some("--selftest") => std::process::exit(selftest(args.get(1).and_then(|s| s.parse().ok()).unwrap_or(6).min(30))),
+        Some("--bench") => std::process::exit(bench(
+            args.get(1).and_then(|s| s.parse().ok()).unwrap_or(10.0),
+            args.get(2).and_then(|s| s.parse::<usize>().ok()).map(|d| d.clamp(1, DEMOS.len()) - 1),
+        )),
+        Some("--selftest") => std::process::exit(selftest(
+            args.get(1).and_then(|s| s.parse().ok()).unwrap_or(6).min(30),
+            args.get(2).and_then(|s| s.parse::<usize>().ok()).unwrap_or(1).clamp(1, DEMOS.len()) - 1,
+        )),
+        Some("--xrun-test") => std::process::exit(xrun_test()),
         _ => {}
     }
     let mut p = match Platform::open() {
@@ -179,7 +229,7 @@ fn main() {
         ed.output = s.trim().parse::<usize>().unwrap_or(0).min(OUTPUTS.len() - 1);
     }
 
-    let shared = Arc::new(Mutex::new(Shared { pat: ed.pat, version: 0, transport: None, out_gain: OUTPUTS[ed.output].1, exit: false }));
+    let shared = Arc::new(Mutex::new(Shared { pat: ed.pat, version: 0, transport: None, out_gain: OUTPUTS[ed.output].1, exit: false, audition: None }));
     let playhead = Arc::new(AtomicU32::new(NO_STEP));
     let busy = Arc::new(AtomicU64::new(0));
     let audio = if p.is_sim() {
@@ -246,6 +296,7 @@ fn main() {
             dirty = false;
         }
         let Some(ev) = p.next_event(Some(Duration::from_millis(15))) else { continue };
+        ed.now_ms = started.elapsed().as_millis() as u64;
         let fx = ed.key(ev.key, ev.state);
         dirty = true;
         match fx {
@@ -297,6 +348,20 @@ fn main() {
                 };
                 toast = Some((msg, Instant::now()));
             }
+            Effect::Audition { voice, macros, pitched, octave } => {
+                // tuned voices play the key's root in the lane's octave; drums at
+                // their own pitch (plus the lane's pitch macro)
+                let mut p = ed.pat;
+                p.tracks[0].pitched = pitched;
+                p.tracks[0].octave = octave;
+                p.tracks[0].macros = macros;
+                let pitch = p.pitch(0, &Step { on: true, ..Step::OFF });
+                if silent {
+                    toast = Some(("preview: no audio".into(), Instant::now()));
+                } else if let Ok(mut s) = shared.lock() {
+                    s.audition = Some((voice, macros, pitch));
+                }
+            }
             Effect::Toast(m) => toast = Some((m, Instant::now())),
         }
     }
@@ -306,6 +371,7 @@ fn main() {
     // and later write errors are part of stopping, not underruns.
     let by_signal = STOP.load(Ordering::Relaxed);
     let run_errors = audio.as_ref().map(|a| a.xruns.load(Ordering::Relaxed)).unwrap_or(0);
+    let underruns = audio.as_ref().map(|a| a.alsa_underruns.load(Ordering::Relaxed)).unwrap_or(0);
     let _ = write_pattern("current.toml", &ed.pat);
     if let Ok(mut s) = shared.lock() {
         s.exit = true;
@@ -319,8 +385,9 @@ fn main() {
         let audio_s = a.frames_written.load(Ordering::Relaxed) as f64 / SAMPLE_RATE as f64;
         let cpu = busy.load(Ordering::Relaxed) as f64 / 1e9;
         eprintln!(
-            "pipit: audio {:.1} s, write errors while running {}, render cpu {:.1} %{}",
+            "pipit: audio {:.1} s, ALSA underruns {}, write errors while running {}, render cpu {:.1} %{}",
             audio_s,
+            underruns,
             run_errors,
             100.0 * cpu / audio_s.max(0.001),
             if by_signal { " (stopped by signal)" } else { "" }
@@ -331,13 +398,46 @@ fn main() {
 }
 
 /// Render the densest demo offline (no audio device) and report CPU use.
-fn bench(secs: f32) -> i32 {
+fn bench(secs: f32, parts: Option<usize>) -> i32 {
+    // same FPU mode as the real audio thread (PIPIT_BENCH_NO_FTZ=1 to compare)
+    if std::env::var_os("PIPIT_BENCH_NO_FTZ").is_none() {
+        zpod_music_core::flush_denormals();
+    }
     let (bank, _) = load_bank();
-    let mut worst = (0.0f64, "");
-    for d in DEMOS {
-        let p = (d.build)();
+    let mut worst = (0.0f64, String::new());
+    let full_fx = || {
+        let mut p = (DEMOS[0].build)();
+        p.drive = 10;
+        p.echo = 10;
+        for t in p.tracks.iter_mut() {
+            t.send = 10;
+        }
+        p
+    };
+    let runs: Vec<(String, Pattern)> = match parts {
+        None => DEMOS.iter().map(|d| (d.name.to_string(), (d.build)())).chain([("ND full FX".to_string(), full_fx())]).collect(),
+        // cost breakdown of one demo: whole, each lane alone, no echo, 1x rate
+        Some(i) => {
+            let base = (DEMOS[i].build)();
+            let mut v = vec![(DEMOS[i].name.to_string(), base)];
+            for t in 0..zpod_seq::pattern::TRACKS {
+                let mut p = base;
+                p.tracks[t].solo = true;
+                v.push((format!("lane {t} {}", p.tracks[t].voice.as_str()), p));
+            }
+            let mut p = base;
+            p.echo = 0;
+            v.push(("no echo".into(), p));
+            let mut p = base;
+            p.rate = zpod_seq::Rate::Normal;
+            v.push(("rate 1x".into(), p));
+            v
+        }
+    };
+    for (name, p) in runs {
+        let name = name.as_str();
         let mut eng = Engine::new(bank.clone(), Arc::new(AtomicU32::new(0)), Arc::new(AtomicU64::new(0)));
-        let sh = Mutex::new(Shared { pat: p, version: 1, transport: Some(true), out_gain: 1.0, exit: false });
+        let sh = Mutex::new(Shared { pat: p, version: 1, transport: Some(true), out_gain: 1.0, exit: false, audition: None });
         let mut out = vec![0i16; 512];
         let n = (secs * SAMPLE_RATE as f32 / 256.0) as usize;
         let t0 = Instant::now();
@@ -347,24 +447,25 @@ fn bench(secs: f32) -> i32 {
             voices = voices.max(eng.rack.active_voices());
         }
         let load = t0.elapsed().as_secs_f64() / (n as f64 * 256.0 / SAMPLE_RATE as f64);
-        println!("bench {:12} {:5.1} % of one core, max voices {voices}, peak {:.2}", d.name, load * 100.0, eng.rack.peak);
+        println!("bench {:12} {:5.1} % of one core, max voices {voices}, peak {:.2}", name, load * 100.0, eng.rack.peak);
         if load > worst.0 {
-            worst = (load, d.name);
+            worst = (load, name.to_string());
         }
     }
-    println!("bench worst {} {:.1} %", worst.1, worst.0 * 100.0);
-    if worst.0 < 0.7 { 0 } else { 1 }
+    let (wl, wn) = (worst.0, worst.1.to_string());
+    println!("bench worst {wn} {:.1} %", wl * 100.0);
+    if wl < 0.7 { 0 } else { 1 }
 }
 
 /// Real DAC path, no display: plays the first demo at the Soft level for
 /// `secs`, stops, fades, exits. Prints frames, xruns, render CPU.
-fn selftest(secs: u64) -> i32 {
+fn selftest(secs: u64, demo: usize) -> i32 {
     let (bank, src) = load_bank();
-    let p = (DEMOS[0].build)();
+    let p = (DEMOS[demo].build)();
     let playhead = Arc::new(AtomicU32::new(NO_STEP));
     let busy = Arc::new(AtomicU64::new(0));
     let mut eng = Engine::new(bank, Arc::clone(&playhead), Arc::clone(&busy));
-    let sh = Arc::new(Mutex::new(Shared { pat: p, version: 1, transport: Some(true), out_gain: OUTPUTS[0].1, exit: false }));
+    let sh = Arc::new(Mutex::new(Shared { pat: p, version: 1, transport: Some(true), out_gain: OUTPUTS[0].1, exit: false, audition: None }));
     let sh2 = Arc::clone(&sh);
     let a = match AudioRuntime::start_render(move |out, frames| eng.period(&sh2, out, frames)) {
         Ok(a) => a,
@@ -381,9 +482,44 @@ fn selftest(secs: u64) -> i32 {
     }
     let frames = a.frames_written.load(Ordering::Relaxed);
     let xruns = a.xruns.load(Ordering::Relaxed);
+    let under = a.alsa_underruns.load(Ordering::Relaxed);
     let audio_s = frames as f64 / SAMPLE_RATE as f64;
     let cpu = busy.load(Ordering::Relaxed) as f64 / 1e9;
     a.shutdown();
-    println!("selftest: bank {src}; audio {audio_s:.1} s frames {frames} xruns {xruns} render cpu {:.1} % of one core", 100.0 * cpu / audio_s.max(0.001));
-    if xruns == 0 && audio_s > secs as f64 * 0.8 { 0 } else { 1 }
+    println!(
+        "selftest: demo '{}' bank {src}; audio {audio_s:.1} s frames {frames} ALSA underruns {under} pipe write errors {xruns} render cpu {:.1} % of one core",
+        DEMOS[demo].name,
+        100.0 * cpu / audio_s.max(0.001)
+    );
+    if xruns == 0 && under == 0 && audio_s > secs as f64 * 0.8 { 0 } else { 1 }
+}
+
+/// Checks that the underrun counter works: plays silence and stalls the
+/// audio thread once for 1 s (longer than the pipe plus the 17 ms buffer). Passes when
+/// aplay reports at least one underrun. Silent; ~2 s.
+fn xrun_test() -> i32 {
+    let mut n = 0u32;
+    let a = match AudioRuntime::start_render(move |out, _| {
+        out.iter_mut().for_each(|x| *x = 0);
+        n += 1;
+        if n == 100 {
+            std::thread::sleep(Duration::from_millis(1000));
+        }
+        n < 350
+    }) {
+        Ok(a) => a,
+        Err(e) => {
+            println!("xrun-test: FAIL audio: {e}");
+            return 1;
+        }
+    };
+    let t0 = Instant::now();
+    while a.alive() && t0.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::thread::sleep(Duration::from_millis(100)); // let aplay's stderr arrive
+    let under = a.alsa_underruns.load(Ordering::Relaxed);
+    a.shutdown();
+    println!("xrun-test: induced one 1 s stall; ALSA underruns counted: {under}");
+    if under >= 1 { 0 } else { 1 }
 }

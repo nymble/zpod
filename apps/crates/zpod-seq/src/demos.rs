@@ -1,6 +1,6 @@
 //! Built-in demo grooves (editable starting points, loaded only on request).
 
-use crate::pattern::{Name, Pattern, Scale, Step, MAX_STEPS};
+use crate::pattern::{Name, Pattern, Rate, Scale, Step, MAX_STEPS};
 
 /// Drum row: `X` accent, `x` normal, `o` ghost, `?` 50 % chance, `.` off.
 fn drums(row: &str) -> [Step; MAX_STEPS] {
@@ -69,6 +69,8 @@ fn night_drive() -> Pattern {
     p.tracks[2].steps = drums("x.x.X.x.x.x.X.x?");
     p.tracks[3].steps = notes("0 . . 0 . . 3- . 0 . . 0 . 5 4 .");
     p.tracks[4].steps = notes(". . 4 . 7_ . . . 6 . 4 . 2_ . . .");
+    p.echo = 3;
+    p.tracks[4].send = 4;
     p
 }
 
@@ -104,9 +106,28 @@ fn electro() -> Pattern {
     p
 }
 
-pub const DEMOS: [Demo; 4] = [
+/// Triplet grid (6 steps per beat, 12 steps = 2 beats), the newer kit.
+fn boom_trip() -> Pattern {
+    let mut p = base("Boom Trip", 84.0, 50, Scale::PentaMinor, 7, ["kick.boom", "snare.rim", "shaker", "bass.sub", "pad.glass"]);
+    p.rate = Rate::Triplet;
+    p.length = 12;
+    p.tracks[0].steps = drums("X.....x..o..");
+    p.tracks[1].steps = drums("......X....o");
+    p.tracks[2].steps = drums("x.ox.ox.ox.o");
+    p.tracks[3].steps = notes("0_ . . . . . -1 . . 2 . .");
+    p.tracks[4].steps = notes("4_ . . . . . . . . . . .");
+    p.tracks[4].steps[0].gate = 16;
+    p.tracks[4].level = 70;
+    p.echo = 4;
+    p.echo_time = 1;
+    p.tracks[1].send = 5;
+    p
+}
+
+pub const DEMOS: [Demo; 5] = [
     Demo { name: "Night Drive", build: night_drive },
     Demo { name: "Four Floor", build: four_floor },
     Demo { name: "Dusty", build: dusty },
     Demo { name: "Electro", build: electro },
+    Demo { name: "Boom Trip", build: boom_trip },
 ];

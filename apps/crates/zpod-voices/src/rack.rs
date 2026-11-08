@@ -1,9 +1,16 @@
 //! Voice rack: one slot per sequencer track, voices from a [`Bank`].
 
-use crate::def::{Bank, Kind, VoiceDef};
+use crate::def::{Bank, Kind, VoiceDef, FIELDS};
 use crate::dsp::*;
-use zpod_seq::pattern::TRACKS;
+use zpod_seq::pattern::{Macros, Pattern, ECHO_TIMES, FX_MAX, TRACKS};
 use zpod_seq::{Event, EventKind};
+
+/// Slot index used for browser auditions (after the pattern tracks).
+pub const AUDITION: usize = TRACKS;
+const SLOTS: usize = TRACKS + 1;
+/// Longest echo (2 s at 44.1 kHz covers 3/8 note at the slowest tempo).
+pub const ECHO_MAX_S: f32 = 2.0;
+const ECHO_FB: f32 = 0.42;
 
 pub const MAX_BLOCK: usize = 1024;
 pub const MAX_POLY: usize = 4;
@@ -47,6 +54,33 @@ pub struct Voice {
     last: f32,
     click: f32,
     ctr: u32,
+    snap: f32,
+    snap_k: f32,
+}
+
+/// Clamp a field into the range the bank validator allows.
+fn fclamp(name: &str, v: f32) -> f32 {
+    match FIELDS.iter().find(|f| f.0 == name) {
+        Some(&(_, _, lo, hi)) => v.clamp(lo, hi),
+        None => v,
+    }
+}
+
+/// A voice definition with a track's macros applied (done at note-on,
+/// outside the per-sample loop). Pitch is applied by the sequencer.
+pub fn shape(d: VoiceDef, m: Macros) -> VoiceDef {
+    if m == Macros::default() {
+        return d;
+    }
+    let mut d = d;
+    let bright = (m.tone as f32 / 6.0).exp2(); // ×0.31 .. ×3.2
+    let len = (m.decay as f32 / 6.0).exp2();
+    d.cutoff = fclamp("cutoff", d.cutoff * bright);
+    d.tone = fclamp("tone", d.tone + 0.04 * m.tone as f32);
+    d.decay = fclamp("decay", d.decay * len);
+    d.release = fclamp("release", d.release * len);
+    d.drive = fclamp("drive", d.drive + 0.08 * m.drive as f32);
+    d
 }
 
 impl Voice {
@@ -83,6 +117,8 @@ impl Voice {
             last: 0.0,
             click: 0.0,
             ctr: 0,
+            snap: 0.0,
+            snap_k: 0.0,
         }
     }
 
@@ -109,28 +145,39 @@ impl Voice {
         self.t = 0;
         let d = &self.def;
         let tune = hz / C4;
+        let v = self.vel;
+        // velocity changes timbre and length, not only level: soft hits are
+        // darker and shorter, hard hits brighter with more transient
+        let vb = 0.7 + 0.5 * v; // brightness factor 0.7..1.2
+        let vl = 0.8 + 0.25 * v; // length factor 0.8..1.05
         match d.kind {
             Kind::Kick | Kind::Snare | Kind::Hat => {
                 self.hz = d.pitch * tune;
                 self.ph = [0.0; 6];
-                self.amp = self.vel;
-                self.penv = 1.0;
+                self.amp = v;
+                self.penv = 0.55 + 0.45 * v; // sweep depth follows velocity
                 self.penv_k = decay_k(d.sweep_time, sr);
-                self.aux = self.vel;
+                self.aux = v;
                 match d.kind {
                     Kind::Kick => {
-                        self.amp_k = decay_k(d.decay, sr);
-                        self.aux_k = decay_k(0.004, sr);
+                        self.amp_k = decay_k(d.decay * vl, sr);
+                        self.aux_k = decay_k(0.0035, sr);
+                        // transient layer: band-passed noise click
+                        self.f1.set((d.cutoff * 1.6 * vb).min(12_000.0), 0.35, sr);
                     }
                     Kind::Snare => {
-                        self.amp_k = decay_k(d.decay * (0.3 + 0.6 * d.tone), sr);
-                        self.aux_k = decay_k(d.decay, sr);
-                        self.f1.set(d.cutoff, d.reso, sr);
+                        self.amp_k = decay_k(d.decay * (0.3 + 0.6 * d.tone) * vl, sr);
+                        self.aux_k = decay_k(d.decay * vl, sr);
+                        self.f1.set((d.cutoff * (0.55 + 0.7 * v)).min(14_000.0), d.reso, sr);
+                        // transient layer: short bright snap (high-passed noise)
+                        self.snap = v * v;
+                        self.snap_k = decay_k(0.007, sr);
+                        self.f2.set((d.cutoff * 2.2).min(15_000.0), 0.0, sr);
                     }
                     _ => {
-                        self.amp_k = decay_k(d.decay, sr);
-                        self.f1.set(d.cutoff, 0.1, sr);
-                        self.f2.set((d.cutoff * 2.0).min(16_000.0), 0.0, sr);
+                        self.amp_k = decay_k(d.decay * vl, sr);
+                        self.f1.set((d.cutoff * vb).min(15_000.0), 0.1, sr);
+                        self.f2.set((d.cutoff * 2.0 * vb).min(16_000.0), 0.0, sr);
                         for (i, p) in self.ph.iter_mut().enumerate() {
                             *p = (i as f32 * 0.137) % 1.0;
                         }
@@ -139,10 +186,10 @@ impl Voice {
             }
             Kind::Clap => {
                 self.amp = 0.0;
-                self.amp_k = decay_k(d.decay, sr);
-                self.aux = self.vel;
+                self.amp_k = decay_k(d.decay * vl, sr);
+                self.aux = v;
                 self.aux_k = decay_k(0.009, sr);
-                self.f1.set(d.cutoff, d.reso, sr);
+                self.f1.set((d.cutoff * vb).min(12_000.0), d.reso, sr);
             }
             Kind::Mono | Kind::Poly | Kind::Fm => {
                 let glide = legato && d.glide > 0.0 && self.active;
@@ -205,6 +252,7 @@ impl Voice {
         let k = decay_k(0.004, self.sr);
         self.amp_k = self.amp_k.min(k);
         self.aux_k = self.aux_k.min(k);
+        self.snap_k = self.snap_k.min(k);
     }
 
     /// Add this voice into `out` (mono).
@@ -221,7 +269,8 @@ impl Voice {
                     self.penv *= self.penv_k;
                     self.ph[0] = wrap(self.ph[0] + f * inv);
                     let body = sin_turns(self.ph[0]) * self.amp;
-                    let click = self.noise.next() * self.aux * d.tone;
+                    let (_, bp, _) = self.f1.run(self.noise.next());
+                    let click = bp * 1.8 * self.aux * d.tone;
                     self.aux *= self.aux_k;
                     self.amp *= self.amp_k;
                     let s = sat((body + click) * g) * lvl;
@@ -238,19 +287,24 @@ impl Voice {
                     let body = (0.6 * sin_turns(self.ph[0]) + 0.4 * sin_turns(self.ph[1])) * self.amp;
                     let (_, bp, hp) = self.f1.run(self.noise.next());
                     let nz = (0.6 * hp + 0.8 * bp) * self.aux;
+                    let (_, _, sh) = self.f2.run(self.noise.next());
+                    let snap = sh * self.snap * 0.9;
                     self.amp *= self.amp_k;
                     self.aux *= self.aux_k;
-                    let s = sat(body * (1.0 - d.noise) * 1.3 + nz * d.noise * 1.5) * lvl;
+                    self.snap *= self.snap_k;
+                    let nmix = (d.noise * (0.75 + 0.35 * self.vel)).min(1.0);
+                    let s = sat(body * (1.0 - nmix) * 1.3 + nz * nmix * 1.5 + snap) * lvl;
                     *o += self.post(s);
-                    if self.amp < 1e-4 && self.aux < 1e-4 { self.active = false; break; }
+                    if self.amp < 1e-4 && self.aux < 1e-4 && self.snap < 1e-4 { self.active = false; break; }
                 }
             }
             Kind::Hat => {
                 for o in out.iter_mut() {
                     let mut metal = 0.0;
                     for (i, r) in HAT_RATIOS.iter().enumerate() {
-                        self.ph[i] = wrap(self.ph[i] + self.hz * r * inv);
-                        metal += if self.ph[i] < 0.5 { 1.0 } else { -1.0 };
+                        let dt = self.hz * r * inv;
+                        self.ph[i] = wrap(self.ph[i] + dt);
+                        metal += square(self.ph[i], dt); // polyBLEP: no naive aliasing
                     }
                     let x = metal * (1.0 / 6.0) * d.tone + self.noise.next() * (1.0 - d.tone);
                     let (_, _, hp) = self.f1.run(x);
@@ -359,6 +413,14 @@ impl Voice {
         if !self.active {
             self.last = 0.0;
         }
+        // Fast click/snap/sweep envelopes decay into subnormal floats while
+        // the body still rings; ARM11 VFP handles those ~100x slower (a long
+        // kick measured 49 % of a core). Zero them once inaudible.
+        for v in [&mut self.aux, &mut self.snap, &mut self.penv] {
+            if v.abs() < 1e-9 {
+                *v = 0.0;
+            }
+        }
         self.age = self.age.saturating_add(out.len() as u32);
     }
 
@@ -382,15 +444,30 @@ pub struct Slot {
     pan: (f32, f32),
     pub mute: bool,
     mono_id: u32,
+    pub macros: Macros,
+    /// echo send 0..1
+    pub send: f32,
 }
 
-/// Default stereo placement per track (kick, snare, hat, bass, lead).
-const PANS: [f32; TRACKS] = [0.0, 0.08, 0.3, 0.0, -0.25];
+/// Default stereo placement per track (kick, snare, hat, bass, lead, audition).
+const PANS: [f32; SLOTS] = [0.0, 0.08, 0.3, 0.0, -0.25, 0.0];
 
 pub struct Rack {
     pub bank: Bank,
-    pub slots: [Slot; TRACKS],
+    pub slots: [Slot; SLOTS],
     scratch: Box<[f32]>,
+    /// mono echo send bus for the current block
+    fx_in: Box<[f32]>,
+    echo: Box<[f32]>,
+    echo_w: usize,
+    echo_len: usize,
+    echo_want: usize,
+    echo_mix: f32,
+    echo_cur: f32,
+    echo_lp: (f32, f32),
+    echo_clear: usize,
+    /// master drive 0..1
+    pub drive: f32,
     dc: [(f32, f32); 2],
     lim: f32,
     lim_rel: f32,
@@ -417,9 +494,75 @@ impl Rack {
                 pan: (a.cos() * 1.414, a.sin() * 1.414),
                 mute: false,
                 mono_id: 0,
+                macros: Macros::default(),
+                send: 0.0,
             }
         });
-        Rack { bank, slots, scratch: vec![0.0; MAX_BLOCK].into_boxed_slice(), dc: [(0.0, 0.0); 2], lim: 0.0, lim_rel: decay_k(0.15, sr), out_gain: 0.5, out_cur: 0.5, peak: 0.0, overs: 0 }
+        let echo_n = (ECHO_MAX_S * sr) as usize;
+        Rack {
+            bank,
+            slots,
+            scratch: vec![0.0; MAX_BLOCK].into_boxed_slice(),
+            fx_in: vec![0.0; MAX_BLOCK].into_boxed_slice(),
+            echo: vec![0.0; echo_n * 2].into_boxed_slice(),
+            echo_w: 0,
+            echo_len: echo_n / 4,
+            echo_want: echo_n / 4,
+            echo_mix: 0.0,
+            echo_cur: 0.0,
+            echo_lp: (0.0, 0.0),
+            echo_clear: usize::MAX,
+            drive: 0.0,
+            dc: [(0.0, 0.0); 2],
+            lim: 0.0,
+            lim_rel: decay_k(0.15, sr),
+            out_gain: 0.5,
+            out_cur: 0.5,
+            peak: 0.0,
+            overs: 0,
+        }
+    }
+
+    /// Take everything the rack needs from a pattern: voices, levels,
+    /// mute/solo, macros, sends, drive and echo (time follows the tempo).
+    /// Returns a bit per track whose voice id is not in the bank (that
+    /// track keeps its previous voice). No allocation.
+    pub fn apply_pattern(&mut self, p: &Pattern, sample_rate: u32) -> u8 {
+        let mut unknown = 0u8;
+        for (t, tr) in p.tracks.iter().enumerate() {
+            if !self.set_track(t, tr.voice.as_str(), tr.level as f32 / 127.0, !p.audible(t)) {
+                unknown |= 1 << t;
+            }
+            self.slots[t].macros = tr.macros;
+            self.slots[t].send = tr.send.min(FX_MAX) as f32 / FX_MAX as f32;
+        }
+        self.drive = p.drive.min(FX_MAX) as f32 / FX_MAX as f32;
+        let beats = ECHO_TIMES[(p.echo_time as usize).min(ECHO_TIMES.len() - 1)].1;
+        self.set_echo(p.echo.min(FX_MAX) as f32 / FX_MAX as f32 * 0.6, (beats * 60.0 / p.tempo as f64 * sample_rate as f64) as usize);
+        unknown
+    }
+
+    /// Echo return level (0..1) and delay in frames (clamped to the buffer).
+    /// A time change fades the echo out, moves, and fades back in.
+    pub fn set_echo(&mut self, mix: f32, frames: usize) {
+        let mix = mix.clamp(0.0, 1.0);
+        if self.echo_mix == 0.0 && mix > 0.0 && self.echo_cur < 1e-5 {
+            self.echo_len = 0; // stale buffer from earlier: wipe before use
+        }
+        self.echo_mix = mix;
+        self.echo_want = frames.clamp(64, self.echo.len() / 2 - 1);
+    }
+
+    /// Prepare the audition slot with a bank voice and the given macros.
+    pub fn set_audition(&mut self, voice_index: usize, macros: Macros) -> bool {
+        let Some(&def) = self.bank.voices.get(voice_index) else { return false };
+        let s = &mut self.slots[AUDITION];
+        s.def = def;
+        s.level = 0.9;
+        s.mute = false;
+        s.macros = macros;
+        s.send = 0.0;
+        true
     }
 
     /// Point a track at a voice id (no allocation; unknown ids keep the old voice).
@@ -450,7 +593,7 @@ impl Rack {
                 if s.mute {
                     return;
                 }
-                let def = s.def;
+                let def = shape(s.def, s.macros);
                 let poly = def.kind.polyphony().min(MAX_POLY);
                 if def.kind == Kind::Mono {
                     let v = &mut s.voices[0];
@@ -499,6 +642,7 @@ impl Rack {
     pub fn render(&mut self, events: &[Event], out: &mut [f32], frames: usize) {
         let frames = frames.min(MAX_BLOCK).min(out.len() / 2);
         out[..frames * 2].iter_mut().for_each(|x| *x = 0.0);
+        self.fx_in[..frames].iter_mut().for_each(|x| *x = 0.0);
         let mut a = 0usize;
         for e in events {
             let off = (e.offset as usize).min(frames);
@@ -530,22 +674,60 @@ impl Rack {
                     v.render_add(buf);
                 }
             }
+            let send = s.send;
             for (i, x) in buf.iter().enumerate() {
                 s.cur += (target - s.cur) * 0.003;
                 let y = x * s.cur;
                 out[2 * (a + i)] += y * s.pan.0;
                 out[2 * (a + i) + 1] += y * s.pan.1;
+                self.fx_in[a + i] += y * send;
             }
         }
     }
 
     fn master(&mut self, out: &mut [f32]) {
-        for fr in out.chunks_exact_mut(2) {
+        let n2 = self.echo.len() / 2;
+        let dg = 1.0 + 3.0 * self.drive;
+        let dn = 1.0 / (1.0 + 1.2 * self.drive);
+        let wet_on = self.echo_mix > 0.0 || self.echo_cur > 1e-5;
+        for (i, fr) in out.chunks_exact_mut(2).enumerate() {
+            if wet_on {
+                // ping-pong echo with damped feedback; time changes fade
+                let want = if self.echo_want != self.echo_len { 0.0 } else { self.echo_mix };
+                self.echo_cur += (want - self.echo_cur) * 0.004;
+                if self.echo_want != self.echo_len && self.echo_cur < 1e-3 {
+                    // wipe the old echo a few frames per sample (no CPU spike)
+                    if self.echo_clear >= n2 {
+                        self.echo_clear = 0;
+                    }
+                    let c = self.echo_clear;
+                    let e = (c + 3).min(n2);
+                    self.echo[2 * c..2 * e].iter_mut().for_each(|x| *x = 0.0);
+                    self.echo_clear = e;
+                    if e >= n2 {
+                        self.echo_len = self.echo_want;
+                        self.echo_lp = (0.0, 0.0);
+                    }
+                }
+                let r = (self.echo_w + n2 - self.echo_len) % n2;
+                let (dl, dr) = (self.echo[2 * r], self.echo[2 * r + 1]);
+                self.echo_lp.0 += (dl - self.echo_lp.0) * 0.45;
+                self.echo_lp.1 += (dr - self.echo_lp.1) * 0.45;
+                let w = self.echo_w;
+                // (tiny values flushed: a decayed tail must not go subnormal)
+                let l = self.fx_in[i] + ECHO_FB * self.echo_lp.1;
+                let r = ECHO_FB * self.echo_lp.0;
+                self.echo[2 * w] = if l.abs() < 1e-12 { 0.0 } else { l };
+                self.echo[2 * w + 1] = if r.abs() < 1e-12 { 0.0 } else { r };
+                self.echo_w = if w + 1 >= n2 { 0 } else { w + 1 };
+                fr[0] += dl * self.echo_cur;
+                fr[1] += dr * self.echo_cur;
+            }
             for (c, x) in fr.iter_mut().enumerate() {
                 let (x1, y1) = self.dc[c];
                 let y = *x - x1 + 0.9995 * y1;
                 self.dc[c] = (*x, y);
-                *x = y * BUS;
+                *x = if self.drive > 0.0 { sat(y * BUS * dg) * dn } else { y * BUS };
             }
             let pk = fr[0].abs().max(fr[1].abs());
             self.lim = if pk > self.lim { pk } else { self.lim * self.lim_rel + pk * (1.0 - self.lim_rel) };
@@ -560,5 +742,19 @@ impl Rack {
                 self.peak = self.peak.max(x.abs());
             }
         }
+        // decaying master state (DC blocker, echo damping, limiter) also
+        // stays out of the subnormal range during silence
+        let tiny = |v: &mut f32| {
+            if v.abs() < 1e-12 {
+                *v = 0.0;
+            }
+        };
+        for d in self.dc.iter_mut() {
+            tiny(&mut d.0);
+            tiny(&mut d.1);
+        }
+        tiny(&mut self.echo_lp.0);
+        tiny(&mut self.echo_lp.1);
+        tiny(&mut self.lim);
     }
 }

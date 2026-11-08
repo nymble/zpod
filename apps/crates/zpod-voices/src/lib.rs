@@ -12,8 +12,8 @@ pub mod def;
 pub mod dsp;
 pub mod rack;
 
-pub use def::{Bank, Kind, VoiceDef};
-pub use rack::{Rack, MAX_BLOCK};
+pub use def::{Bank, Kind, VoiceDef, VoiceInfo};
+pub use rack::{shape, Rack, AUDITION, MAX_BLOCK};
 
 #[cfg(test)]
 mod tests;
