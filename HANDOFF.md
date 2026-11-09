@@ -31,19 +31,25 @@ resume point.
   The USB host key equals the trusted Wi-Fi key for this card
   (`HostKeyAlias=192.168.1.251` with strict checking works); the stale
   `10.12.194.1` entry in `~/.ssh/known_hosts` is another card's.
-- **Tests:** Mac host, `cd apps && cargo test -p zpod-seq -p zpod-voices -p
-  zpod-midi -p zpod-music-core`: 65 passed. `tests/usb-gadget-midi.sh`
-  (offline): PASS. The full workspace run (306 at 919141b) needs Linux and
-  was **not** re-run: the colima VM `zpod-br` would not boot (guest never got
-  an IP; host agent had hung in shutdown since ~17:03). It was force-stopped;
-  its disks and the `/br` work volume were not touched. Fix the VM before the
-  next image build.
-- **Builds (Mac host, cargo-zigbuild, rustc 1.99.1 / zig 0.17, not the
-  container toolchain):** `apps/dist/dev/pipit-0.3.0.zpa` and
-  `tidepool-0.1.0.zpa`, both ARMv6/VFPv2; copied with SHA256SUMS to
-  `~/zpod-backups/generative-hold-2026-11-08/`. Not installed; the device
-  keeps the 919141b build. Same versions, so `zpod-app update --if-newer`
-  would not replace them.
+- **Tests:** full workspace in the `zpod-br` container (2026-11-09):
+  **306 passed, 0 failed** on 31b004d (same tree as `buildroot` 6195034).
+  Mac host, `cd apps && cargo test -p zpod-seq -p zpod-voices -p zpod-midi
+  -p zpod-music-core`: 65 passed. `tests/usb-gadget-midi.sh` (offline): PASS.
+- **Build VM fixed (2026-11-09):** on 2026-11-08 every VZ guest on the mini
+  hung in EFI (even a minimal lima VM). The cause was the Claude desktop
+  app's VZ VM, which had been stuck at ~390% CPU since Nov 6. Once the app
+  was force-quit, `zpod-br` booted. The VM root disk was recreated (`colima
+  delete` without `--data`, same profile); the data disk (container,
+  toolchain, `/br`, 14 GB Buildroot output) was kept. Backups of the old VM:
+  `~/zpod-backups/colima-zpod-br-20261108/` (APFS clones; delete when no
+  longer needed).
+- **Builds (container, `scripts/zpod-dev --build-only`):**
+  `pipit-0.3.0.zpa` is byte-identical to the original 919141b package
+  (`d2a83cec...0048`); the Pipit binary equals the installed one
+  (`bcd36861...`). `tidepool-0.1.0.zpa` sha256 `3aec820e...2b4c`. Both are in
+  `~/zpod-backups/generative-hold-2026-11-08/` with SHA256SUMS; earlier Mac
+  host builds (different toolchain) are in its `host-build-macos/`. Nothing
+  installed.
 - **Still unconfirmed physically:** Pipit 0.2/0.3 controls and sound, any
   real MIDI port, NCM+MIDI composite gadget.
 - **Open rule conflict:** `scripts/zpod-ssh.sh` uses
