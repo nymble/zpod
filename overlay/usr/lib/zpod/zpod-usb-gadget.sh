@@ -24,7 +24,7 @@
 # role switch done on the device. Not used with mode=g_ether. Untested with
 # real hosts as of 2026-11; see docs/PIPIT-DESIGN.md "MIDI output".
 #
-# Test hooks (offline only, tools/test-usb-gadget-midi.sh): ZPOD_USB_CFG,
+# Test hooks (offline only, tests/usb-gadget-midi.sh): ZPOD_USB_CFG,
 # ZPOD_GADGET_DIR, ZPOD_UDC_DIR, ZPOD_GADGET_DRYRUN=1 (no modprobe/mount).
 set -eu
 CFG=${ZPOD_USB_CFG:-/boot/firmware/zpod-usb.txt}

@@ -171,6 +171,9 @@ impl AplayOut {
             .take()
             .ok_or_else(|| AudioError::Spawn("aplay stdin".into()))?;
         let want = PIPE_BYTES.load(Ordering::Relaxed);
+        #[cfg(not(target_os = "linux"))]
+        let _ = want;
+        #[cfg(target_os = "linux")]
         if want > 0 {
             use std::os::fd::AsRawFd;
             // SAFETY: plain fcntl on a pipe fd we own; failure leaves the default.

@@ -317,6 +317,7 @@ impl Worker {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn lower_priority() {
     // SAFETY: setpriority on this thread's own tid (Linux: per-thread nice)
     unsafe {
@@ -324,3 +325,7 @@ fn lower_priority() {
         libc::setpriority(libc::PRIO_PROCESS, tid, 5);
     }
 }
+
+/// Host builds (macOS unit tests): no per-thread nice.
+#[cfg(not(target_os = "linux"))]
+fn lower_priority() {}
