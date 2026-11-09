@@ -263,6 +263,16 @@ impl Engine {
         }
     }
 
+    /// Change the patch of every voice (envelope, filter); takes effect on
+    /// the next note. Mouse Music keeps the default patch.
+    pub fn set_patch(&mut self, adsr: Adsr, cutoff: f32, reso: f32) {
+        for v in self.voices.iter_mut() {
+            v.amp.adsr = adsr;
+            v.cutoff = cutoff;
+            v.reso = reso;
+        }
+    }
+
     pub fn all_notes_off(&mut self) {
         for v in self.voices.iter_mut() {
             v.note_off();

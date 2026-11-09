@@ -1,0 +1,18 @@
+# Tidepool: stopped, playing (rings advance), scale/seed change, help
+wait 300
+shot tidepool-stopped
+key play
+wait 4000
+shot tidepool-playing
+key right
+key circle
+key up
+wait 3000
+shot tidepool-changed
+key x
+wait 200
+shot tidepool-help
+key x
+key play
+wait 300
+exit
