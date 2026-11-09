@@ -1,28 +1,72 @@
-# ZPOD handoff (2026-11-08, PAUSED)
+# ZPOD handoff (2026-11-08, generative lane HELD)
 
 **This is the canonical handoff.** It lives on branch `pipit-seq` at
 <https://github.com/nymble/zpod/blob/pipit-seq/HANDOFF.md>. The copy on
 `buildroot` is only a pointer to this one.
 
-## Status: PAUSED
+## Status: HELD (generative lane parked, 2026-11-08 evening)
 
-Paul paused all development on 2026-11-08 (17:47 PST) to hand over. Do
-**not** build, install, reboot the device, switch USB roles, flash, merge,
-rebase or publish until Paul explicitly says to start, and then only the
-step he asks for. Everything below was last verified up to 2026-11-07/08; it
-was **not** re-checked on hardware for this handoff (the device was not
-touched).
+Paul paused development on 2026-11-08 (17:47 PST), then the same evening
+asked for a cleanup pass and for the generative work (Pipit, Tidepool,
+zpod-seq, zpod-voices, zpod-midi, shared zpod-music-core changes) to be
+**held** while the project moves to a new focus. Nothing in this lane is
+being developed now. Do not build, install, flash, merge, release or publish
+in this lane unless Paul asks; the "Candidate next work" list below is the
+resume point.
+
+### Hold record (2026-11-08, 21:00-22:00 PST)
+
+- **Code:** cleanup commit on `pipit-seq` after 93870ac: the two Linux-only
+  libc calls (`F_SETPIPE_SZ` in music-core audio, `SYS_gettid` in the MIDI
+  worker) are behind `cfg(target_os = "linux")`, so the generative library
+  crates now test on the Mac host; device behavior is unchanged. Gadget
+  script comment points at the real test (`tests/usb-gadget-midi.sh`).
+- **Branches:** `pipit-seq` (this lane, held) is merged into `buildroot`;
+  `main` was fast-forwarded to `origin/main` (305d69f) before any work on it
+  or PR #33.
+- **Device (128 GB card, USB, read-only):** test6 (`1497603`) on p3/slot B.
+  Installed Pipit 0.3.0 files (`bin/pipit`, manifest, icon, voices) are
+  byte-identical to `pipit-0.3.0.zpa` (binary sha256 `bcd36861...ff4b683`):
+  the installed-binary question is closed. Tidepool 0.1.0 also installed.
+  The USB host key equals the trusted Wi-Fi key for this card
+  (`HostKeyAlias=192.168.1.251` with strict checking works); the stale
+  `10.12.194.1` entry in `~/.ssh/known_hosts` is another card's.
+- **Tests:** Mac host, `cd apps && cargo test -p zpod-seq -p zpod-voices -p
+  zpod-midi -p zpod-music-core`: 65 passed. `tests/usb-gadget-midi.sh`
+  (offline): PASS. The full workspace run (306 at 919141b) needs Linux and
+  was **not** re-run: the colima VM `zpod-br` would not boot (guest never got
+  an IP; host agent had hung in shutdown since ~17:03). It was force-stopped;
+  its disks and the `/br` work volume were not touched. Fix the VM before the
+  next image build.
+- **Builds (Mac host, cargo-zigbuild, rustc 1.99.1 / zig 0.17, not the
+  container toolchain):** `apps/dist/dev/pipit-0.3.0.zpa` and
+  `tidepool-0.1.0.zpa`, both ARMv6/VFPv2; copied with SHA256SUMS to
+  `~/zpod-backups/generative-hold-2026-11-08/`. Not installed; the device
+  keeps the 919141b build. Same versions, so `zpod-app update --if-newer`
+  would not replace them.
+- **Still unconfirmed physically:** Pipit 0.2/0.3 controls and sound, any
+  real MIDI port, NCM+MIDI composite gadget.
+- **Open rule conflict:** `scripts/zpod-ssh.sh` uses
+  `StrictHostKeyChecking=no` for `10.12.194.*` (pre-existing, from the dev
+  loop), which contradicts the host-key rule below. Not changed; needs
+  Paul's call.
+- **Image impact when `buildroot` next builds:** Pipit/Tidepool are not
+  bundled (image bundles music, clock, tetris, mousemusic, gps), but
+  MouseMusic is rebuilt on the changed zpod-music-core (denormal flush,
+  aplay stderr drain) and the gadget script gains the `midi=on` option (off
+  by default). Re-check MouseMusic on the device after that build.
 
 ## How to start (Claude / next developer)
 
 1. Read this file, then `docs/PIPIT.md`, `docs/PIPIT-DESIGN.md`,
    `docs/ZPOD-MIDI.md`, `docs/DEV-LOOP.md`, `docs/AB-UPDATES.md`,
    `docs/USB-HOST.md`.
-2. On the Mac mini: `cd ~/src/zpod && git status` (expect a clean tree on
-   `pipit-seq`; do not discard anything you find), `git fetch origin`,
-   `git checkout pipit-seq`.
-3. Do not merge `pipit-seq` into `buildroot`/`main` or open release work
-   unless Paul asks.
+2. On the Mac mini: `cd ~/src/zpod && git status` (do not discard anything
+   you find), `git fetch origin`. New Buildroot work starts from
+   `buildroot`, which contains this lane. To resume the generative lane,
+   `git checkout pipit-seq` (or branch from `buildroot`).
+3. Do not merge into `main` or open release work unless Paul asks. Run
+   `git pull` on `main` before any work on it or PR #33.
 
 ## Branch / commit map (verified with `git merge-base --is-ancestor`)
 
