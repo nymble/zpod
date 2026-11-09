@@ -1,4 +1,24 @@
-# ZPOD handoff (2026-11-01)
+# ZPOD handoff: see `pipit-seq` (2026-11-08, PAUSED)
+
+> **Current, canonical handoff:**
+> <https://github.com/nymble/zpod/blob/pipit-seq/HANDOFF.md>
+> (branch `pipit-seq`, app work head 919141b "Pipit 0.3.0 + zpod-midi",
+> handoff commit 93870ac).
+>
+> Development is **paused** (Paul, 2026-11-08). Don't build, install, flash,
+> reboot the device, switch USB roles, merge or publish until Paul says so.
+> To start: `git fetch origin && git checkout pipit-seq` in `~/src/zpod` on
+> the Mac mini, then read that HANDOFF.md. `pipit-seq` descends from this
+> branch (buildroot 1ddb6d4 -> tidepool-app 970b1ec -> Pipit commits); do not
+> merge it here unless Paul asks.
+>
+> Everything below is the **older 2026-11-01 handoff, kept for history and
+> partly obsolete** (latest release is now v0.11.0-br-ab-test6; the 128 GB
+> card now runs test6 in slot B; the test count and job list are out of date).
+
+---
+
+## Historical: ZPOD handoff (2026-11-01, partly obsolete)
 
 A short note so another assistant or developer can pick up the build. Read
 `README.md`, `PLAN.md`, `docs/BUILDROOT.md` and `docs/TEST-BR-M6.md` next.
