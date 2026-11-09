@@ -1,0 +1,14 @@
+// zpod-usb-role: live USB role switch (docs/USB-HOST.md). Applied through
+// configfs (/sys/kernel/config/device-tree/overlays) while dwc2 is unbound;
+// dwc2 reads dr_mode when it binds again. RAM only: gone after a reboot.
+// Rebuild: dtc -@ -I dts -O dtb -o otg.dtbo otg.dts
+/dts-v1/;
+/plugin/;
+/ {
+	fragment@0 {
+		target-path = "/soc/usb@7e980000";
+		__overlay__ {
+			dr_mode = "otg";
+		};
+	};
+};

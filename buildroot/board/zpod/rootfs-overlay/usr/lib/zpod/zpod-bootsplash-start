@@ -1,0 +1,7 @@
+#!/bin/sh
+# Start the Rust boot splash in the background (first sysinit step after /run).
+# It writes /run/zpod/bootsplash.pid; the launcher stops it and takes the LCD.
+[ -e /etc/zpod/no-splash ] && exit 0
+mkdir -p /run/zpod
+start-stop-daemon -S -b -m -p /run/zpod/bootsplash-sh.pid -a /bin/sh -- -c \
+	'exec /usr/lib/zpod/bin/zpod-bootsplash >/run/zpod/bootsplash.log 2>&1'

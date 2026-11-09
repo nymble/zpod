@@ -1,0 +1,14 @@
+# GPS status over the cold-start fixture (lines at 1 Hz, last at 9 s)
+wait 3600
+shot gps-no-fix
+wait 2000
+shot gps-2d
+wait 2000
+shot gps-3d
+key ok
+wait 300
+shot gps-3d-dmm
+key ok
+wait 5200
+shot gps-stale
+exit

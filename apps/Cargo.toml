@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.9.0"
+version = "0.11.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/nymble/zpod"
@@ -29,6 +29,9 @@ zpod-ui = { path = "crates/zpod-ui" }
 zpod-mpd = { path = "crates/zpod-mpd" }
 zpod-apps = { path = "crates/zpod-apps" }
 tetris-core = { path = "crates/tetris-core" }
+zpod-music-core = { path = "crates/zpod-music-core" }
+zpod-input = { path = "crates/zpod-input" }
+zpod-nmea = { path = "crates/zpod-nmea" }
 
 [profile.release]
 opt-level = "s"

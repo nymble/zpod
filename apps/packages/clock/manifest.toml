@@ -1,10 +1,20 @@
+# ZPOD app manifest, schema 1: docs/APP-MANIFEST.md
+schema = 1
+
 [app]
 id = "clock"
 name = "Clock"
-version = "1.1.0"
+version = "1.2.0"
 exec = "bin/clock"
 icon = "icon.png"
 description = "Clock faces, alarm and countdown timer"
 min_core = "0.5.0"
-order = 20
+order = 40
 arch = "arm-unknown-linux-musleabihf"
+
+[menu]
+path = ""            # Home, after Music and the Generative / Games folders
+order = 40
+
+[requires]
+input = ["buttons"]

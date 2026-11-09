@@ -1,0 +1,9 @@
+[package]
+name = "zpod-input"
+description = "Normalized input for ZPOD apps: evdev USB/BT keyboards and mice with hotplug -> begin/update/end events with monotonic timestamps (no raw HID past this crate)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+libc.workspace = true

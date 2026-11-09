@@ -1,0 +1,3 @@
+#plug
+#t=500
+#ioerror read /dev/ttyUSB0: Input/output error (EIO)

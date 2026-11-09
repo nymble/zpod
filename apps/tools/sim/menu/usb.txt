@@ -1,0 +1,14 @@
+# Tools > USB with the GPS plugged in (host mode)
+wait 400
+key down
+key down
+key down
+key down
+key ok
+wait 300
+key down
+key down
+key ok
+wait 700
+shot menu-15-usb-host-gps-handler
+exit

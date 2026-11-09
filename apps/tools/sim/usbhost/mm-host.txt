@@ -1,0 +1,13 @@
+# Mouse Music with a (simulated) USB mouse + keyboard (ZPOD_USB_ROLE=host, ZPOD_HID_SIM=mm-hid.txt)
+wait 1500
+key ok
+wait 400
+shot mm-choose-usb-found
+key ok
+wait 2200
+shot mm-play-usb
+wait 1200
+shot mm-help-usb
+wait 1500
+shot mm-play-usb-unplugged
+exit

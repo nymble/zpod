@@ -1,0 +1,8 @@
+# Mouse Music input chooser while USB is the computer link (ZPOD_USB_ROLE=gadget, no HID)
+wait 300
+key ok
+wait 300
+shot mm-choose-gadget
+wait 6500
+shot mm-play-buttons
+exit

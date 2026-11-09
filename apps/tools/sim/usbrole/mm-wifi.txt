@@ -1,0 +1,15 @@
+# Mouse Music: choose USB while gadget -> "Switch USB to devices?"
+wait 300
+key ok
+wait 300
+key down
+wait 100
+key ok
+wait 300
+shot mm-ask-host-wifi
+key ok
+wait 150
+shot mm-switching
+wait 1200
+shot mm-play-usb-switched
+exit

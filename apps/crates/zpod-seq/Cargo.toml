@@ -1,0 +1,10 @@
+[package]
+name = "zpod-seq"
+description = "Portable step sequencer: patterns, deterministic sample-accurate event scheduling, explicit generators, versioned pattern files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+toml.workspace = true

@@ -1,0 +1,305 @@
+#!/bin/sh
+# zpod-usb-role: the role of the USB data port, and switching it live.
+#   gadget = link to the computer (USB Ethernet 10.12.194.1, SSH, transfer)
+#   host   = USB devices: keyboard, mouse, GPS (OTG adapter or hub)
+#   otg    = "auto": follow the cable's ID pin (experimental)
+#
+#   zpod-usb-role [show]                 summary for people
+#   zpod-usb-role status                 key=value lines (launcher, apps)
+#   zpod-usb-role check                  safe to leave the computer link?
+#                                        (Wi-Fi address + SSH listening)
+#                                        exit 0 yes, 3 no
+#   zpod-usb-role set host|gadget|auto [--force] [--persist]
+#                                        switch now, no reboot. Volatile:
+#                                        a reboot returns to the boot role
+#                                        unless --persist (also next boot)
+#   zpod-usb-role next-boot host|gadget  boot partition only (no switch now)
+#   zpod-usb-role boot-guard             S35usbgadget on a host-mode boot:
+#                                        back to gadget if the launcher does
+#                                        not come up (or after 3 such boots)
+#
+# How a live switch works (docs/USB-HOST.md): dwc2 reads dr_mode from the
+# device tree only when it binds, so: stop the gadget, unbind dwc2, apply a
+# one-property device-tree overlay through configfs (dr_mode = host /
+# peripheral / otg), bind dwc2 again, start the gadget if it is one. The
+# overlay lives in RAM, so a reboot (or power cycle) always restores the
+# role set on the boot partition: gadget, unless next-boot said host.
+# Never prints Wi-Fi names or passwords.
+set -u
+SYS=${ZPOD_UR_SYS:-/sys}
+DT=${ZPOD_UR_DT:-/proc/device-tree/soc/usb@7e980000/dr_mode}
+RUN=${ZPOD_UR_RUN:-/run/zpod}
+STATE=${ZPOD_UR_STATE:-/data/zpod/usb-role}
+S35=${ZPOD_UR_S35:-/etc/init.d/S35usbgadget}
+DRY=${ZPOD_UR_DRY:-}
+DEV=20980000.usb
+DRV=$SYS/bus/platform/drivers/dwc2
+OV=$SYS/kernel/config/device-tree/overlays/zpod-usb-role
+LOG=$RUN/usb.log
+HERE=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+
+say() { echo "$*"; }
+log() { mkdir -p "$RUN" 2>/dev/null; echo "$(cut -d' ' -f1 /proc/uptime 2>/dev/null) usb-role: $*" >> "$LOG" 2>/dev/null; }
+die() { echo "err $1"; log "error: $1"; exit "${2:-1}"; }
+
+# dr_mode -> role word
+to_role() { case "$1" in host) echo host ;; otg) echo otg ;; *) echo gadget ;; esac; }
+to_dt() { case "$1" in host) echo host ;; auto|otg) echo otg ;; *) echo peripheral ;; esac; }
+dt_mode() { tr -d '\0' 2>/dev/null < "$DT"; }
+role_now() { to_role "$(dt_mode)"; }
+live() { [ -d "$OV" ]; }
+boot_role() {
+	if live && [ -f "$RUN/usb-role-boot" ]; then cat "$RUN/usb-role-boot"; else role_now; fi
+}
+
+dtbo_dir() {
+	for d in ${ZPOD_UR_DTBO:-} "$HERE/usb-role" /data/zpod/core/usb-role /usr/lib/zpod/usb-role; do
+		[ -n "$d" ] && [ -f "$d/host.dtbo" ] && [ -f "$d/peripheral.dtbo" ] && { echo "$d"; return 0; }
+	done
+	return 1
+}
+
+bootdir() {
+	for d in ${ZPOD_UR_BOOT:-} /boot/firmware /boot; do
+		[ -n "$d" ] && [ -f "$d/config.txt" ] && { echo "$d"; return 0; }
+	done
+	return 1
+}
+
+# next boot role and how it is stored: "<role> <file|config|none>"
+next_boot_role() {
+	b=$(bootdir) || { echo "unknown none"; return; }
+	if [ -f "$b/zpod-usb-role.txt" ]; then
+		if grep -q '^[[:space:]]*dtparam=dr_mode=host' "$b/zpod-usb-role.txt"; then echo "host file"; else echo "gadget file"; fi
+	elif grep -qx 'dtoverlay=dwc2,dr_mode=host' "$b/config.txt"; then echo "host config"
+	elif grep -qx 'dtoverlay=dwc2,dr_mode=peripheral' "$b/config.txt"; then echo "gadget config"
+	else echo "unknown none"; fi
+}
+
+wifi_ip() {
+	if [ -n "${ZPOD_UR_WIFI_IP+x}" ]; then echo "$ZPOD_UR_WIFI_IP"; return; fi
+	[ "$(cat "$SYS/class/net/wlan0/operstate" 2>/dev/null)" = up ] || return 0
+	ip -4 -o addr show wlan0 2>/dev/null | sed -n 's/.* inet \([0-9.]*\)\/.*/\1/p' | head -1
+}
+ssh_up() {
+	if [ -n "${ZPOD_UR_SSH+x}" ]; then [ "$ZPOD_UR_SSH" = 1 ]; return; fi
+	# port 22 (0016) in LISTEN (0A) on any address
+	cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | awk '$2 ~ /:0016$/ && $4 == "0A" { f = 1 } END { exit !f }'
+}
+safe() { [ -n "$(wifi_ip)" ] && ssh_up; }
+
+udc_state() {
+	for u in "$SYS"/class/udc/*; do [ -e "$u/state" ] && { cat "$u/state"; return; }; done
+	echo none
+}
+
+devices() {
+	for d in "$SYS"/bus/usb/devices/*; do
+		[ -f "$d/idVendor" ] || continue
+		case "$(cat "$d/bDeviceClass" 2>/dev/null)" in 09) continue ;; esac   # hubs
+		n=$(cat "$d/manufacturer" "$d/product" 2>/dev/null | tr '\n' ' ' | tr -cd '[:alnum:] ._+/()-' | cut -c1-40)
+		echo "$(cat "$d/idVendor"):$(cat "$d/idProduct") ${n% }"
+	done
+}
+
+status_kv() {
+	set -- $(next_boot_role)
+	echo "role=$(role_now)"
+	echo "boot=$(boot_role)"
+	if live; then echo live=1; else echo live=0; fi
+	echo "next=$1"
+	# persist (saving the role for the next boot) is offered only where a
+	# host-mode boot is guarded (S35usbgadget runs boot-guard)
+	if grep -q 'zpod-usb-role boot-guard' "$S35" 2>/dev/null; then echo "persist=$2"; else echo "persist=none"; fi
+	ip=$(wifi_ip)
+	echo "wifi_ip=$ip"
+	if ssh_up; then echo ssh=1; else echo ssh=0; fi
+	if [ -n "$ip" ] && ssh_up; then echo safe=1; else echo safe=0; fi
+	echo "link=$(udc_state)"
+	if dtbo_dir >/dev/null; then echo can_switch=1; else echo can_switch=0; fi
+	devices | sed 's/^/dev=/'
+}
+
+show() {
+	set -- $(next_boot_role)
+	r=$(role_now)
+	echo "role: $r (device tree dr_mode=$(dt_mode))$(live && echo ', switched live: a reboot restores the boot role')"
+	echo "next boot: $1 ($2)"
+	ip=$(wifi_ip)
+	if [ -n "$ip" ] && ssh_up; then echo "Wi-Fi SSH: root@$ip"; else echo "Wi-Fi SSH: not available (${ip:-no Wi-Fi address})"; fi
+	if [ "$r" = gadget ] || [ "$r" = otg ]; then echo "computer link: $(udc_state)"; fi
+	if [ "$r" = host ] || [ "$r" = otg ]; then echo "devices:"; devices | sed 's/^/  /'; ls /dev/input/event* /dev/ttyUSB* /dev/ttyACM* 2>/dev/null | sed 's/^/  /'; fi
+}
+
+# ---- hardware steps (ZPOD_UR_DRY=1: fake sysfs, print the steps) ----
+hw_gadget_stop() {
+	if [ -n "$DRY" ]; then say "do: gadget stop"; return; fi
+	[ -f /run/udhcpd.usb0.pid ] && kill "$(cat /run/udhcpd.usb0.pid)" 2>/dev/null
+	/usr/lib/zpod/zpod-usb-gadget.sh stop >/dev/null 2>&1
+	return 0
+}
+hw_gadget_start() {
+	if [ -n "$DRY" ]; then say "do: gadget start"; return; fi
+	"$S35" start
+}
+hw_unbind() {
+	if [ -n "$DRY" ]; then say "do: unbind"; return; fi
+	[ -e "$DRV/$DEV" ] || return 0
+	echo "$DEV" > "$DRV/unbind"
+}
+hw_bind() {
+	if [ -n "$DRY" ]; then say "do: bind"; return; fi
+	[ -e "$DRV/$DEV" ] && return 0
+	[ -d "$DRV" ] || modprobe -q dwc2
+	[ -e "$DRV/$DEV" ] || echo "$DEV" > "$DRV/bind"
+}
+hw_overlay() { # $1 = peripheral|host|otg
+	d=$(dtbo_dir) || { echo "no usb-role/*.dtbo"; return 1; }
+	mkdir "$OV" || return 1
+	if [ -n "$DRY" ]; then say "do: overlay $1"; printf '%s\0' "$1" > "$DT"; return 0; fi
+	cat "$d/$1.dtbo" > "$OV/dtbo" || return 1
+	[ "$(cat "$OV/status" 2>/dev/null)" = applied ] || return 1
+}
+hw_overlay_off() {
+	live || return 0
+	rmdir "$OV" || return 1
+	if [ -n "$DRY" ]; then say "do: overlay off"; printf '%s\0' "$(to_dt "$(cat "$RUN/usb-role-boot" 2>/dev/null)")" > "$DT"; fi
+	return 0
+}
+wait_for() { # $1 = host|gadget, up to 5 s
+	i=0
+	while [ $i -lt 25 ]; do
+		case "$1" in
+		host) ls -d "$SYS"/bus/usb/devices/usb[0-9]* >/dev/null 2>&1 && return 0 ;;
+		*) ls "$SYS"/class/udc/ 2>/dev/null | grep -q . && return 0 ;;
+		esac
+		[ -n "$DRY" ] && return 0
+		sleep 0.2; i=$((i+1))
+	done
+	return 1
+}
+
+set_role() {
+	want=$1; shift
+	force=; persist=
+	for a in "$@"; do case "$a" in --force) force=1 ;; --persist) persist=1 ;; *) die "unknown option $a" 2 ;; esac; done
+	case "$want" in host|gadget|auto) ;; *) die "usage: set host|gadget|auto [--force] [--persist]" 2 ;; esac
+	r=$(to_role "$(to_dt "$want")")
+	cur=$(role_now)
+	if [ "$r" = "$cur" ]; then
+		[ -z "$persist" ] || next_boot "$want" >/dev/null || exit 1
+		echo "ok $r (already)"; return 0
+	fi
+	if [ "$r" = host ] && [ "$cur" != host ] && [ -z "$force" ] && ! safe; then
+		die "no Wi-Fi SSH: without the computer link the ZPOD is reachable only from its own screen (--force to switch anyway)" 3
+	fi
+	dtbo_dir >/dev/null || die "this image has no usb-role overlays (/usr/lib/zpod/usb-role); use next-boot + reboot" 4
+	[ -d "$SYS/kernel/config/device-tree/overlays" ] || die "kernel has no configfs device-tree overlays; use next-boot + reboot" 4
+	mkdir -p "$RUN"
+	L=$RUN/usb-role.lock
+	if ! mkdir "$L" 2>/dev/null; then
+		# a switch killed half-way leaves the lock: take it over when its pid is gone
+		p=$(cat "$L/pid" 2>/dev/null)
+		if [ -n "$p" ] && ! kill -0 "$p" 2>/dev/null; then rm -rf "$L"; mkdir "$L" 2>/dev/null || die "another switch is running" 5
+		else die "another switch is running" 5; fi
+	fi
+	echo $$ > "$L/pid"
+	trap 'rm -rf "$L" 2>/dev/null' EXIT
+	trap 'exit 1' HUP INT TERM PIPE
+	live || echo "$cur" > "$RUN/usb-role-boot"
+	boot=$(cat "$RUN/usb-role-boot")
+	log "switching $cur -> $r${force:+ (forced)}${persist:+ (persist)}"
+	[ "$cur" = host ] || hw_gadget_stop
+	hw_unbind || die "cannot unbind dwc2"
+	ok=1
+	hw_overlay_off || ok=
+	if [ -n "$ok" ] && [ "$r" != "$boot" ]; then hw_overlay "$(to_dt "$r")" || ok=; fi
+	if [ -n "$ok" ]; then
+		hw_bind || ok=
+		[ "$r" = host ] || hw_gadget_start
+		wait_for "$r" || ok=
+	fi
+	if [ -z "$ok" ]; then
+		log "switch to $r failed; back to $boot"
+		hw_unbind; hw_overlay_off; hw_bind
+		[ "$boot" = host ] || hw_gadget_start
+		echo "$boot" > "$RUN/usb-role"
+		die "switch to $r failed; back to $boot (see $LOG)"
+	fi
+	echo "$r" > "$RUN/usb-role"
+	log "now $r"
+	if [ -n "$persist" ]; then next_boot "$want" >/dev/null || echo "warn: switched, but next boot not saved"; fi
+	echo "ok $r"
+}
+
+boot_remount() { # $1 = dir, $2 = rw|ro; prints the old mode
+	[ -n "$DRY" ] && return 0
+	mp=$(awk -v d="$1" '$2 == d { print $4 }' /proc/mounts | tail -1)
+	[ -n "$mp" ] || return 0
+	case "$mp" in ro,*|ro) [ "$2" = rw ] && mount -o remount,rw "$1" && echo ro ;; *) [ "$2" = ro ] && mount -o remount,ro "$1" ;; esac
+}
+
+next_boot() {
+	want=$1; add=
+	case "$want" in host|gadget) ;; auto) die "next-boot auto is not supported (host or gadget)" 2 ;; *) die "usage: next-boot host|gadget" 2 ;; esac
+	b=$(bootdir) || die "boot partition not found"
+	if [ -f "$b/zpod-usb-role.txt" ]; then
+		f=$b/zpod-usb-role.txt
+		grep -q '^[[:space:]]*#*[[:space:]]*dtparam=dr_mode=host' "$f" || add='#dtparam=dr_mode=host'
+		if [ "$want" = host ]; then sub='s/^[[:space:]]*#*[[:space:]]*dtparam=dr_mode=host[[:space:]]*$/dtparam=dr_mode=host/'
+		else sub='s/^[[:space:]]*dtparam=dr_mode=host[[:space:]]*$/#dtparam=dr_mode=host/'; fi
+	else
+		f=$b/config.txt
+		n=$(grep -cE '^dtoverlay=dwc2,dr_mode=(peripheral|host)$' "$f")
+		[ "$n" = 1 ] || die "config.txt: expected one 'dtoverlay=dwc2,dr_mode=...' line, found $n; edit it on the computer (docs/USB-HOST.md)"
+		if [ "$want" = host ]; then sub='s/^dtoverlay=dwc2,dr_mode=peripheral$/dtoverlay=dwc2,dr_mode=host/'
+		else sub='s/^dtoverlay=dwc2,dr_mode=host$/dtoverlay=dwc2,dr_mode=peripheral/'; fi
+	fi
+	old=$(boot_remount "$b" rw)
+	{ cat "$f"; [ -z "$add" ] || echo "$add"; } | sed "$sub" > "$f.zpod-tmp" && sync
+	if cmp -s "$f" "$f.zpod-tmp"; then rm -f "$f.zpod-tmp"
+	else
+		[ "$(basename "$f")" = config.txt ] && cp "$f" "$b/config.txt.zpod-prev"
+		mv "$f.zpod-tmp" "$f" && sync || { [ "$old" = ro ] && boot_remount "$b" ro; die "could not write $f"; }
+	fi
+	[ "$old" = ro ] && boot_remount "$b" ro >/dev/null
+	set -- $(next_boot_role)
+	[ "$1" = "$want" ] || die "next boot reads '$1' after writing $f"
+	mkdir -p "$STATE" 2>/dev/null; rm -f "$STATE/host-boots"
+	log "next boot: $want ($(basename "$f"))"
+	echo "ok next boot $want ($(basename "$f"))"
+}
+
+boot_guard() {
+	[ "$(role_now)" = host ] || { rm -f "$STATE/host-boots" 2>/dev/null; return 0; }
+	mkdir -p "$STATE"
+	n=$(cat "$STATE/host-boots" 2>/dev/null); n=$(( ${n:-0} + 1 ))
+	echo "$n" > "$STATE/host-boots"; sync
+	revert() {
+		log "boot-guard: $1; next boot gadget, switching now"
+		next_boot gadget >/dev/null
+		set_role gadget --force >/dev/null
+	}
+	if [ "$n" -gt "${ZPOD_UR_GUARD_BOOTS:-2}" ]; then revert "$n host-mode boots without reaching the launcher"; return 0; fi
+	i=0; secs=${ZPOD_UR_GUARD_SECS:-120}
+	while [ $i -lt $((secs * 2)) ]; do
+		if [ -S "${ZPOD_UR_LAUNCHER_SOCK:-$RUN/launcher.sock}" ]; then rm -f "$STATE/host-boots"; log "boot-guard: launcher up in host mode"; return 0; fi
+		sleep 0.5; i=$((i+1))
+	done
+	revert "launcher not up ${secs} s after a host-mode boot"
+}
+
+case "${1:-show}" in
+show) show ;;
+status) status_kv ;;
+check)
+	ip=$(wifi_ip)
+	if safe; then echo "ok Wi-Fi SSH root@$ip"; exit 0; fi
+	if [ -z "$ip" ]; then echo "no Wi-Fi address (join Wi-Fi first)"; else echo "Wi-Fi $ip but SSH is not listening"; fi
+	exit 3 ;;
+set) shift; [ $# -ge 1 ] || die "usage: set host|gadget|auto [--force] [--persist]" 2; set_role "$@" ;;
+next-boot) [ $# -eq 2 ] || die "usage: next-boot host|gadget" 2; next_boot "$2" ;;
+boot-guard) boot_guard ;;
+-h|--help|help) sed -n '2,25p' "$0" ;;
+*) die "unknown command '$1' (zpod-usb-role help)" 2 ;;
+esac

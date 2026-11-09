@@ -15,6 +15,19 @@ pub struct Icon {
 
 pub static DEFAULT_PNG: &[u8] = include_bytes!("../../../assets/icons/default.png");
 pub static SYSTEM_PNG: &[u8] = include_bytes!("../../../assets/icons/system.png");
+/// Folder icons of the menu tree (`zpod_apps::tree::Builtin::icon`;
+/// apps/tools/icons/folder-icons.py draws them).
+pub static FOLDER_PNGS: &[(&str, &[u8])] = &[
+    ("games", include_bytes!("../../../assets/icons/folder-games.png")),
+    ("generative", include_bytes!("../../../assets/icons/folder-generative.png")),
+    ("radio", include_bytes!("../../../assets/icons/folder-radio.png")),
+    ("folder", include_bytes!("../../../assets/icons/folder-folder.png")),
+];
+
+/// All folder icons, decoded once.
+pub fn folders() -> Vec<(&'static str, Icon)> {
+    FOLDER_PNGS.iter().filter_map(|(n, d)| from_png(d).map(|i| (*n, i))).collect()
+}
 
 /// Decode to RGBA8888 (w, h, pixels).
 pub fn decode_png(data: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
@@ -104,5 +117,9 @@ mod tests {
         assert_eq!(i.normal.px[0], embedded_graphics::pixelcolor::raw::RawU16::from(zpod_ui::theme::BG).into_inner());
         assert_ne!(i.normal.px[0], i.selected.px[0]);
         assert!(super::from_png(b"garbage").is_none());
+        assert_eq!(super::folders().len(), super::FOLDER_PNGS.len());
+        for f in zpod_apps::tree::FOLDERS.iter().filter(|f| !matches!(f.icon, "home" | "tools" | "settings")) {
+            assert!(super::FOLDER_PNGS.iter().any(|(n, _)| *n == f.icon), "icon for {}", f.path);
+        }
     }
 }

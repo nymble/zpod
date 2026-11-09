@@ -143,7 +143,9 @@ pub fn progress_bar<D: Canvas>(d: &mut D, x: i32, y: i32, w: u32, h: u32, frac: 
 
 /// Centered overlay box with one line of large text.
 pub fn toast<D: Canvas>(d: &mut D, msg: &str) {
-    let w = (text::width(Font::Large, msg) + 40).clamp(120, 300);
+    // long messages drop to the body font and are fitted (never overflow)
+    let font = if text::width(Font::Large, msg) <= 260 { Font::Large } else { Font::BodyBold };
+    let w = (text::width(font, msg) + 40).clamp(120, 300);
     let x = (320 - w) / 2;
     let r = rect(x, 96, w as u32, 48);
     let _ = RoundedRectangle::with_equal_corners(r, Size::new(8, 8))
@@ -152,7 +154,9 @@ pub fn toast<D: Canvas>(d: &mut D, msg: &str) {
     let _ = RoundedRectangle::with_equal_corners(r, Size::new(8, 8))
         .into_styled(PrimitiveStyle::with_stroke(ACCENT, 2))
         .draw(d);
-    text::draw_aligned(d, Font::Large, msg, 160, 110, text::Align::Center, ACCENT);
+    let fitted = text::fit(font, msg, 284);
+    let y = if font == Font::Large { 110 } else { 113 };
+    text::draw_aligned(d, font, &fitted, 160, y, text::Align::Center, ACCENT);
 }
 
 /// Toast area (to restore what was under it).
@@ -208,6 +212,26 @@ pub fn dialog<D: Canvas>(d: &mut D, title: &str, lines: &[&str], title_color: Rg
     for l in lines {
         text::draw_aligned(d, Font::Body, l, 160, y, text::Align::Center, FG);
         y += 22;
+    }
+}
+
+/// Confirmation box with a short title and coloured lines (the "Switch
+/// USB?" prompts in the launcher and in apps). Lines are fitted to width.
+pub fn confirm<D: Canvas>(d: &mut D, title: &str, lines: &[(&str, Rgb565)], accent: Rgb565) {
+    let r = rect(10, 30, 300, 176);
+    let _ = RoundedRectangle::with_equal_corners(r, Size::new(10, 10))
+        .into_styled(PrimitiveStyle::with_fill(PANEL))
+        .draw(d);
+    let _ = RoundedRectangle::with_equal_corners(r, Size::new(10, 10))
+        .into_styled(PrimitiveStyle::with_stroke(accent, 2))
+        .draw(d);
+    text::draw_aligned(d, Font::Large, &text::fit(Font::Large, title, 284), 160, 42, text::Align::Center, accent);
+    let mut y = 76;
+    for (l, c) in lines {
+        // body font when it fits, else the small one (fitted, never clipped)
+        let f = if text::width(Font::Body, l) <= 284 { Font::Body } else { Font::Small };
+        text::draw_aligned(d, f, &text::fit(f, l, 290), 160, y, text::Align::Center, *c);
+        y += 24;
     }
 }
 

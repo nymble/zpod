@@ -1,0 +1,11 @@
+[package]
+name = "zpod-voices"
+description = "Portable voice rack: procedural drum and tuned voices from data (TOML voice banks), sample-accurate events, limiter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zpod-seq = { path = "../zpod-seq" }
+serde.workspace = true
+toml.workspace = true

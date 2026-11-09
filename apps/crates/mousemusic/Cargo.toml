@@ -1,0 +1,19 @@
+[package]
+name = "zpod-mousemusic"
+description = "Mouse Music for ZPOD: Music Mouse grid over zpod-music-core"
+version = "0.2.0"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "mousemusic"
+path = "src/main.rs"
+
+[dependencies]
+zpod-music-core.workspace = true
+zpod-core.workspace = true
+zpod-ui.workspace = true
+zpod-hal.workspace = true
+zpod-input.workspace = true
+embedded-graphics.workspace = true
+libc.workspace = true

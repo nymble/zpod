@@ -32,6 +32,8 @@ M1 lite image **hardware-passed** on Pi Zero 2 W (HDMI, user `paul`, console). R
 
 M3 includes association **plus** low-level radio interfaces (`iw`, `btmon`, etc.). Heavy RF apps / 2nd adapter / BitChat stay M8 (#10).
 
+**2026-11-03:** App platform plan captured in [docs/ROADMAP-APPS.md](./docs/ROADMAP-APPS.md): two new app classes (generative music, generative art), the app/data lifecycle (install, remove, move, create, transfer, back up), a no-reflash USB dev loop, portability (Zero W, Zero 2 W, desktop simulator), the DigiPi radio set as a future goal, 12 use cases checked against the code, and milestones A1-A9. The `.zpa` bundle spec (current + proposed v1) is [docs/APP-BUNDLE.md](./docs/APP-BUNDLE.md).
+
 ## Stages
 
 | Stage | Name | Outcome |

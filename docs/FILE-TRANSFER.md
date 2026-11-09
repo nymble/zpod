@@ -75,7 +75,7 @@ script warns; `--http` mode converts names with `iconv` before uploading.
 ## 2. Drop server (light, no SSH): `zpod-drop`
 
 A ~600 kB static Rust HTTP server, socket-activated by systemd on port 8080.
-**M6: off by default**, switched on from Tools > Drop box / Book catalog (section 2a).
+**M6: off by default**, switched on from Tools > Wi-Fi > Wi-Fi tools > Drop box / Book catalog (section 2a).
 It starts on the first connection and exits after 10 idle minutes, so it costs
 nothing while unused.
 
@@ -115,11 +115,11 @@ one is on; M5's always-on music upload is now part of the drop box.
 
 | Part | Switch | URL | What |
 |---|---|---|---|
-| Drop box | Tools > Drop box | `http://<ZPOD>:8080/` | web page: browse and download `music`, `books` and `inbox`; upload any file into **`/data/inbox`** (max `max_upload_mb`, default 1024 MiB per file, and never closer than 64 MiB to a full `/data`); M5 music upload (`PUT /music/…`, `zpod-push-music.sh --http`) |
-| Book catalog | Tools > Book catalog | `http://<ZPOD>:8080/opds` | **OPDS 1.2** catalog of **`/data/books`** (EPUB, PDF, MOBI/AZW3, CBZ/CBR, FB2, DjVu, TXT): All books, Newest, By author. EPUB title/author/language/cover come from the book's OPF; other files use `Author - Title.ext` names |
+| Drop box | Tools > Wi-Fi > Wi-Fi tools > Drop box | `http://<ZPOD>:8080/` | web page: browse and download `music`, `books` and `inbox`; upload any file into **`/data/inbox`** (max `max_upload_mb`, default 1024 MiB per file, and never closer than 64 MiB to a full `/data`); M5 music upload (`PUT /music/…`, `zpod-push-music.sh --http`) |
+| Book catalog | Tools > Wi-Fi > Wi-Fi tools > Book catalog | `http://<ZPOD>:8080/opds` | **OPDS 1.2** catalog of **`/data/books`** (EPUB, PDF, MOBI/AZW3, CBZ/CBR, FB2, DjVu, TXT): All books, Newest, By author. EPUB title/author/language/cover come from the book's OPF; other files use `Author - Title.ext` names |
 
 `<ZPOD>` is `10.12.194.1` over USB, `10.42.0.1` on the ZPOD's own hotspot
-(Tools > Hotspot), or `zpod.local` on your home Wi-Fi.
+(Tools > Wi-Fi > Mode > Hotspot), or `zpod.local` on your home Wi-Fi.
 
 Who may connect:
 

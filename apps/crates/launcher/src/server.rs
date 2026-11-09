@@ -1,4 +1,4 @@
-//! Tools > Drop box / Book catalog (M6): one switch each for the two halves
+//! Wi-Fi tools > Drop box / Book catalog (M6): one switch each for the two halves
 //! of zpod-drop. Both OFF by default. The socket (port 8080) is enabled
 //! when either is on and disabled when both are off; zpod-drop reads
 //! `dropbox =` / `opds =` from /etc/zpod/drop.conf at start, so a change

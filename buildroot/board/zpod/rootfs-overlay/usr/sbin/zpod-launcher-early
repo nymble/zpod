@@ -1,0 +1,8 @@
+#!/bin/sh
+# Start the launcher before rcS (after mount -a), so the menu does not wait
+# for the init scripts. zpod-launcher-run (inittab respawn) waits for this
+# instance and restarts the launcher whenever it exits.
+mkdir -p /run/zpod
+/usr/sbin/zpod-bootmark launcher-exec
+/usr/sbin/zpod-launcher-run </dev/null &
+exit 0

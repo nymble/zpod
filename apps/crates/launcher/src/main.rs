@@ -16,13 +16,24 @@
 //! * Root-only helpers live here on purpose (the launcher is the privileged
 //!   process): Wi-Fi/Bluetooth scans ([`tools`]), rsync share toggle and
 //!   library rescan ([`transfer`]), date/RTC, power.
+//! * Control socket `/run/zpod/launcher.sock` ([`ctl`], protocol in
+//!   `zpod_apps::ctl`): launch / restart / stop / status from `zpod-app` over
+//!   ssh (dev loop, docs/DEV-LOOP.md). Each app's stdout/stderr goes to its
+//!   own log, `/data/zpod/logs/<id>.log` (`zpod_apps::logs`).
 //! * `zpod-launcher --end-screen poweroff|reboot|off` draws just that frame
 //!   (for BusyBox shutdown scripts).
+//! * test3: Top = apps, Tools >, Settings >, Power >. Tools = Wi-Fi (one
+//!   screen: status card, Off/Client/Hotspot, networks, saved, hotspot
+//!   devices and password, Wi-Fi tools), Bluetooth, USB, Battery, File
+//!   transfer. Play/Pause toggles music on the top menu only; elsewhere it
+//!   only pauses music that is playing.
 //! * M6: Battery page (history from zpod-battery), About split from it,
 //!   Wi-Fi tools (signal meter, channels, saved networks, hotspot), Drop box
 //!   and Book catalog switches ([`server`]), and a first-screen notice when
 //!   bootfs setup files were applied after the first boot.
 
+mod coreupd;
+mod ctl;
 mod icons;
 mod menu;
 mod pages;
@@ -31,6 +42,8 @@ mod ring;
 mod server;
 mod tools;
 mod transfer;
+mod usb;
+mod usbrole;
 mod wifitools;
 
 use std::path::PathBuf;
@@ -125,19 +138,43 @@ const ALL_KEYS: [(Key, &str); 13] = [
     (Key::VolDown, "Vol-"),
 ];
 
+/// Join network > password page state (keyboard reader lives only here).
+pub struct PwEntry {
+    pub ssid: String,
+    /// keyboard or on-screen characters (zpod_ui::textentry)
+    pub entry: zpod_ui::textentry::TextEntry,
+    pub hid: zpod_input::HidInput,
+    pub role: zpod_input::UsbRole,
+    /// (ok, message) from the last attempt / validation
+    pub note: Option<(bool, String)>,
+}
+
+impl PwEntry {
+    fn new(ssid: String) -> Self {
+        PwEntry { ssid, entry: zpod_ui::textentry::TextEntry::wifi_password(), hid: zpod_input::HidInput::spawn(), role: zpod_input::role::usb_role(), note: None }
+    }
+}
+
 struct Launcher {
     p: Platform,
     menus: Menus,
     apps: Vec<AppInfo>,
     broken: Vec<(String, String)>,
+    /// the menu tree (docs/APP-MANIFEST.md): where each app is listed
+    tree: zpod_apps::tree::Tree,
     icons: Vec<icons::Icon>,
     system_icon: icons::Icon,
+    folder_icons: Vec<(&'static str, icons::Icon)>,
+    /// Tools > Updates
+    core: coreupd::Info,
     apps_dir: PathBuf,
     apps_stamp: Option<std::time::SystemTime>,
     status: StatusInfo,
     gauge: sys::Gauge,
     toast: Option<(String, Instant)>,
     tone: Option<Child>,
+    /// test tone stops itself at this time (no `timeout` binary needed)
+    tone_until: Option<Instant>,
     redraw: bool,
     app_user: Option<proc::AppUser>,
     wifi: sys::WifiInfo,
@@ -151,11 +188,22 @@ struct Launcher {
     ringer: Option<ring::Ringer>,
     alarm_checked: Instant,
     wt: wifitools::WifiTools,
+    pw: Option<PwEntry>,
     batt: Option<pages::BattView>,
     batt_at: Instant,
     srv: server::State,
     srv_at: Instant,
     notice: Vec<String>,
+    usb: usb::Info,
+    usb_at: Instant,
+    /// zpod-usb-role status (Tools > USB)
+    role: zpod_input::role::RoleInfo,
+    /// a USB role switch running on a thread
+    usb_job: Option<usbrole::Job>,
+    /// Control socket requests (None: socket not available, e.g. sim).
+    ctl: Option<std::sync::mpsc::Receiver<ctl::Pending>>,
+    /// App to start on the next main-loop turn (control socket / restart).
+    pending_launch: Option<String>,
 }
 
 /// First-boot setup files applied on a later boot (written by
@@ -201,14 +249,18 @@ impl Launcher {
             menus: Menus::new(),
             apps: Vec::new(),
             broken: Vec::new(),
+            tree: Default::default(),
             icons: Vec::new(),
             system_icon: icons::from_png(icons::SYSTEM_PNG).unwrap(),
+            folder_icons: icons::folders(),
+            core: Default::default(),
             apps_dir,
             apps_stamp: None,
             status: StatusInfo::default(),
             gauge: sys::Gauge::default(),
             toast: None,
             tone: None,
+            tone_until: None,
             redraw: true,
             app_user,
             wifi: sys::WifiInfo::default(),
@@ -221,12 +273,22 @@ impl Launcher {
             ringer: None,
             alarm_checked: Instant::now() - Duration::from_secs(5),
             wt: wifitools::WifiTools::default(),
+            pw: None,
             batt: None,
             batt_at: Instant::now(),
             srv: server::State::default(),
             srv_at: Instant::now(),
             notice: Vec::new(),
+            usb: usb::Info::default(),
+            usb_at: Instant::now(),
+            role: Default::default(),
+            usb_job: None,
+            ctl: None,
+            pending_launch: None,
         };
+        if !sys::sim() || std::env::var_os("ZPOD_SOCKET").is_some() {
+            l.ctl = ctl::start_both(&zpod_apps::ctl::socket_path(), &zpod_apps::ctl::app_socket_path());
+        }
         l.rescan(true);
         l.notice = std::fs::read_to_string(notice_path())
             .map(|t| t.lines().map(str::trim).filter(|x| !x.is_empty()).map(str::to_string).collect())
@@ -272,14 +334,190 @@ impl Launcher {
         for (id, why) in &broken {
             eprintln!("launcher: skipping app '{id}': {why}");
         }
+        let tree = zpod_apps::tree::Tree::build(&apps);
+        for (id, why) in &tree.notes {
+            eprintln!("launcher: app '{id}': {why}");
+        }
+        // a folder page whose folder moved or went away: back out of it
+        let same = |i: u16| self.tree.nodes.get(i as usize).map(|n| &n.path) == tree.nodes.get(i as usize).map(|n| &n.path) && tree.nodes.get(i as usize).is_some_and(|n| !n.entries.is_empty());
+        if let Some(k) = self.menus.stack.iter().position(|(p, _)| matches!(p, Page::Menu(MenuId::Folder(i)) if !same(*i))) {
+            self.menus.stack.truncate(k.max(1));
+        }
         self.icons = apps.iter().map(|a| icons::load(a.icon_path().as_deref())).collect();
         self.apps = apps;
         self.broken = broken;
-        let n = menu::items(MenuId::Top, self.apps.len()).len();
+        self.tree = tree;
+        for k in 0..self.menus.stack.len() {
+            if let Page::Menu(id) = self.menus.stack[k].0 {
+                let n = menu::items(id, &self.tree).len();
+                let vis = if matches!(id, MenuId::Top | MenuId::Folder(_)) { HOME_ROW } else { SUB_ROW };
+                let ls = &mut self.menus.stack[k].1;
+                if ls.sel >= n {
+                    ls.sel = n.saturating_sub(1);
+                }
+                ls.scroll_into_view(n, (LIST_H / vis) as usize);
+            }
+        }
+        let n = menu::items(MenuId::Top, &self.tree).len();
         if let Some((_, ls)) = self.menus.stack.first_mut() {
             ls.scroll_into_view(n, (LIST_H / HOME_ROW) as usize);
         }
         self.redraw = true;
+    }
+
+    /// Keyboard events and hotplug on the password page (main loop).
+    fn pw_poll(&mut self) {
+        use zpod_input::{HidEvent, KeyCode, SourceKind};
+        use zpod_ui::textentry::{KeyIn, Outcome};
+        let mut out = Outcome::None;
+        let joining = self.wt.job.is_some();
+        let can_switch = self.role.can_switch;
+        let Some(pw) = self.pw.as_mut() else { return };
+        while let Some(h) = pw.hid.poll() {
+            let HidEvent::Input(e) = h else {
+                self.redraw = true; // added / removed
+                continue;
+            };
+            let Some(k) = e.key_down() else { continue };
+            if joining {
+                continue; // joining: ignore typing
+            }
+            let ki = match k {
+                KeyCode::Enter => KeyIn::Enter,
+                KeyCode::Esc => KeyIn::Esc,
+                KeyCode::Backspace if e.mods.ctrl => KeyIn::ClearAll,
+                KeyCode::Backspace => KeyIn::Backspace,
+                KeyCode::Tab => KeyIn::Tab,
+                _ => match e.text {
+                    Some(c) => KeyIn::Char(c),
+                    None => continue,
+                },
+            };
+            let o = pw.entry.key(ki);
+            if o != Outcome::None {
+                self.redraw = true;
+                if matches!(ki, KeyIn::Char(_) | KeyIn::Backspace | KeyIn::ClearAll) {
+                    pw.note = None;
+                }
+            }
+            if matches!(o, Outcome::Submit | Outcome::Cancel) {
+                out = o;
+                break;
+            }
+        }
+        // hotplug: a keyboard that appears or goes away switches the view
+        let kb = pw.hid.has(SourceKind::Keyboard);
+        if pw.entry.set_keyboard(kb) {
+            self.redraw = true;
+        }
+        let offer = !kb && !pw.role.can_host() && can_switch;
+        if offer != pw.entry.pick.offer_keyboard {
+            pw.entry.pick.set_offer_keyboard(offer);
+            self.redraw = true;
+        }
+        self.pw_outcome(out);
+    }
+
+    /// Buttons on the password page.
+    fn pw_pad(&mut self, ev: &Event) {
+        use zpod_ui::textentry::{Outcome, Pad};
+        let held = ev.state == KeyState::Repeat;
+        let p = match ev.key {
+            Key::Up => Pad::Up,
+            Key::Down => Pad::Down,
+            Key::Left => Pad::Left,
+            Key::Right => Pad::Right,
+            _ if held => return, // only the arrows repeat
+            Key::Ok | Key::Circle => Pad::Select,
+            Key::Cross => Pad::Back,
+            Key::Square => Pad::NextSet,
+            Key::Triangle => Pad::Reveal,
+            _ => return,
+        };
+        let joining = self.wt.job.is_some();
+        let Some(pw) = self.pw.as_mut() else { return };
+        if joining && !matches!(p, Pad::Reveal) {
+            return;
+        }
+        let o = pw.entry.pad(p);
+        if o != Outcome::None {
+            self.redraw = true;
+            if matches!(p, Pad::Select | Pad::Back) {
+                pw.note = None;
+            }
+        }
+        self.pw_outcome(o);
+    }
+
+    fn pw_outcome(&mut self, o: zpod_ui::textentry::Outcome) {
+        use zpod_ui::textentry::Outcome;
+        match o {
+            Outcome::Submit => self.pw_submit(),
+            Outcome::Cancel => self.pw_close(),
+            Outcome::WantKeyboard => {
+                // the same confirmation as Tools > USB > Host; the entry
+                // (and what was typed) stays underneath
+                if !self.role.can_switch {
+                    self.toast("This image cannot switch USB live", 2200);
+                } else if self.usb_job.is_none() {
+                    self.menus.push(Page::UsbConfirm(menu::UsbChoice::Host));
+                }
+                self.redraw = true;
+            }
+            _ => {}
+        }
+    }
+
+    fn pw_submit(&mut self) {
+        let Some(pw) = self.pw.as_mut() else { return };
+        if self.wt.job.is_some() {
+            return;
+        }
+        if let Err(e) = zpod_hal::wifijoin::check_passphrase(pw.entry.field.as_str()) {
+            pw.note = Some((false, e.to_string()));
+            return;
+        }
+        let pass = pw.entry.field.take();
+        pw.note = None;
+        let ssid = pw.ssid.clone();
+        if let Some(m) = self.wt.join_password(ssid, pass) {
+            self.toast(m, 1500);
+        }
+    }
+
+    fn pw_close(&mut self) {
+        self.pw = None;
+        if self.menus.page() == Page::WifiPassword {
+            self.menus.back();
+        }
+        self.redraw = true;
+    }
+
+    /// Label of app `i` in menu `id` (`[menu] label` may differ per folder).
+    fn app_label(&self, id: MenuId, i: usize) -> &str {
+        let n = menu::node_of(id, &self.tree).and_then(|n| self.tree.nodes.get(n));
+        n.and_then(|n| {
+            n.entries.iter().find_map(|e| match e {
+                zpod_apps::tree::Entry::App { app, label, .. } if *app == i => Some(label.as_str()),
+                _ => None,
+            })
+        })
+        .unwrap_or(&self.apps[i].manifest.app.name)
+    }
+
+    /// Devices on the USB port with the app that handles each (Tools > USB).
+    fn usb_devices(&self) -> Vec<String> {
+        self.role
+            .devices
+            .iter()
+            .map(|d| {
+                let id = d.split_whitespace().next().unwrap_or("");
+                match zpod_apps::tree::handlers(&self.apps, "usb-device", id).first() {
+                    Some(a) => format!("{} ({d})", a.manifest.app.name),
+                    None => d.clone(),
+                }
+            })
+            .collect()
     }
 
     fn toast(&mut self, msg: impl Into<String>, ms: u64) {
@@ -289,12 +527,18 @@ impl Launcher {
 
     fn rows_for(&self, page: Page) -> (usize, usize) {
         match page {
-            Page::Menu(MenuId::Top) => (0, (LIST_H / HOME_ROW) as usize),
+            Page::Menu(MenuId::Top | MenuId::Folder(_)) => (0, (LIST_H / HOME_ROW) as usize),
+            Page::Updates => (1, 1),
             Page::Menu(_) => (0, (LIST_H / SUB_ROW) as usize),
             Page::Apps => (self.apps.len() + self.broken.len(), (LIST_H / APPS_ROW) as usize),
             Page::WifiScan => (self.tools.wifi.items.len(), (LIST_H / APPS_ROW) as usize),
             Page::BtScan => (self.tools.bt.items.len(), (LIST_H / APPS_ROW) as usize),
             Page::WifiSaved => (self.wt.saved.len(), (LIST_H / APPS_ROW) as usize),
+            Page::Wifi => (if self.wt.status.is_some() { menu::wifi_rows(self.wt.mode()).len() } else { 0 }, 4),
+            Page::WifiMode => (3, 5),
+            Page::Usb => (3, 3),
+            Page::HotspotDevices => (self.wt.status.as_ref().map(|s| s.clients.len()).unwrap_or(0), (LIST_H / APPS_ROW) as usize),
+            Page::WifiDevices => (self.wt.neighbours.len() + self.tools.wifi.items.len(), ((LIST_H - 16) / APPS_ROW) as usize),
             _ => (0, 1),
         }
     }
@@ -309,23 +553,42 @@ impl Launcher {
             return;
         }
         let title = match page {
-            Page::WifiScan if !self.tools.wifi.items.is_empty() => format!("Wi-Fi ({})", self.tools.wifi.items.len()),
+            Page::WifiScan if !self.tools.wifi.items.is_empty() => format!("Networks ({})", self.tools.wifi.items.len()),
             Page::BtScan if !self.tools.bt.items.is_empty() => format!("Bluetooth ({})", self.tools.bt.items.len()),
             Page::ScanDetail => self.tools.detail_title.clone(),
+            Page::Menu(MenuId::Folder(f)) => self.tree.nodes.get(f as usize).map(|n| n.title.clone()).unwrap_or_default(),
             _ => menu::title(page).to_string(),
         };
+        let labels: Vec<String> = match page {
+            Page::Menu(id) => menu::items(id, &self.tree)
+                .iter()
+                .map(|it| match it {
+                    Item::App(a) => self.app_label(id, *a).to_string(),
+                    _ => String::new(),
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        let usb_devs = if matches!(page, Page::Usb) { self.usb_devices() } else { Vec::new() };
         let fb = &mut self.p.fb;
         draw_status_bar(fb, &title, &st);
         let area = rect(0, LIST_Y, 320, LIST_H as u32);
-        let n_apps = self.apps.len();
         match page {
             Page::Menu(id) => {
-                let items = menu::items(id, n_apps);
+                let items = menu::items(id, &self.tree);
                 let ls = *self.menus.list();
                 let sel = ls.sel;
-                let (apps, icons, sysi) = (&self.apps, &self.icons, &self.system_icon);
+                let (apps, icons, sysi, tree, ficons) = (&self.apps, &self.icons, &self.system_icon, &self.tree, &self.folder_icons);
                 let top = id == MenuId::Top;
-                let row_h = if top { HOME_ROW } else { SUB_ROW };
+                let big = matches!(id, MenuId::Top | MenuId::Folder(_));
+                let row_h = if big { HOME_ROW } else { SUB_ROW };
+                let fsubs: Vec<String> = items
+                    .iter()
+                    .map(|it| match it {
+                        Item::Folder(f) => tree.nodes.get(*f as usize).map(|n| folder_sub(tree, apps, n)).unwrap_or_default(),
+                        _ => String::new(),
+                    })
+                    .collect();
                 widgets::draw_list(fb, area, row_h, &ls, items.len(), |i| {
                     let it = items[i];
                     let (t, sub) = menu::label(it);
@@ -333,11 +596,17 @@ impl Launcher {
                         Item::App(a) => {
                             let m = &apps[a].manifest.app;
                             let ic = if i == sel { &icons[a].selected } else { &icons[a].normal };
-                            Row { title: &m.name, sub: Some(&m.description), right: None, icon: Some(ic), mark: None }
+                            Row { title: &labels[i], sub: Some(&m.description), right: None, icon: big.then_some(ic), mark: None }
+                        }
+                        Item::Folder(f) => {
+                            let n = &tree.nodes[f as usize];
+                            let fi = ficons.iter().find(|(k, _)| *k == n.icon).or_else(|| ficons.iter().find(|(k, _)| *k == "folder")).map(|(_, i)| i).unwrap_or(sysi);
+                            let ic = if i == sel { &fi.selected } else { &fi.normal };
+                            Row { title: &n.title, sub: Some(&fsubs[i]), right: Some(">"), icon: big.then_some(ic), mark: None }
                         }
                         _ => {
                             let ic = if i == sel { &sysi.selected } else { &sysi.normal };
-                            Row { title: t, sub: if sub.is_empty() { None } else { Some(sub) }, right: None, icon: if top { Some(ic) } else { None }, mark: None }
+                            Row { title: t, sub: if sub.is_empty() { None } else { Some(sub) }, right: None, icon: if big { Some(ic) } else { None }, mark: None }
                         }
                     };
                     if matches!(it, Item::Menu(_)) {
@@ -349,7 +618,7 @@ impl Launcher {
                     if matches!(it, Item::Reboot | Item::Shutdown) {
                         r.mark = Some(WARN);
                     }
-                    if !top && sub.is_empty() {
+                    if !top && sub.is_empty() && !matches!(it, Item::App(_) | Item::Folder(_)) {
                         r.sub = None;
                     }
                     r
@@ -426,11 +695,36 @@ impl Launcher {
                 }
             },
             Page::WifiSignal => pages::draw_meter(fb, &self.wt),
+            Page::WifiPassword => match &self.pw {
+                Some(pw) => pages::draw_password(fb, pw, self.wt.job.as_ref().map(|j| j.what.as_str())),
+                None => {}
+            },
             Page::WifiChannels => {
-                let chans = wifi::congestion(&self.tools.wifi.items);
-                let conn = self.tools.wifi.items.iter().find(|n| n.associated).map(|n| n.channel);
                 let age = self.tools.wifi.age_text();
-                pages::draw_channels(fb, &chans, conn, self.tools.wifi.busy.is_some(), &age, self.tools.wifi.items.len());
+                pages::draw_chan_util(fb, &self.tools.wifi.items, self.tools.wifi.busy.is_some(), &age);
+            }
+            Page::WifiDevices => {
+                let ls = *self.menus.list();
+                pages::draw_addresses(fb, &self.wt.neighbours, &self.tools.wifi.items, &ls, self.tools.wifi.busy.is_some());
+            }
+            Page::WifiMode => {
+                let ls = *self.menus.list();
+                pages::draw_mode(fb, self.wt.mode(), &ls, self.wt.job.as_ref().map(|j| j.what.as_str()));
+            }
+            Page::HotspotDevices => {
+                let ls = *self.menus.list();
+                let empty = Vec::new();
+                let peers = self.wt.status.as_ref().map(|s| &s.clients).unwrap_or(&empty);
+                let ssid = self.wt.hotspot.as_ref().map(|h| h.ssid.clone()).unwrap_or_else(|| "the ZPOD hotspot".into());
+                pages::draw_peers(fb, peers, &ssid, &ls);
+            }
+            Page::Usb => {
+                let busy = self.usb_job.as_ref().map(|j| format!("Switching USB... {} s", j.started.elapsed().as_secs()));
+                pages::draw_usb(fb, &self.usb, &self.role, &usb_devs, self.menus.list().sel, busy.as_deref());
+            }
+            Page::UsbConfirm(c) => {
+                let busy = self.usb_job.as_ref().map(|j| format!("Switching USB... {} s", j.started.elapsed().as_secs()));
+                pages::draw_usb_confirm(fb, c, &self.role, busy.as_deref());
             }
             Page::WifiSaved => {
                 let ls = *self.menus.list();
@@ -452,17 +746,23 @@ impl Launcher {
                 if let Some(j) = &w.job {
                     widgets::toast(fb, &j.what);
                 }
-                widgets::hints(fb, &[("OK", "switch to"), ("Sq", "refresh"), ("Lt/X", "back")]);
+                if let Some((i, _)) = w.forget_armed {
+                    if let Some(n) = w.saved.get(i) {
+                        widgets::toast(fb, &format!("Tri again: forget {}?", text::fit(Font::Body, &n.name, 90)));
+                    }
+                }
+                widgets::hints(fb, &[("OK", "details"), ("Tri", "forget"), ("Sq", "refresh"), ("Lt/X", "back")]);
             }
             Page::Hotspot => {
                 let home = self.wt.home_ssid.clone().or_else(|| self.wifi.ssid.clone());
-                pages::draw_hotspot(fb, self.wt.hotspot.as_ref(), self.wt.job.as_ref().map(|j| j.what.as_str()), home.as_deref(), &self.srv);
+                pages::draw_hotspot(fb, self.wt.hotspot.as_ref(), self.wt.job.as_ref().map(|j| j.what.as_str()), home.as_deref(), &self.srv, self.wt.reveal);
             }
             Page::Server(opds) => {
                 let hs = self.wt.hotspot.as_ref().is_some_and(|h| h.active);
                 pages::draw_server(fb, opds, &self.srv, hs);
             }
             Page::Notice => pages::draw_notice(fb, &self.notice),
+            Page::Updates => pages::draw_updates(fb, &self.core, true),
             Page::Storage => {
                 let _ = fb.fill_solid(&area, BG);
                 let rel = storage::release();
@@ -487,22 +787,9 @@ impl Launcher {
                 widgets::hints(fb, &[("Lt/X", "back"), ("Home", "top")]);
             }
             Page::Wifi => {
-                let _ = fb.fill_solid(&area, BG);
-                let w = &self.wifi;
-                let rows = [
-                    ("SSID", w.ssid.clone().unwrap_or_else(|| "--".into())),
-                    ("Signal", w.signal.as_ref().map(|s| format!("{s}%")).unwrap_or_else(|| "--".into())),
-                    ("IP", w.ip.clone().unwrap_or_else(|| "--".into())),
-                    ("MAC", w.mac.clone().unwrap_or_else(|| "--".into())),
-                    ("Pwr save", w.powersave.clone().unwrap_or_else(|| "?".into())),
-                    ("usb0", sys::ipv4("usb0").unwrap_or_else(|| "--".into())),
-                ];
-                for (i, (k, v)) in rows.iter().enumerate() {
-                    let y = LIST_Y + 8 + i as i32 * 30;
-                    text::draw(fb, Font::Small, k, 12, y + 4, DIM);
-                    text::draw_fit(fb, Font::BodyBold, v, 96, y, 216, FG);
-                }
-                widgets::hints(fb, &[("OK", "refresh"), ("Lt/X", "back"), ("Home", "top")]);
+                let ls = *self.menus.list();
+                let rows = menu::wifi_rows(self.wt.mode());
+                pages::draw_wifi(fb, &self.wt, &rows, &ls, self.wt.saved.len(), self.wt.job.as_ref().map(|j| j.what.as_str()));
             }
             Page::Transfer => draw_transfer(fb, &self.xfer),
             Page::WifiScan => {
@@ -535,7 +822,7 @@ impl Launcher {
                 }
                 let sort = format!("sort: {}", t.wifi_sort.label());
                 let age = t.wifi.age_text();
-                widgets::hints(fb, &[("OK", "details"), ("Sq", if t.wifi.busy.is_some() { "scanning" } else { "rescan" }), ("Tri", &sort), ("", &age)]);
+                widgets::hints(fb, &[("OK", "details/join"), ("Sq", if t.wifi.busy.is_some() { "scanning" } else { "rescan" }), ("Tri", &sort), ("", &age)]);
             }
             Page::BtScan => {
                 let t = &self.tools;
@@ -582,10 +869,18 @@ impl Launcher {
             }
             Page::Apps => {
                 let n = self.apps.len() + self.broken.len();
-                let (apps, broken) = (&self.apps, &self.broken);
+                let (apps, broken, tree) = (&self.apps, &self.broken, &self.tree);
                 let mut subs: Vec<String> = Vec::with_capacity(n);
-                for a in apps {
-                    subs.push(format!("{}  \u{b7}  {}", a.manifest.app.id, a.manifest.app.description));
+                for (i, a) in apps.iter().enumerate() {
+                    let id = &a.manifest.app.id;
+                    let place = match tree.notes.iter().find(|(n, _)| n == id) {
+                        Some((_, why)) => why.clone(),
+                        None if tree.hidden.contains(&i) => "hidden".into(),
+                        None => zpod_apps::tree::placements(&a.manifest)
+                            .map(|ps| ps.iter().map(|p| if p.path.is_empty() { "Home".to_string() } else { p.path.clone() }).collect::<Vec<_>>().join(", "))
+                            .unwrap_or_default(),
+                    };
+                    subs.push(format!("{id}  \u{b7}  {place}"));
                 }
                 for (_, why) in broken {
                     subs.push(why.clone());
@@ -594,13 +889,14 @@ impl Launcher {
                 widgets::draw_list(fb, area, APPS_ROW, &ls, n, |i| {
                     if i < apps.len() {
                         let a = &apps[i].manifest.app;
-                        Row { title: &a.name, sub: Some(&subs[i]), right: Some(&a.version), icon: None, mark: None }
+                        let warn = tree.hidden.contains(&i) || tree.notes.iter().any(|(n, _)| *n == a.id);
+                        Row { title: &a.name, sub: Some(&subs[i]), right: Some(&a.version), icon: None, mark: if warn { Some(WARN) } else { None } }
                     } else {
                         let (id, _) = &broken[i - apps.len()];
                         Row { title: id, sub: Some(&subs[i]), right: Some("BROKEN"), icon: None, mark: Some(WARN) }
                     }
                 });
-                widgets::hints(fb, &[("Lt/X", "back"), ("", "install: sudo zpod-app install x.zpa")]);
+                widgets::hints(fb, &[("Lt/X", "back"), ("", "zpod-app install x.zpa  \u{b7}  zpod-app tree")]);
             }
             Page::DateTime => {
                 let _ = fb.fill_solid(&area, BG);
@@ -759,6 +1055,22 @@ impl Launcher {
             }
             return None;
         }
+        if page == Page::WifiPassword && ev.state != KeyState::Release && !matches!(ev.key, Key::Home | Key::VolUp | Key::VolDown | Key::PlayPause) {
+            self.pw_pad(&ev);
+            return None;
+        }
+        if let Page::UsbConfirm(c) = page {
+            if ev.state == KeyState::Press && !matches!(ev.key, Key::Home | Key::VolUp | Key::VolDown | Key::PlayPause) {
+                self.usb_confirm_key(c, ev.key);
+                return None;
+            }
+            if ev.key != Key::Home {
+                return None;
+            }
+        }
+        if page == Page::WifiPassword && ev.key == Key::Home {
+            self.pw = None; // wipes the field, stops the keyboard reader
+        }
         let nav = classify(&ev)?;
         // SPI trial: OK (or any Enter) keeps the new clock.
         if let Some((_, _)) = self.spi_trial {
@@ -822,8 +1134,21 @@ impl Launcher {
                 self.redraw = true;
                 return None;
             }
+            (Page::Usb, Nav::Other(Key::Square)) => {
+                self.refresh_usb();
+                self.toast("Refreshed", 600);
+                return None;
+            }
             (Page::WifiSaved, Nav::Other(Key::Square)) => {
                 self.wt.refresh_saved();
+                self.redraw = true;
+                return None;
+            }
+            (Page::WifiSaved, Nav::Other(Key::Triangle)) => {
+                let sel = self.menus.list().sel;
+                if let Some(m) = self.wt.forget(sel) {
+                    self.toast(m, 1500);
+                }
                 self.redraw = true;
                 return None;
             }
@@ -855,7 +1180,7 @@ impl Launcher {
             _ => {}
         }
         let rows = self.rows_for(page);
-        let eff = self.menus.handle(nav, self.apps.len(), rows);
+        let eff = self.menus.handle(nav, &self.tree, rows);
         self.redraw = true;
         match eff {
             Effect::None | Effect::Redraw => None,
@@ -864,22 +1189,46 @@ impl Launcher {
             Effect::Tone => Some(Action::Tone),
             Effect::BacklightTest => Some(Action::Backlight),
             Effect::CycleSpi => Some(Action::CycleSpi),
-            Effect::RefreshWifi => {
-                self.wifi = sys::wifi_info();
+            Effect::PauseIfPlaying => {
+                self.pause_if_playing();
                 None
             }
             Effect::Activate(p) => {
                 match p {
-                    Page::WifiSaved => {
+                    Page::Wifi => {
                         let sel = self.menus.list().sel;
-                        if let Some(m) = self.wt.connect(sel) {
-                            self.toast(m, 1200);
+                        if let Some(r) = menu::wifi_rows(self.wt.mode()).get(sel).copied() {
+                            if let Effect::Opened(p) = self.menus.open_wifi_row(r) {
+                                self.opened(p);
+                            }
                         }
                     }
-                    Page::Hotspot => {
+                    Page::WifiMode => {
+                        let m = wifi::Mode::ALL[self.menus.list().sel.min(2)];
                         let best = (!self.tools.wifi.items.is_empty()).then(|| wifi::best_channel(&wifi::congestion(&self.tools.wifi.items)));
-                        self.wt.toggle_hotspot(best);
+                        match self.wt.set_mode(m, best) {
+                            Some(msg) => self.toast(msg, 1500),
+                            None => self.menus.back(), // card shows "working..." then the new mode
+                        }
                     }
+                    Page::WifiSignal => {
+                        if let Some(m) = self.wt.join() {
+                            self.toast(m, 2200);
+                        } else if self.wt.want_password {
+                            self.wt.want_password = false;
+                            self.role = usbrole::status(); // can it offer USB host for a keyboard?
+                            self.pw = Some(PwEntry::new(self.wt.detail.ssid.clone()));
+                            self.menus.push(Page::WifiPassword);
+                            self.redraw = true;
+                        }
+                    }
+                    Page::Hotspot => self.wt.reveal = !self.wt.reveal,
+                    Page::HotspotDevices => self.wt.refresh_status(true),
+                    Page::WifiDevices | Page::WifiChannels => {
+                        self.wt.neighbours = wifi::neighbours();
+                        self.tools.wifi.start(tools::wifi_job);
+                    }
+                    Page::Usb => self.usb_row_ok(),
                     Page::Server(opds) => match server::toggle(opds) {
                         Ok(st) => {
                             let on = if opds { st.opds } else { st.dropbox };
@@ -889,6 +1238,17 @@ impl Launcher {
                         Err(e) => self.toast(e, 2500),
                     },
                     Page::Notice => self.dismiss_notice(),
+                    Page::Updates => {
+                        if !self.core.boot_support && self.core.error.is_none() {
+                            self.toast("test3 loads updates only by hand (zpod-dev --core)", 2500);
+                        } else {
+                            match coreupd::set(!self.core.boot_load) {
+                                Ok(m) => self.toast(m, 2000),
+                                Err(e) => self.toast(e, 2500),
+                            }
+                            self.core = coreupd::read();
+                        }
+                    }
                     _ => {}
                 }
                 None
@@ -905,53 +1265,209 @@ impl Launcher {
                 None
             }
             Effect::Opened(p) => {
-                match p {
-                    Page::Wifi => self.wifi = sys::wifi_info(),
-                    Page::Battery => self.load_battery(),
-                    Page::WifiSignal => {
-                        let sel = self.menus.list().sel;
-                        let t = self.tools.wifi.items.get(sel).filter(|n| !n.associated).map(|n| wifitools::Target { bssid: n.bssid.clone(), ssid: n.ssid.clone(), channel: n.channel });
-                        self.wt.open_meter(t);
-                    }
-                    Page::WifiChannels => self.tools.wifi.start_if_stale(tools::wifi_job),
-                    Page::WifiSaved => self.wt.refresh_saved(),
-                    Page::Hotspot => {
-                        self.wt.refresh_hotspot();
-                        self.wifi = sys::wifi_info();
-                        self.refresh_server();
-                    }
-                    Page::Server(_) => {
-                        self.wt.refresh_hotspot();
-                        self.refresh_server();
-                    }
-                    Page::Apps => self.rescan(true),
-                    Page::DateTime => self.time_edit = TimeEdit::new(sys::now_local()),
-                    Page::ButtonTest => self.buttons = ButtonTest::default(),
-                    Page::Transfer => self.refresh_transfer(),
-                    Page::WifiScan => self.tools.wifi.start_if_stale(tools::wifi_job),
-                    Page::BtScan => self.tools.bt.start_if_stale(tools::bt_job),
-                    Page::ScanDetail => {
-                        let sel = self.menus.list().sel;
-                        let parent = self.menus.stack.len().checked_sub(2).map(|i| self.menus.stack[i].0);
-                        let ok = match parent {
-                            Some(Page::BtScan) => self.tools.bt_detail(sel),
-                            _ => self.tools.wifi_detail(sel),
-                        };
-                        if !ok {
-                            self.menus.back();
-                        }
-                    }
-                    _ => {}
-                }
+                self.opened(p);
                 None
             }
             Effect::Power(reboot) => Some(Action::Power(if reboot { StopKind::Reboot } else { StopKind::Poweroff })),
         }
     }
 
-    fn toggle_tone(&mut self) {
+    /// Entered page `p`: load what it shows.
+    fn opened(&mut self, p: Page) {
+        match p {
+            Page::Wifi => {
+                self.wt.refresh_status(true);
+                self.wt.refresh_saved();
+            }
+            Page::WifiMode => {
+                let cur = self.wt.mode();
+                self.menus.list_mut().sel = wifi::Mode::ALL.iter().position(|m| *m == cur).unwrap_or(1);
+            }
+            Page::HotspotDevices => self.wt.refresh_status(true),
+            Page::WifiDevices => {
+                self.wt.neighbours = wifi::neighbours();
+                self.tools.wifi.start_if_stale(tools::wifi_job);
+            }
+            Page::Usb => self.refresh_usb(),
+            Page::Updates => self.core = coreupd::read(),
+            Page::Battery => self.load_battery(),
+            Page::WifiSignal => self.open_details(),
+            Page::WifiChannels => self.tools.wifi.start_if_stale(tools::wifi_job),
+            Page::WifiSaved => self.wt.refresh_saved(),
+            Page::Hotspot => {
+                self.wt.reveal = false;
+                self.wt.refresh_hotspot();
+                self.wifi = sys::wifi_info();
+                self.refresh_server();
+            }
+            Page::Server(_) => {
+                self.wt.refresh_hotspot();
+                self.refresh_server();
+            }
+            Page::Apps => self.rescan(true),
+            Page::DateTime => self.time_edit = TimeEdit::new(sys::now_local()),
+            Page::ButtonTest => self.buttons = ButtonTest::default(),
+            Page::Transfer => self.refresh_transfer(),
+            Page::WifiScan => self.tools.wifi.start_if_stale(tools::wifi_job),
+            Page::BtScan => self.tools.bt.start_if_stale(tools::bt_job),
+            Page::ScanDetail => {
+                let sel = self.menus.list().sel;
+                let parent = self.menus.stack.len().checked_sub(2).map(|i| self.menus.stack[i].0);
+                let ok = match parent {
+                    Some(Page::BtScan) => self.tools.bt_detail(sel),
+                    _ => self.tools.wifi_detail(sel),
+                };
+                if !ok {
+                    self.menus.back();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Network details (meter) for the scan row / saved network under the
+    /// cursor of the page below, or the connected network.
+    fn open_details(&mut self) {
+        let sel = self.menus.list().sel;
+        let parent = self.menus.stack.len().checked_sub(2).map(|i| self.menus.stack[i].0);
+        let saved_uuid = |ssid: &str, w: &wifitools::WifiTools| w.saved.iter().find(|s| s.name == ssid).map(|s| s.uuid.clone());
+        let (target, detail) = match parent {
+            Some(Page::WifiScan) => match self.tools.wifi.items.get(sel) {
+                Some(n) => (
+                    (!n.associated).then(|| wifitools::Target { bssid: n.bssid.clone(), ssid: n.ssid.clone(), channel: n.channel }),
+                    wifitools::NetDetail { ssid: n.ssid.clone(), security: n.security.clone(), saved_uuid: saved_uuid(&n.ssid, &self.wt), connected: n.associated },
+                ),
+                None => (None, wifitools::NetDetail::default()),
+            },
+            Some(Page::WifiSaved) => match self.wt.saved.get(sel) {
+                Some(s) => {
+                    let sec = self.tools.wifi.items.iter().find(|n| n.ssid == s.name).map(|n| n.security.clone()).unwrap_or_default();
+                    (
+                        (!s.active).then(|| wifitools::Target { bssid: String::new(), ssid: s.name.clone(), channel: 0 }),
+                        wifitools::NetDetail { ssid: s.name.clone(), security: sec, saved_uuid: Some(s.uuid.clone()), connected: s.active },
+                    )
+                }
+                None => (None, wifitools::NetDetail::default()),
+            },
+            _ => (None, wifitools::NetDetail { connected: true, ..Default::default() }),
+        };
+        self.wt.detail = detail;
+        self.wt.open_meter(target);
+    }
+
+    fn refresh_usb(&mut self) {
+        self.usb = usb::gather();
+        self.role = usbrole::status();
+        self.usb_at = Instant::now();
+        self.redraw = true;
+    }
+
+    /// Tools > USB, OK on a row: open its confirmation.
+    fn usb_row_ok(&mut self) {
+        let sel = self.menus.list().sel.min(2);
+        let c = menu::UsbChoice::ALL[sel];
+        if self.usb_job.is_some() {
+            return;
+        }
+        if !self.role.can_switch {
+            self.toast("This image cannot switch live (no zpod-usb-role)", 2500);
+        } else if usbrole::is_current(c.target(), self.role.role) {
+            self.toast(format!("Already: {}", usbrole::target_label(c.target())), 1500);
+        } else {
+            self.menus.push(Page::UsbConfirm(c));
+            self.redraw = true;
+        }
+    }
+
+    /// Keys on the "Switch USB?" confirmation.
+    fn usb_confirm_key(&mut self, c: menu::UsbChoice, k: Key) {
+        self.redraw = true;
+        let busy = self.usb_job.is_some();
+        let unsafe_host = c == menu::UsbChoice::Host && !self.role.safe;
+        match k {
+            Key::Left | Key::Cross if !busy => self.menus.back(),
+            Key::Ok | Key::Circle if !busy => {
+                if unsafe_host {
+                    self.toast("Needs Wi-Fi SSH (or Triangle)", 2200);
+                } else {
+                    self.usb_job = Some(usbrole::Job::start(c.target(), false, false));
+                }
+            }
+            Key::Triangle if !busy && unsafe_host => {
+                eprintln!("launcher: USB host without Wi-Fi SSH (confirmed on screen)");
+                self.usb_job = Some(usbrole::Job::start(c.target(), true, false));
+            }
+            Key::Square if !busy && usbrole::can_persist(&self.role, c.target()) => {
+                if unsafe_host {
+                    self.toast("No Wi-Fi SSH: not saved for next boot", 2200);
+                } else {
+                    self.usb_job = Some(usbrole::Job::start(c.target(), false, true));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// A finished Tools > USB switch.
+    fn usb_job_poll(&mut self) {
+        let Some(r) = self.usb_job.as_ref().and_then(|j| j.poll()) else { return };
+        let to = self.usb_job.take().map(|j| j.to);
+        match r {
+            Ok(_) => self.toast(format!("USB: {}", to.map(usbrole::target_label).unwrap_or("switched")), 2200),
+            Err(e) => self.toast(format!("USB switch failed: {e}"), 4000),
+        }
+        if matches!(self.menus.page(), Page::UsbConfirm(_)) {
+            self.menus.back();
+        }
+        self.p.status.net_changed();
+        self.refresh_usb();
+        if let Some(pw) = self.pw.as_mut() {
+            pw.role = zpod_input::role::usb_role();
+        }
+    }
+
+    /// Play/Pause away from the top menu: pause music that is playing,
+    /// otherwise do nothing (test2: Play in Tools said "Nothing queued").
+    fn pause_if_playing(&mut self) {
+        if self.tone.is_some() {
+            self.stop_tone();
+            return;
+        }
+        let playing = if sys::sim() { std::env::var("ZPOD_SIM_PLAY").as_deref() == Ok("play") } else { sys::mpd_play_state() == PlayState::Playing };
+        if playing {
+            let (st, msg) = sys::mpd_toggle();
+            if st != PlayState::Unknown {
+                self.p.status.set_play(st);
+            }
+            self.toast(msg, 1000);
+        }
+    }
+
+    fn stop_tone(&mut self) {
         if let Some(mut c) = self.tone.take() {
             proc::stop_child(&mut c, Duration::from_millis(300));
+        }
+        self.tone_until = None;
+    }
+
+    /// Stop the test tone after 10 s (own deadline; the Buildroot image had
+    /// no `timeout` applet in test2).
+    fn tone_tick(&mut self) {
+        if self.tone_until.is_some_and(|t| Instant::now() >= t) {
+            self.stop_tone();
+            self.redraw = true;
+        } else if let Some(c) = self.tone.as_mut() {
+            if let Ok(Some(_)) = c.try_wait() {
+                self.tone = None;
+                self.tone_until = None;
+                self.redraw = true;
+            }
+        }
+    }
+
+    fn toggle_tone(&mut self) {
+        if self.tone.is_some() {
+            self.stop_tone();
             self.toast("Tone stopped", 1500);
             return;
         }
@@ -960,8 +1476,8 @@ impl Launcher {
             let _ = c.simple("pause 1");
             self.p.status.set_play(PlayState::Paused);
         }
-        let mut cmd = std::process::Command::new("timeout");
-        cmd.args(["10", "speaker-test", "-D", "default", "-t", "sine", "-f", "440", "-c", "2"])
+        let mut cmd = std::process::Command::new("speaker-test");
+        cmd.args(["-D", "default", "-t", "sine", "-f", "440", "-c", "2"])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
         use std::os::unix::process::CommandExt;
@@ -969,6 +1485,7 @@ impl Launcher {
         match if sys::sim() { Err(std::io::Error::other("sim")) } else { cmd.spawn() } {
             Ok(c) => {
                 self.tone = Some(c);
+                self.tone_until = Some(Instant::now() + Duration::from_secs(10));
                 self.toast("Tone 440 Hz (OK again = stop)", 1500);
             }
             Err(_) if sys::sim() => self.toast("Tone 440 Hz", 1500),
@@ -1041,6 +1558,37 @@ impl Launcher {
         }
     }
 
+    // ------------------------------------------------------------- control
+    fn ctl_next(&self) -> Option<ctl::Pending> {
+        self.ctl.as_ref().and_then(|r| r.try_recv().ok())
+    }
+
+    /// Index of an installed app, after a fresh scan (it may just have been pushed).
+    fn app_index(&mut self, id: &str) -> Option<usize> {
+        self.rescan(true);
+        self.apps.iter().position(|a| a.manifest.app.id == id)
+    }
+
+    /// Control requests while no app runs (home screen or a System page).
+    fn ctl_idle(&mut self) {
+        use zpod_apps::ctl::{Request, Status};
+        while let Some(p) = self.ctl_next() {
+            match p.req.clone() {
+                Request::Launch(id) | Request::Restart(Some(id)) => match self.app_index(&id) {
+                    Some(_) => {
+                        self.pending_launch = Some(id.clone());
+                        p.reply(format!("ok launching {id}"));
+                    }
+                    None => p.reply(format!("err {id} is not installed (or BROKEN: zpod-app list)")),
+                },
+                Request::Usb(_) => ctl_usb(p, None),
+                Request::Restart(None) => p.reply("err no app is running (restart <id> starts one)"),
+                Request::Stop(_) | Request::Status => p.reply(Status::Idle.reply()),
+                Request::Version => p.reply(version_reply()),
+            }
+        }
+    }
+
     // ------------------------------------------------------------- launch
     fn launch(&mut self, idx: usize) {
         let app = self.apps[idx].clone();
@@ -1072,9 +1620,28 @@ impl Launcher {
         }
         self.p.release_display();
         eprintln!("launcher: starting {} {} ({})", m.id, m.version, exec.display());
+        // Per-app log (stdout + stderr). The sim keeps inheriting ours unless
+        // ZPOD_LOG_DIR is set.
+        let mut log = if self.p.is_sim() && std::env::var_os("ZPOD_LOG_DIR").is_none() {
+            None
+        } else {
+            match zpod_apps::logs::open_for_launch(&zpod_apps::logs::log_dir(), &m.id) {
+                Ok(f) => Some(f),
+                Err(e) => {
+                    eprintln!("launcher: {} log: {e}", m.id);
+                    None
+                }
+            }
+        };
         let started = Instant::now();
-        let result = proc::spawn_app(&exec, &m.args, &app.dir, &env, self.app_user.as_ref());
+        let result = proc::spawn_app(&exec, &m.args, &app.dir, &env, self.app_user.as_ref(), log.as_ref());
+        if let Some(f) = log.as_mut() {
+            use std::io::Write;
+            let pid = result.as_ref().map(|c| c.id().to_string()).unwrap_or_else(|e| format!("- ({e})"));
+            let _ = writeln!(f, "--- {} start {} {} pid {pid}", log_time(), m.id, m.version);
+        }
         let mut outcome: Option<String> = None;
+        let mut ctl_stopped = false;
         match result {
             Err(e) => outcome = Some(format!("{}: {}", m.name, e.kind())),
             Ok(mut child) => {
@@ -1099,6 +1666,58 @@ impl Launcher {
                     if proc::terminating() {
                         proc::stop_child(&mut child, Duration::from_secs(2));
                         break;
+                    }
+                    if let Some(p) = self.ctl_next() {
+                        use zpod_apps::ctl::{Request, Status};
+                        let running = Status::Running { id: m.id.clone(), pid: child.id(), secs: started.elapsed().as_secs() };
+                        // what to start after stopping this one (None: just stop)
+                        let next: Option<Option<String>> = match p.req.clone() {
+                            Request::Status => {
+                                p.reply(running.reply());
+                                continue;
+                            }
+                            Request::Version => {
+                                p.reply(version_reply());
+                                continue;
+                            }
+                            Request::Usb(_) => {
+                                ctl_usb(p, Some((m, child.id())));
+                                continue;
+                            }
+                            Request::Stop(Some(x)) if x != m.id => {
+                                p.reply(format!("ok {x} is not running ({} is)", m.id));
+                                continue;
+                            }
+                            Request::Launch(x) if x == m.id => {
+                                p.reply(format!("ok {x} is already running"));
+                                continue;
+                            }
+                            Request::Stop(_) => {
+                                p.reply(format!("ok stopped {}", m.id));
+                                Some(None)
+                            }
+                            Request::Restart(None) => {
+                                p.reply(format!("ok restarting {}", m.id));
+                                Some(Some(m.id.clone()))
+                            }
+                            Request::Restart(Some(x)) | Request::Launch(x) => {
+                                let (list, _) = zpod_apps::discover(&self.apps_dir);
+                                if list.iter().any(|a| a.manifest.app.id == x) {
+                                    p.reply(format!("ok {} {x}", if x == m.id { "restarting" } else { "launching" }));
+                                    Some(Some(x))
+                                } else {
+                                    p.reply(format!("err {x} is not installed (or BROKEN: zpod-app list)"));
+                                    None
+                                }
+                            }
+                        };
+                        if let Some(then) = next {
+                            eprintln!("launcher: control socket: stopping {}", m.id);
+                            proc::stop_child(&mut child, Duration::from_millis(1500));
+                            ctl_stopped = true;
+                            self.pending_launch = then;
+                            break;
+                        }
                     }
                     // In sim mode the child owns the script; don't consume it.
                     let ev = if self.p.is_sim() {
@@ -1134,6 +1753,15 @@ impl Launcher {
             }
         }
         eprintln!("launcher: {} ran {:.1}s", m.id, started.elapsed().as_secs_f32());
+        if let Some(f) = log.as_mut() {
+            use std::io::Write;
+            let how = match (&outcome, ctl_stopped) {
+                (Some(o), _) => o.clone(),
+                (None, true) => "stopped (control socket)".into(),
+                (None, false) => "exited (0)".into(),
+            };
+            let _ = writeln!(f, "--- {} end {}: {how} after {:.1} s", log_time(), m.id, started.elapsed().as_secs_f32());
+        }
         if let Err(e) = self.p.reacquire_display() {
             eprintln!("launcher: cannot re-open display: {e}");
             std::thread::sleep(Duration::from_millis(500));
@@ -1151,6 +1779,23 @@ impl Launcher {
 
 }
 
+
+/// Subtitle of a folder row: its own, else the first few apps in it.
+fn folder_sub(t: &zpod_apps::tree::Tree, apps: &[AppInfo], n: &zpod_apps::tree::Node) -> String {
+    if !n.sub.is_empty() {
+        return n.sub.clone();
+    }
+    let names: Vec<&str> = n
+        .entries
+        .iter()
+        .map(|e| match e {
+            zpod_apps::tree::Entry::App { app, label, .. } => apps.get(*app).map(|_| label.as_str()).unwrap_or(""),
+            zpod_apps::tree::Entry::Folder(f) => t.nodes[*f].title.as_str(),
+        })
+        .take(3)
+        .collect();
+    names.join(", ")
+}
 
 fn it_is_spi(items: &[Item], sel: usize) -> bool {
     items.get(sel) == Some(&Item::SpiSpeed)
@@ -1212,7 +1857,7 @@ fn draw_transfer(fb: &mut zpod_ui::Framebuffer, x: &transfer::Info) {
     let web = if x.drop_on {
         format!("http://{}:{DROP_PORT}/  (drop box)", x.usb.clone().or(x.wlan.clone()).unwrap_or_else(|| "<ip>".into()))
     } else {
-        "drop box off (Tools > Drop box)".into()
+        "drop box off (Wi-Fi tools > Drop box)".into()
     };
     kv(fb, &mut y, "Browser", &web, if x.drop_on { FG } else { DIM });
     let rs = match x.rsync {
@@ -1357,10 +2002,19 @@ fn main() {
     l.p.fb.mark_all_dirty();
     let mut status_redraw_at = Instant::now();
     let mut powering = false;
+    let mut first_frame_logged = false;
 
     loop {
         if proc::terminating() {
             break;
+        }
+        l.ctl_idle();
+        if let Some(id) = l.pending_launch.take() {
+            if let Some(i) = l.app_index(&id) {
+                l.launch(i);
+                continue;
+            }
+            l.toast(format!("{id} is not installed"), 2500);
         }
         // status bar (cheap: StatusSource rate-limits each source)
         let st = l.p.status.poll();
@@ -1399,14 +2053,40 @@ fn main() {
                 status_redraw_at = Instant::now() + Duration::from_secs(1);
             }
         }
+        l.tone_tick();
+        if l.wt.poll_status() {
+            l.redraw = true;
+        }
+        if l.menus.page() == Page::WifiPassword {
+            l.pw_poll();
+        } else if l.pw.is_some() && !l.menus.stack.iter().any(|(p, _)| *p == Page::WifiPassword) {
+            l.pw = None; // left (e.g. Home from the USB confirmation): wipe the field
+        }
         if let Some(msg) = l.wt.poll_job() {
-            l.toast(msg, 2200);
+            l.p.status.net_changed();
+            if let (Page::WifiPassword, Some(pw)) = (l.menus.page(), l.pw.as_mut()) {
+                pw.note = Some((msg.starts_with("Joined"), msg.trim_start_matches("Failed: ").to_string()));
+                l.redraw = true;
+            } else {
+                l.toast(msg, 2200);
+            }
             l.wifi = sys::wifi_info();
             l.refresh_server();
         }
         let page = l.menus.page();
         if page == Page::WifiSignal && l.wt.meter_tick() {
             l.redraw = true;
+        }
+        if matches!(page, Page::Wifi | Page::WifiMode | Page::HotspotDevices) && !l.wt.busy() {
+            l.wt.refresh_status(false); // every 5 s, on a thread
+        }
+        l.usb_job_poll();
+        if matches!(page, Page::Usb | Page::UsbConfirm(_)) && l.usb_job.is_some() && Instant::now() >= status_redraw_at {
+            l.redraw = true; // "Switching USB... N s"
+            status_redraw_at = Instant::now() + Duration::from_secs(1);
+        }
+        if page == Page::Usb && l.usb_job.is_none() && l.usb_at.elapsed() >= Duration::from_secs(3) {
+            l.refresh_usb();
         }
         if page == Page::Battery && l.batt_at.elapsed() >= Duration::from_secs(20) {
             l.load_battery();
@@ -1418,7 +2098,7 @@ fn main() {
         if page == Page::Transfer && l.xfer_at.elapsed() >= Duration::from_secs(if l.xfer.updating { 1 } else { 3 }) {
             l.refresh_transfer();
         }
-        if matches!(page, Page::WifiScan | Page::BtScan | Page::WifiChannels) && l.tools.busy() && Instant::now() >= status_redraw_at {
+        if matches!(page, Page::WifiScan | Page::BtScan | Page::WifiChannels | Page::WifiDevices) && l.tools.busy() && Instant::now() >= status_redraw_at {
             l.redraw = true; // "N s ago" / "scanning" hint
             status_redraw_at = Instant::now() + Duration::from_secs(1);
         }
@@ -1434,6 +2114,10 @@ fn main() {
             l.draw();
         }
         l.p.flush();
+        if !first_frame_logged && !l.p.is_sim() {
+            first_frame_logged = true;
+            proc::boot_mark("launcher-first-frame");
+        }
 
         let mut timeout = match (&l.toast, live) {
             (Some((_, until)), _) => until.saturating_duration_since(Instant::now()).max(Duration::from_millis(20)),
@@ -1443,8 +2127,14 @@ fn main() {
         if let Some((_, until)) = l.spi_trial {
             timeout = timeout.min(until.saturating_duration_since(Instant::now()).max(Duration::from_millis(20)));
         }
-        if l.tools.busy() || l.wt.busy() || page == Page::WifiSignal {
+        if l.tools.busy() || l.wt.busy() || page == Page::WifiSignal || l.usb_job.is_some() {
             timeout = timeout.min(Duration::from_millis(250));
+        }
+        if l.ctl.is_some() {
+            timeout = timeout.min(Duration::from_millis(250)); // control socket latency
+        }
+        if page == Page::WifiPassword {
+            timeout = timeout.min(Duration::from_millis(30)); // keyboard events are polled
         }
         let Some(ev) = l.p.next_event(Some(timeout)) else {
             if l.p.is_sim() && sim_done() {
@@ -1481,9 +2171,71 @@ fn main() {
     if let Some(mut r) = l.ringer.take() {
         r.stop();
     }
+    if proc::restart_requested() {
+        // A new launcher binary takes over: keep the panel as it is.
+        eprintln!("zpod-launcher: stopping (restart)");
+        let _ = std::fs::remove_file(zpod_apps::ctl::socket_path());
+        return;
+    }
     let kind = proc::stop_kind();
     eprintln!("zpod-launcher: stopping ({kind:?})");
     end_screen(&mut l.p, kind);
+}
+
+/// `usb ...` on the control or app socket. Apps (app socket): only the app
+/// on the screen (`front`: its manifest + pid; the caller may be a child),
+/// and only with `permissions = ["usb-host"]`. The switch runs on a thread
+/// that answers when done, so the app's wait loop keeps running.
+fn ctl_usb(p: ctl::Pending, front: Option<(&zpod_apps::manifest::AppSection, u32)>) {
+    use zpod_apps::ctl::{Request, UsbReq};
+    let Request::Usb(u) = p.req.clone() else {
+        p.reply("err not a usb request");
+        return;
+    };
+    match u {
+        UsbReq::Status => {
+            let i = usbrole::status();
+            p.reply(format!("ok {}", i.to_words()));
+        }
+        UsbReq::Set { to, force, persist } => {
+            if p.from_app {
+                let Some((m, pid)) = front else {
+                    p.reply("err only the app on the screen can switch USB");
+                    return;
+                };
+                let caller = match p.peer_pid {
+                    Some(pp) => usbrole::is_descendant(pp, pid),
+                    None => sys::sim(),
+                };
+                if !caller {
+                    p.reply("err only the app on the screen can switch USB");
+                    return;
+                }
+                if !m.has_permission("usb-host") {
+                    p.reply(format!("err {} lacks permission usb-host (manifest permissions)", m.id));
+                    return;
+                }
+                eprintln!("launcher: {} asks for usb {}{}", m.id, to.word(), if force { " (forced)" } else { "" });
+            }
+            std::thread::spawn(move || {
+                let r = usbrole::set(to, force, persist);
+                p.reply(match r {
+                    Ok(x) => format!("ok {x}"),
+                    Err(e) => format!("err {e}"),
+                });
+            });
+        }
+    }
+}
+
+fn version_reply() -> String {
+    format!("ok zpod-launcher {} ctl {}", env!("CARGO_PKG_VERSION"), zpod_apps::ctl::PROTOCOL)
+}
+
+/// Local time for per-app log lines.
+fn log_time() -> String {
+    let t = sys::now_local();
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", t.year, t.month, t.day, t.hour, t.minute, t.second)
 }
 
 /// Apps and the alarm share one data dir. The unit sets ZPOD_DATA_DIR

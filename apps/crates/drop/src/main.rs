@@ -1,12 +1,12 @@
 //! zpod-drop: the ZPOD's tiny web server (M6: offline drop box + OPDS).
 //!
-//! Drop box (`dropbox = on` in /etc/zpod/drop.conf; Tools > Drop box):
+//! Drop box (`dropbox = on` in /etc/zpod/drop.conf; Wi-Fi tools > Drop box):
 //!   GET  /                 home page: browse, upload, OPDS address
 //!   GET  /files/<area>/... browse/download music, books or the inbox
 //!   PUT  /inbox/<name>     upload any file into /data/inbox (size-capped)
 //!   PUT  /music/<path>     store one music file (atomic: .part + rename)
 //!   POST /update           ask MPD to rescan (also done automatically after uploads)
-//! Book catalog (`opds = on`; Tools > Book catalog), see [`opds`]:
+//! Book catalog (`opds = on`; Wi-Fi tools > Book catalog), see [`opds`]:
 //!   GET  /opds...          OPDS 1.2 feeds of /data/books
 //!   GET  /books/<path>, /cover/<path>
 //! Always: GET /status (JSON).

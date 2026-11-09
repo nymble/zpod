@@ -1,0 +1,17 @@
+#!/bin/sh
+# zpod-group-sync <base group> <data group>: add the image's group members
+# that an older /data/etc/group lacks (e.g. zpod in dialout for USB GPS,
+# added after test3). Groups missing by name are added by zpod-data-early.
+set -eu
+BASE=$1 DATA=$2
+while IFS=: read -r g _x _gid mem; do
+	[ -n "$mem" ] || continue
+	for m in $(echo "$mem" | tr ',' ' '); do
+		cur=$(grep "^$g:" "$DATA" | head -1 | cut -d: -f4)
+		grep -q "^$g:" "$DATA" || continue
+		case ",$cur," in
+		*",$m,"*) ;;
+		*) sed -i "s/^\($g:[^:]*:[^:]*:\).*\$/\1$cur${cur:+,}$m/" "$DATA" ;;
+		esac
+	done
+done < "$BASE"

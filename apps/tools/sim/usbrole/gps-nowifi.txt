@@ -1,0 +1,9 @@
+wait 600
+shot gps-ask-host-nowifi
+key ok
+wait 200
+shot gps-ask-needforce
+key cross
+wait 3000
+shot gps-cancelled
+exit

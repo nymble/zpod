@@ -1,0 +1,12 @@
+#!/bin/sh
+# ZPOD rcS (replaces Buildroot's): start /etc/init.d/S??* in order, with a
+# boot mark after each one (/run/zpod/boot-times, see zpod-boottime).
+# Daemons that are slow to start and nothing waits for run in the background.
+for i in /etc/init.d/S??*; do
+	[ -x "$i" ] || continue
+	n=${i##*/}
+	case "$n" in
+	S50dropbear|S95mpd) ( "$i" start; /usr/sbin/zpod-bootmark "$n-done" ) </dev/null & ;;
+	*) "$i" start; /usr/sbin/zpod-bootmark "$n" ;;
+	esac
+done
