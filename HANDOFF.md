@@ -41,13 +41,13 @@ resume point.
   was force-quit, `zpod-br` booted. The VM root disk was recreated (`colima
   delete` without `--data`, same profile); the data disk (container,
   toolchain, `/br`, 14 GB Buildroot output) was kept. Backups of the old VM:
-  `~/zpod-backups/colima-zpod-br-20261108/` (APFS clones; delete when no
+  `~/cb/local/zpod/backups/colima-zpod-br-20261108/` (APFS clones; delete when no
   longer needed).
 - **Builds (container, `scripts/zpod-dev --build-only`):**
   `pipit-0.3.0.zpa` is byte-identical to the original 919141b package
   (`d2a83cec...0048`); the Pipit binary equals the installed one
   (`bcd36861...`). `tidepool-0.1.0.zpa` sha256 `3aec820e...2b4c`. Both are in
-  `~/zpod-backups/generative-hold-2026-11-08/` with SHA256SUMS; earlier Mac
+  `~/cb/local/zpod/backups/generative-hold-2026-11-08/` with SHA256SUMS; earlier Mac
   host builds (different toolchain) are in its `host-build-macos/`. Nothing
   installed.
 - **Still unconfirmed physically:** Pipit 0.2/0.3 controls and sound, any
@@ -67,7 +67,7 @@ resume point.
 1. Read this file, then `docs/PIPIT.md`, `docs/PIPIT-DESIGN.md`,
    `docs/ZPOD-MIDI.md`, `docs/DEV-LOOP.md`, `docs/AB-UPDATES.md`,
    `docs/USB-HOST.md`.
-2. On the Mac mini: `cd ~/src/zpod && git status` (do not discard anything
+2. On the Mac mini: `cd ~/cb/projects/zpod && git status` (do not discard anything
    you find), `git fetch origin`. New Buildroot work starts from
    `buildroot`, which contains this lane. To resume the generative lane,
    `git checkout pipit-seq` (or branch from `buildroot`).
@@ -103,17 +103,17 @@ release; they are not in any released image. Don't infer app code from the image
     `340f19338d678c841d5bfe26095f65ca1244c0d7de79f548cdc6bee9fc06abf1`
   - `zpod-v0.11.0-br-ab-test6.zab`
     `0dcb441b0865eab5b90a1f75fe0e77aecc600800a2772d6748149eed8b463880`
-- Pipit 0.3.0 package (Mac): `~/zpod-backups/pipit-midi/dist/pipit-0.3.0.zpa`,
+- Pipit 0.3.0 package (Mac): `~/cb/local/zpod/backups/pipit-midi/dist/pipit-0.3.0.zpa`,
   sha256 `d2a83ceca9f634d786fe4f7ff93cf56471dd0f24d6359c9d00bd1754bf750048`
   (re-hashed 2026-11-08), built from 919141b. The copy **installed on the
   device** was reinstalled after the last fix and its binary checksum was not
   read back from the device: treat the installed binary as unverified until
   someone compares it on the device.
 - Screenshots (simulator): `docs/screenshots/pipit-*.png` in the repo (13 files,
-  used by `docs/PIPIT.md`); originals also in `~/zpod-backups/pipit-midi/shots`
+  used by `docs/PIPIT.md`); originals also in `~/cb/local/zpod/backups/pipit-midi/shots`
   and `pm-shots.tgz`. Copies were also placed on the agent box under
   `/workspace/zpod-music/pipit-midi/` (that box is not the Mac; nothing builds
-  there). Tidepool artifacts: `~/zpod-backups/tidepool-dist`, `tidepool-sim`.
+  there). Tidepool artifacts: `~/cb/local/zpod/backups/tidepool-dist`, `tidepool-sim`.
 
 ## Device state (last verified 2026-11-07, not re-checked)
 
@@ -125,7 +125,7 @@ release; they are not in any released image. Don't infer app code from the image
 - Media: 382 files on `/data/media/music` = 363 songs (239 mp3 + 124 flac) +
   19 artwork, 5.36 GiB, sha256-verified against the original before/after the
   migration. `/data/books` was empty at last look. Never modify these.
-- Backup from before the upgrade: `~/zpod-backups/128gb-test3-20261106/` on the
+- Backup from before the upgrade: `~/cb/local/zpod/backups/128gb-test3-20261106/` on the
   Mac (boot FAT + test3 rootfs images, music, `/data` app/core tars, hash lists).
 - Installed apps: bundled clock 1.2.0, gps 0.2.0, mousemusic 0.2.0, music
   1.2.0, tetris 1.1.0; plus Tidepool 0.1.0 and Pipit 0.3.0 (`.zpa` in
@@ -133,7 +133,7 @@ release; they are not in any released image. Don't infer app code from the image
 
 ## Mac mini and builds
 
-- Mac mini **Stellas-Mac** (Mac16,10, M4, 24 GB). Repo `~/src/zpod`.
+- Mac mini **Stellas-Mac** (Mac16,10, M4, 24 GB). Repo `~/cb/projects/zpod`.
   Builds only here, never on a shared/cloud box. GitHub CLI is logged in as
   **nymble** only; no cloud CI assumed.
 - Buildroot: colima profile `zpod-br`, container `zpod-br`, repo at

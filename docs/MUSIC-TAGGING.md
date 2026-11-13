@@ -12,12 +12,12 @@ or other loose rips.
 ## Quick start (NAS folder, from the Mac)
 
 ```sh
-cd ~/src/zpod      # or wherever the repo is
+cd ~/cb/projects/zpod      # or wherever the repo is
 NAS="/Volumes/Media/Music/to file/Miles Davis - FLAC"
 
 scripts/zpod-tag-and-push.sh -n "$NAS"            # 1. dry run: what it would do, writes nothing
 scripts/zpod-tag-and-push.sh --review "$NAS"      # 2. proposes covers, writes review.html, no push
-open ~/zpod-stage/library/review.html             # 3. look at every proposed cover
+open ~/cb/local/zpod/stage/library/review.html             # 3. look at every proposed cover
 scripts/zpod-tag-and-push.sh --accept-art "$NAS"  # 4. tag, embed covers, push, verify, rescan
 ```
 
@@ -36,7 +36,7 @@ never writes to the source.
 2. **Plan.** It reads the existing tags and derives what is missing (see the
    conventions below). It prints a per-album plan: artist and where it came
    from, album, year, the file names it parsed, and the art status.
-3. **Stage.** It copies the files into `~/zpod-stage/library/<Artist>/<album folder>/`
+3. **Stage.** It copies the files into `~/cb/local/zpod/stage/library/<Artist>/<album folder>/`
    (`--work` or `$ZPOD_STAGE` changes the location). Names are normalised to
    NFC so accented titles do not show up twice on Linux. A manifest
    (`.zpod-manifest.json`) records each source's size and mtime, so re-runs copy
@@ -62,7 +62,7 @@ never writes to the source.
    re-sent once and checked again. A mismatch that remains exits 4.
 8. **Rescan.** `mpc -w update`, then `mpc stats`, and the album count per artist.
 
-A log of each run goes to `~/zpod-stage/library/.logs/`. Passwords are never
+A log of each run goes to `~/cb/local/zpod/stage/library/.logs/`. Passwords are never
 asked for or stored. SSH runs in batch mode, so set up a key once with
 `ssh-copy-id <you>@10.12.194.1`.
 
@@ -113,7 +113,7 @@ every proposal:
 Even a high match can be a different edition with different artwork, such as a
 mono or 2026 remaster. That is why the default is review, then confirm:
 
-1. Run `--review`, then `open ~/zpod-stage/library/review.html`. It shows each album's
+1. Run `--review`, then `open ~/cb/local/zpod/stage/library/review.html`. It shows each album's
    proposed cover, grade and the Apple Music page it came from.
 2. To fix a wrong cover, pick one of these:
    * find the right album on music.apple.com; the number at the end of its URL
@@ -131,8 +131,8 @@ The staged copy is the master for what is on the ZPOD. Edit it, then re-run the
 script, or plain-push it with `zpod-push-music.sh`:
 
 ```sh
-W=~/zpod-stage/library
-PY=~/zpod-stage/.venv/bin/python          # has mutagen
+W=~/cb/local/zpod/stage/library
+PY=~/cb/local/zpod/stage/.venv/bin/python          # has mutagen
 # change a tag on every track of an album
 $PY - "$W/Miles Davis/(1958) Miles Davis - Milestones" <<'PY'
 import sys, glob, mutagen
@@ -159,7 +159,7 @@ one artist. The music app caches 120x120 thumbnails in
   covers this tool fetches are embedded.
 * `--force` re-derives every field from names, so it can make good tags worse.
   Use it per album.
-* Albums stay staged in `~/zpod-stage` (same size as the source) until you
+* Albums stay staged in `~/cb/local/zpod/stage` (same size as the source) until you
   delete them. Deleting the stage only loses the edits.
-* Needs Python 3. Mutagen is installed once into `~/zpod-stage/.venv` if the
+* Needs Python 3. Mutagen is installed once into `~/cb/local/zpod/stage/.venv` if the
   system Python lacks it.

@@ -121,7 +121,7 @@ image (group `dialout`).
    an address), and SSH over Wi-Fi works from the Mac:
 
    ```zsh
-   cd ~/src/zpod
+   cd ~/cb/projects/zpod
    scripts/zpod-dev --save-host
    ```
 

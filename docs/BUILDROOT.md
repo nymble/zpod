@@ -24,7 +24,7 @@ filesystem for the Buildroot output.
 brew install colima docker
 colima start --profile zpod-br --vm-type vz --cpu 5 --memory 8 --disk 80 --network-address
 docker --context colima-zpod-br volume create zpod-br-work
-docker --context colima-zpod-br run -d --name zpod-br -v zpod-br-work:/br -v ~/src/zpod:/src/zpod debian:trixie sleep infinity
+docker --context colima-zpod-br run -d --name zpod-br -v zpod-br-work:/br -v ~/cb/projects/zpod:/src/zpod debian:trixie sleep infinity
 docker --context colima-zpod-br exec zpod-br sh -c 'apt-get update && apt-get install -y build-essential git wget curl cpio unzip rsync bc file python3 libncurses-dev libssl-dev perl xz-utils bzip2 patch which device-tree-compiler mtools dosfstools e2fsprogs squashfs-tools fdisk lz4 binutils-arm-linux-gnueabihf'
 # Rust for the apps (rustup + musl target, zig 0.14.1, cargo-zigbuild)
 docker --context colima-zpod-br exec zpod-br sh -c 'curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --target arm-unknown-linux-musleabihf && curl -sSL https://ziglang.org/download/0.14.1/zig-aarch64-linux-0.14.1.tar.xz | tar xJ -C /opt && ln -sf /opt/zig-aarch64-linux-0.14.1/zig /usr/local/bin/zig && . ~/.cargo/env && cargo install --locked cargo-zigbuild'

@@ -10,7 +10,7 @@ One time per card (and again after a reboot of a test3 card, which
 `zpod-dev` does by itself; see "What lives where"):
 
 ```zsh
-cd ~/src/zpod
+cd ~/cb/projects/zpod
 scripts/zpod-dev --core          # build + push zpod-launcher and zpod-app to /data, switch to them
 ```
 

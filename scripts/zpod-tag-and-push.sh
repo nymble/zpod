@@ -13,7 +13,7 @@
 #     --force             overwrite existing tags and re-pick covers
 #     --no-push           stage and tag only
 #     --verify sha256|size|none   check pushed files (default sha256)
-#     --work DIR          staging dir (default $ZPOD_STAGE or ~/zpod-stage/library)
+#     --work DIR          staging dir (default $ZPOD_STAGE or ~/cb/local/zpod/stage/library)
 #     -H host  -u user    ZPOD (default 10.12.194.1 over USB, else zpod.local; $ZPOD_USER or you)
 #
 # Sources are never modified: files are copied to the work dir, tagged there,
@@ -27,7 +27,7 @@ case "${1:-}" in -h|--help|"") sed -n '2,24p' "$0"; [ -n "${1:-}" ] && exit 0 ||
 # A Python 3 with mutagen: system one if it has it, else a private venv (one-time pip install).
 py=python3
 if ! "$py" -c 'import mutagen' 2>/dev/null; then
-  venv=${ZPOD_TAG_VENV:-$HOME/zpod-stage/.venv}
+  venv=${ZPOD_TAG_VENV:-$HOME/cb/local/zpod/stage/.venv}
   if [ ! -x "$venv/bin/python" ] || ! "$venv/bin/python" -c 'import mutagen' 2>/dev/null; then
     echo "note: installing mutagen into $venv (one time)" >&2
     python3 -m venv "$venv"

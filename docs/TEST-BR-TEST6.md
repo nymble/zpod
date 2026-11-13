@@ -20,7 +20,7 @@ cd ~/Downloads && shasum -a 256 zpod-v0.11.0-br-ab-test6.zab
 Compare with `SHA256SUMS` in the release. Then, from the repo:
 
 ```
-cd ~/src/zpod && git pull
+cd ~/cb/projects/zpod && git pull
 ```
 
 ```

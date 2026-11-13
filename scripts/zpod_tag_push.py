@@ -618,7 +618,7 @@ def main():
     ap.add_argument('--force', action='store_true', help='overwrite existing tags / re-pick covers')
     ap.add_argument('--no-push', action='store_true', help='stage and tag only')
     ap.add_argument('--verify', choices=('sha256', 'size', 'none'), default='sha256')
-    ap.add_argument('--work', default=os.path.expanduser(os.environ.get('ZPOD_STAGE', '~/zpod-stage/library')))
+    ap.add_argument('--work', default=os.path.expanduser(os.environ.get('ZPOD_STAGE', '~/cb/local/zpod/stage/library')))
     ap.add_argument('-H', '--host', default=os.environ.get('ZPOD_HOST', ''))
     ap.add_argument('-u', '--user', default=os.environ.get('ZPOD_USER', os.environ.get('USER', 'pi')))
     ap.add_argument('--dest', default='/srv/zpod/media/music')
