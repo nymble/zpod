@@ -34,6 +34,20 @@ G=$R/overlay/usr/lib/zpod/zpod-usb-gadget.sh
 ok "gadget: MIDI 2 in + 2 out" "grep -q '^MIDI_PORTS=2' $G"
 ok "gadget: /data MIDI switch" "grep -q 'MIDI_CFG=.*/data/zpod/usb-midi.txt' $G"
 ok "usb-role: midi command" "grep -q '^midi) ' $B/rootfs-overlay/usr/sbin/zpod-usb-role"
+# zpod-bundled-new: new bundled apps on an updated card, removed ones stay removed
+BN=$B/rootfs-overlay/usr/lib/zpod/zpod-bundled-new
+W=$(mktemp -d); mkdir -p $W/pkgs $W/apps/music $W/apps/gps
+for f in music-1.2.0 clock-1.2.0 tetris-1.1.0 gps-0.2.0 usb-lab-0.1.0 ble-lab-0.1.0 wifi-lab-0.1.0 synth-0.1.0; do : > $W/pkgs/$f.zpa; done
+printf '#!/bin/sh\nb=$(basename "$2" .zpa); mkdir -p "$ZPOD_APPS_DIR/${b%%%%-[0-9]*}"; echo "$b" >> "$ZPOD_APPS_DIR/.log"\n' > $W/fakeapp; chmod +x $W/fakeapp
+bn() { ZPOD_BUNDLED_DIR=$W/pkgs ZPOD_BUNDLED_LIST=$W/list ZPOD_APPS_DIR=$W/apps ZPOD_APP=$W/fakeapp sh $BN; }
+bn >/dev/null
+ok "bundled-new: test6 card gets the 4 new apps" "[ -d $W/apps/usb-lab ] && [ -d $W/apps/ble-lab ] && [ -d $W/apps/wifi-lab ] && [ -d $W/apps/synth ]"
+ok "bundled-new: removed test6-era apps stay removed (clock, tetris)" "[ ! -e $W/apps/clock ] && [ ! -e $W/apps/tetris ]"
+rm -rf $W/apps/synth; bn >/dev/null
+ok "bundled-new: a removed new app is not reinstalled" "[ ! -e $W/apps/synth ] && [ \$(wc -l < $W/apps/.log) = 4 ]"
+ok "bundled-new: ids recorded once" "[ \$(sort $W/list | uniq -d | wc -l) = 0 ] && grep -qx wifi-lab $W/list"
+ok "S00zpod-data runs zpod-bundled-new" "grep -q zpod-bundled-new $B/rootfs-overlay/etc/init.d/S00zpod-data"
+rm -rf $W
 if [ -n "$TGT" ]; then
 	ok "target: rt2870.bin" "[ -f $TGT/lib/firmware/rt2870.bin ]"
 	ok "target: mt7601u.bin" "[ -f $TGT/lib/firmware/mediatek/mt7601u.bin ]"

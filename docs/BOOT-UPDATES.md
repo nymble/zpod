@@ -49,7 +49,8 @@ only if:
 4. `abi` equals the image's (`abi` in `core.id`, from `apps/system/etc/zpod/core-abi` in the repo; bumped when the
    launcher <-> image contract changes: paths, init scripts, control socket);
 5. it is **newer than the image core**: version, then build time. So
-   flashing (or, later, a RAUC slot switch to) a newer image automatically
+   flashing a newer image, or installing one into the other A/B slot,
+   automatically
    retires an older update without deleting it; pushing again makes it
    current again;
 6. every listed file is inside the core directory, the binaries are ARM ELF
@@ -122,11 +123,19 @@ reboot, and Tools > Updates says "test3: by hand".
 
 ## A/B system updates (test6)
 
-Implemented without RAUC: [AB-UPDATES.md](./AB-UPDATES.md).
+Implemented by `zpod-ab`, without RAUC:
+[AB-UPDATES.md](./AB-UPDATES.md). Two root slots (p2 = a, p3 = b), each
+with its own kernel folder on the boot partition, chosen by `zpod-slot.txt`.
 
-The rules are chosen to stay correct once the image is two RAUC slots: the
-update is keyed to the image by ABI and version, so booting the other slot
-(newer or older) re-evaluates it; a newer slot retires an older update
-automatically; the attempt counter and `failed` mark live on `/data` next
-to the update, separate from RAUC's slot counters, and the Home-at-power-on
-escape skips only the `/data` update, never the slot choice.
+The core-update rules stay correct across slots: the update is keyed to the
+image by ABI and version, so booting the other slot (newer or older)
+re-evaluates it; a newer slot retires an older update automatically; the
+attempt counter and `failed` mark live on `/data` next to the update,
+separate from the slot choice, and the Home-at-power-on escape skips only
+the `/data` update, never the slot choice.
+
+The `.zab` system bundle is **not signed** (sha256 per file in
+`AB.manifest`, checked before install). Install it only from a release you
+trust. Signing (an ed25519 key held off the device, the public key in the
+image, `zpod-ab verify` refusing unsigned bundles once a signed image is
+installed) is the next step.

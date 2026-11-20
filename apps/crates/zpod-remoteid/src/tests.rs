@@ -127,3 +127,61 @@ fn display_lines() {
     assert!(l.iter().any(|x| x.starts_with("airborne 37.774900, -122.419400")), "{l:?}");
     assert!(l.iter().any(|x| x == "Operator ID: FIN87astrdge12"));
 }
+
+#[test]
+fn encode_roundtrips_sample_messages() {
+    use crate::encode;
+    for raw in [sample::basic_id(), sample::location(), sample::operator_id()] {
+        let m = decode(&raw).unwrap();
+        let again = match &m {
+            Message::BasicId(b) => encode::basic_id(b),
+            Message::Location(l) => encode::location(l),
+            Message::OperatorId(o) => encode::operator_id(o),
+            _ => unreachable!(),
+        };
+        assert_eq!(decode(&again).unwrap(), m);
+    }
+    // west-going track, fast (multiplier) speed, descending
+    let mut l = match decode(&sample::location()).unwrap() { Message::Location(l) => l, _ => panic!() };
+    l.track_deg = Some(271);
+    l.speed_h = Some(80.5);
+    l.speed_v = Some(-3.0);
+    let Some(Message::Location(d)) = decode(&encode::location(&l)) else { panic!() };
+    assert_eq!(d.track_deg, Some(271));
+    assert!((d.speed_h.unwrap() - 80.5).abs() <= 0.4, "{:?}", d.speed_h);
+    assert_eq!(d.speed_v, Some(-3.0));
+}
+
+#[test]
+fn sim_moves_and_decodes_as_test_aircraft() {
+    use crate::encode;
+    use crate::sim::SimAircraft;
+    let mut a = SimAircraft::test(37.7749, -122.4194);
+    a.climb_mps = 1.0;
+    let lon0 = a.lon;
+    for _ in 0..10 {
+        a.step(1.0);
+    }
+    // 100 m east at this latitude ~ 0.001137 deg lon; lat unchanged
+    assert!((a.lon - lon0 - 0.001137).abs() < 0.00002, "{}", a.lon - lon0);
+    assert!((a.lat - 37.7749).abs() < 1e-9);
+    assert_eq!(a.alt_m, 60.0);
+    a.turn_dps = 9.0;
+    for _ in 0..10 {
+        a.step(1.0);
+    }
+    assert!((a.track_deg - 180.0).abs() < 0.01);
+    let ie = encode::beacon_ie(5, &encode::pack(&a.messages(1200, 1000)));
+    let (c, msgs) = from_wifi_beacon_ie(&ie).unwrap();
+    assert_eq!(c, 5);
+    assert_eq!(msgs.len(), 5);
+    let mut t = Tracker::new(0);
+    t.feed("02:5a:50:00:7e:57", Transport::WifiBeacon, c, &msgs, None, Some(6), 0);
+    let ac = &t.aircraft[0];
+    assert_eq!(ac.label(), encode::TEST_UAS_ID);
+    assert_eq!(ac.self_id.as_ref().unwrap().text, encode::TEST_SELF_ID);
+    let loc = ac.location.as_ref().unwrap();
+    assert_eq!(loc.track_deg, Some(180));
+    assert_eq!(loc.speed_h, Some(10.0));
+    assert!((loc.lat.unwrap() - a.lat).abs() < 2e-7);
+}

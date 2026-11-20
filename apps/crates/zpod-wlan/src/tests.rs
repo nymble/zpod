@@ -205,3 +205,33 @@ fn inventory_fake_sysfs() {
     assert_eq!(v[1].driver, "rt2800usb");
     assert!(is_onboard("brcmfmac", "usb"));
 }
+
+#[test]
+fn testgen_track_pcap_decodes_as_moving_test_aircraft() {
+    use crate::testgen;
+    use zpod_remoteid::{encode, SimAircraft};
+    let mut a = SimAircraft::test(37.7749, -122.4194);
+    a.turn_dps = 3.0;
+    let mut buf = Vec::new();
+    assert_eq!(testgen::write_track_pcap(&mut buf, &mut a, 6, 30, 1.0, 1_763_600_000_000_000).unwrap(), 30);
+    let (lt, pkts) = pcap::read_all(&buf[..]).unwrap();
+    assert_eq!((lt, pkts.len()), (pcap::LINKTYPE_RADIOTAP, 30));
+    let mut st = Stats::default();
+    let mut t = Tracker::new(0);
+    let mut lons = Vec::new();
+    for (ts, p) in &pkts {
+        let d = decode_frame(p, &mut st).expect("RID frame");
+        assert_eq!(d.transport, Transport::WifiBeacon);
+        assert_eq!(d.ssid.as_deref(), Some(testgen::TEST_SSID));
+        assert_eq!(d.freq, Some(2437));
+        t.feed(&d.src, d.transport, d.counter, &d.msgs, d.rssi, Some(6), ts / 1000);
+        lons.push(t.aircraft[0].location.as_ref().unwrap().lon.unwrap());
+    }
+    assert_eq!((st.rid, t.aircraft.len()), (30, 1));
+    assert!(lons.windows(2).all(|w| w[1] > w[0]), "moves east");
+    let ac = &t.aircraft[0];
+    assert_eq!(ac.label(), encode::TEST_UAS_ID);
+    assert_eq!(ac.mac, "02:5a:50:00:7e:57");
+    let trk = ac.location.as_ref().unwrap().track_deg.unwrap();
+    assert!((175..=180).contains(&trk), "turned from 90 to ~177: {trk}");
+}

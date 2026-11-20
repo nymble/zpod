@@ -1,10 +1,45 @@
-# ZPOD handoff (2026-11-08, generative lane HELD)
+# ZPOD handoff (2026-11-20, test7 / R1 built, awaiting hardware test)
 
-**This is the canonical handoff.** It lives on branch `pipit-seq` at
-<https://github.com/nymble/zpod/blob/pipit-seq/HANDOFF.md>. The copy on
-`buildroot` is only a pointer to this one.
+**This is the canonical handoff.** As of test7 it lives on branch
+`test7-r1` (from `pipit-seq` 525bc84):
+<https://github.com/nymble/zpod/blob/test7-r1/HANDOFF.md>. The copies on
+`pipit-seq` and `buildroot` describe the state before test7.
 
-## Status: HELD (generative lane parked, 2026-11-08 evening)
+## Status: test7 (R1) published as a pre-release, NOT installed (2026-11-20)
+
+Paul restarted development on 2026-11-20 (labs, synth, library). R1 =
+`v0.12.0-br-ab-test7`, release notes and assets on GitHub; test steps
+[docs/TEST-BR-TEST7.md](docs/TEST-BR-TEST7.md). Nothing was installed on any
+ZPOD; the 128 GB card is still test6 in slot B.
+
+- **Labs (receive only):** USB Lab, BLE Lab, Wi-Fi Lab with the root helper
+  `zpod-labd` (narrow command socket, refuses the onboard radio, no inject
+  path). Plan, crates and Paul's 2026-11-20 lab decisions (dongles, per-
+  transmit safeguard warning, DuckyScript library with select + edit,
+  moving TEST aircraft): [docs/ROADMAP-LABS.md](docs/ROADMAP-LABS.md).
+- **Offline TEST aircraft:** `zpod-remoteid::{encode, sim}` +
+  `zpod-wlan::testgen` + example `rid-test-pcap` (pcap on a computer only).
+- **Synth M1 + MIDI input, USB MIDI gadget switch:** [docs/SYNTH.md](docs/SYNTH.md).
+- **Library:** MPD state on `/data`, books push script:
+  [docs/LIBRARY.md](docs/LIBRARY.md).
+- **New bundled apps on updated cards:** `zpod-bundled-new` (S00zpod-data)
+  installs bundled apps a card was never offered, once (`/data/zpod/bundled.list`);
+  a removed app stays removed.
+- **Deviations from the research notes (deliberate):** sysfs instead of
+  `nusb`/`hidreport`, HCI monitor instead of `bluer`, AF_PACKET + own pcap
+  instead of libpcap, own Remote ID crate instead of `remoteid`. Reasons in
+  ROADMAP-LABS "Architecture".
+- **Licensing:** crates are MIT (workspace). Paul told Pi Lab "GPL plus
+  commercial" for shared crates on 2026-11-20; not applied here yet, needs
+  Paul's confirmation in this lane before any relicensing.
+- **Signing:** `.zab` is still unsigned (sha256 per file). ed25519 signing is
+  the next step (docs/AB-UPDATES.md) and a precondition for sharing the
+  format with Pi Lab.
+- **Next (needs Paul):** hardware test of test7; R2 per ROADMAP-LABS;
+  signing; Synth M2 (Trillium config); Librarian catalog.v1.
+
+## Earlier status (2026-11-08): generative lane HELD, superseded by the above
+
 
 Paul paused development on 2026-11-08 (17:47 PST), then the same evening
 asked for a cleanup pass and for the generative work (Pipit, Tidepool,

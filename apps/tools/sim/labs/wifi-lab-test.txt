@@ -1,0 +1,9 @@
+# Wi-Fi Lab replaying an offline TEST track (rid-test-pcap example)
+wait 800
+key ok
+wait 3000
+shot wifilab-test-list
+key ok
+wait 300
+shot wifilab-test-detail
+exit

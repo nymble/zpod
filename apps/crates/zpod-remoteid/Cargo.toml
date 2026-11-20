@@ -1,6 +1,6 @@
 [package]
 name = "zpod-remoteid"
-description = "Receive-only ASTM F3411 / ASD-STAN 4709-002 drone Remote ID decoder: 25-byte messages, message packs, BLE service data (0xFFFA), Wi-Fi Beacon vendor IE and Wi-Fi NAN service discovery payloads. No encoder, no transmit."
+description = "Receive-only ASTM F3411 / ASD-STAN 4709-002 drone Remote ID decoder: 25-byte messages, message packs, BLE service data (0xFFFA), Wi-Fi Beacon vendor IE and Wi-Fi NAN service discovery payloads. Offline encoder for labelled TEST aircraft and a moving-track simulator (bytes in memory only, no transmit)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -6,7 +6,7 @@
 //!
 //! Adapters screen -> OK starts listening on the selected USB adapter.
 //! Listening: aircraft list (OK = detail), Left/Right = channel, Triangle =
-//! hop 1/6/11, Square = pcap recording on/off (radiotap, Wireshark-ready,
+//! sweep 1/6/11 (+44/149 on a dual-band adapter), Square = pcap recording on/off (radiotap, Wireshark-ready,
 //! /data/zpod/appdata/wifi-lab), X = stop.
 //! Simulator: `ZPOD_WLAN_REPLAY=<pcap>` replays a capture (no helper).
 
@@ -35,7 +35,18 @@ extern "C" fn on_sigterm(_: libc::c_int) {
     STOP.store(true, Ordering::SeqCst);
 }
 
+/// Discovery sweep: the 2.4 GHz Remote ID channels, then (dual-band adapter
+/// only) a short 5 GHz pass over the common NAN/beacon channels.
 const HOP: [u32; 3] = [1, 6, 11];
+const HOP5: [u32; 2] = [44, 149];
+
+fn hop_plan(has5: bool) -> Vec<u32> {
+    let mut v = HOP.to_vec();
+    if has5 {
+        v.extend_from_slice(&HOP5);
+    }
+    v
+}
 
 enum Msg {
     Frame(u64, Vec<u8>),
@@ -104,6 +115,7 @@ struct Listen {
     iface: String,
     chan: u32,
     hop: bool,
+    plan: Vec<u32>,
     hop_at: Instant,
     closer: Option<UnixStream>,
     rx: Receiver<Msg>,
@@ -216,8 +228,8 @@ fn main() {
                 }
             }
             if l.hop && l.hop_at.elapsed() > Duration::from_millis(1500) && !replay {
-                let k = HOP.iter().position(|c| *c == l.chan).map(|k| (k + 1) % HOP.len()).unwrap_or(0);
-                l.chan = HOP[k];
+                let k = l.plan.iter().position(|c| *c == l.chan).map(|k| (k + 1) % l.plan.len()).unwrap_or(0);
+                l.chan = l.plan[k];
                 let _ = zpod_labd::client::request(&format!("wlan-chan {} {}", l.iface, l.chan));
                 l.hop_at = Instant::now();
             }
@@ -290,7 +302,7 @@ fn main() {
                 }
                 Key::Triangle => {
                     l.hop = !l.hop;
-                    say(&mut note, if l.hop { "Hopping 1 / 6 / 11".into() } else { format!("Fixed on channel {}", l.chan) });
+                    say(&mut note, if l.hop { format!("Sweeping {}", l.plan.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(" / ")) } else { format!("Fixed on channel {}", l.chan) });
                 }
                 Key::Square => {
                     if let Some((mut w, name)) = l.pcap.take() {
@@ -337,6 +349,7 @@ fn main() {
                     continue;
                 }
                 let iface = c.a.iface.clone();
+                let plan = hop_plan(c.has5);
                 let chan = 6;
                 if !replay {
                     if let Err(e) = zpod_labd::client::request(&format!("wlan-monitor {iface} {chan}")) {
@@ -348,7 +361,7 @@ fn main() {
                 match start_stream(iface.clone(), tx) {
                     Ok(closer) => {
                         eprintln!("wifi-lab: listening on {iface} ch {chan}");
-                        listen = Some(Listen { iface, chan, hop: false, hop_at: Instant::now(), closer, rx, stats: Stats::default(), tracker: Tracker::new(180_000), pcap: None, ended: None, ls: ListState::default(), detail: None });
+                        listen = Some(Listen { iface, chan, hop: false, plan, hop_at: Instant::now(), closer, rx, stats: Stats::default(), tracker: Tracker::new(180_000), pcap: None, ended: None, ls: ListState::default(), detail: None });
                     }
                     Err(e) => {
                         let _ = zpod_labd::client::request(&format!("wlan-managed {iface}"));
@@ -375,10 +388,10 @@ fn draw_adapters(fb: &mut zpod_ui::Framebuffer, st: &zpod_core::StatusInfo, role
     ui::header(fb, st, "Wi-Fi Lab", "adapters", if usable > 0 { ui::OK } else { ui::FAINT }, &format!("{} radio(s), {usable} usable for monitor", cands.len()));
     if usable == 0 {
         if role == UsbRole::Gadget {
-            ui::message(fb, "Plug in a USB Wi-Fi adapter", &["Monitor needs a second, USB adapter (RT5370,", "MT7601U...) via a powered hub. USB is now the", "computer link. OK: switch USB to devices."]);
+            ui::message(fb, "Plug in a USB Wi-Fi adapter", &["Monitor needs a second, USB adapter (RT5370,", "MT7601U...) via a powered hub. USB is now the", "computer link. OK: switch USB to devices.", "SSH stays up over Wi-Fi; or use a USB hub."]);
             ui::hints(fb, &[("OK", "switch USB"), ("Home", "exit")]);
         } else {
-            ui::message(fb, "Plug in a USB Wi-Fi adapter", &["Monitor-capable, via a powered hub:", "RT5370, RT3070 or MT7601U.", "Onboard Wi-Fi stays on your network.", "Receive only."]);
+            ui::message(fb, "Plug in a USB Wi-Fi adapter", &["Monitor-capable, via a powered hub:", "RT5370, RT3070 or MT7601U.", "Onboard Wi-Fi stays on your network,", "so SSH still works. Receive only."]);
             ui::hints(fb, &[("Tri", "computer link"), ("Home", "exit")]);
         }
         return;
@@ -429,7 +442,7 @@ fn draw_listen(fb: &mut zpod_ui::Framebuffer, st: &zpod_core::StatusInfo, l: &mu
         return;
     }
     if l.tracker.aircraft.is_empty() {
-        ui::message(fb, "Listening for Remote ID", &["Wi-Fi Beacon and NAN (ASTM F3411).", "Most drones: channel 6. Tri hops 1/6/11.", "Receive only: nothing is sent."]);
+        ui::message(fb, "Listening for Remote ID", &["Wi-Fi Beacon and NAN (ASTM F3411).", if l.plan.len() > 3 { "Most drones: ch 6. Tri sweeps 1/6/11/44/149." } else { "Most drones: channel 6. Tri hops 1/6/11." }, "Receive only: nothing is sent."]);
         ui::hints(fb, &[("Lt/Rt", "channel"), ("Tri", "hop"), ("Sq", if l.pcap.is_some() { "stop rec" } else { "record" }), ("X", "stop")]);
         return;
     }

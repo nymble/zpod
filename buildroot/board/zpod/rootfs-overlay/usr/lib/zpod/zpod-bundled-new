@@ -1,0 +1,30 @@
+#!/bin/sh
+# Install bundled apps that this card has never been offered (test7: a card
+# updated in place from test6 gets USB Lab, BLE Lab, Wi-Fi Lab and Synth).
+# /data/zpod/bundled.list records every bundled app id offered once; an app
+# on that list is never installed again, so an app the user removed stays
+# removed. A card without the list (test6 and older) starts with the apps
+# those images bundled. Runs from S00zpod-data after "update --if-newer".
+# Env (tests): ZPOD_BUNDLED_DIR, ZPOD_BUNDLED_LIST, ZPOD_APPS_DIR, ZPOD_APP.
+set -u
+PKGS=${ZPOD_BUNDLED_DIR:-/usr/share/zpod/packages}
+LIST=${ZPOD_BUNDLED_LIST:-/data/zpod/bundled.list}
+APPS=${ZPOD_APPS_DIR:-/data/zpod/apps}
+APP=${ZPOD_APP:-/usr/lib/zpod/bin/zpod-app}
+[ -f "$LIST" ] || printf 'music\nclock\ntetris\nmousemusic\ngps\n' > "$LIST"
+for p in "$PKGS"/*.zpa; do
+	[ -e "$p" ] || continue
+	id=$(basename "$p" | sed 's/-[0-9][^-]*\.zpa$//')
+	case "$id" in ''|*[!a-z0-9-]*) echo "zpod-bundled-new: skip $p (name)"; continue ;; esac
+	grep -qx "$id" "$LIST" && continue
+	if [ ! -d "$APPS/$id" ]; then
+		if ZPOD_CORE_VERSION_FILE=${ZPOD_CORE_VERSION_FILE:-/etc/zpod/core-version} "$APP" install "$p"; then
+			echo "zpod-bundled-new: installed $id"
+		else
+			echo "zpod-bundled-new: install $id failed (offered again next boot)"
+			continue
+		fi
+	fi
+	echo "$id" >> "$LIST"
+done
+exit 0

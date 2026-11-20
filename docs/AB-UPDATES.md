@@ -129,7 +129,9 @@ update, never the system choice.
 
 - Not tried on hardware yet: `os_prefix` with this firmware, the
   `[gpio12=0]` override, and `cmdline=` in a gpio filter with a prefix.
-- No signing; hash checks only.
+- No signing; hash checks only. **Next step:** ed25519-signed `AB.manifest`
+  (key off the device, public key in the image; a signed image refuses
+  unsigned bundles). Needed before the format is shared with Pi Lab.
 - The FAT partition holds the firmware plus up to three kernel sets (top
   level, `slot-a`, `slot-b`), about 20 MB of 64 MB
   (measured after a test5 migration and a second update).
