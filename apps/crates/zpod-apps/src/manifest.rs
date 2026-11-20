@@ -57,8 +57,9 @@ pub struct AppSection {
     #[serde(default)]
     pub category: Option<String>,
     /// Extra things the launcher lets this app do. Known: "usb-host" (ask
-    /// the launcher to switch the USB port between computer link and USB
-    /// devices; see ctl.rs). Needs a launcher from 2026-11-05 (ctl 2).
+    /// the launcher to switch USB to host mode; see ctl.rs) and "usb-gadget"
+    /// (app uses the computer-link HID/MIDI gadget; no extra ctl call).
+    /// Needs a launcher from 2026-11-05 (ctl 2).
     #[serde(default)]
     pub permissions: Vec<String>,
 }
@@ -123,7 +124,7 @@ pub struct Requires {
 }
 
 /// Values accepted in `permissions`.
-pub const KNOWN_PERMISSIONS: &[&str] = &["usb-host"];
+pub const KNOWN_PERMISSIONS: &[&str] = &["usb-host", "usb-gadget"];
 /// `[[handles]] kind` values this core acts on.
 pub const KNOWN_HANDLES: &[&str] = &["usb-device", "serial", "file", "input"];
 /// `requires.input` values.

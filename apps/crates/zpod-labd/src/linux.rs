@@ -9,6 +9,11 @@ use std::time::{Duration, Instant};
 
 use zpod_labd::proto::{self, Cmd};
 use zpod_labd::{SOCKET, VERSION};
+use zpod_remoteid::SimAircraft;
+use zpod_wlan::testgen;
+
+/// Shared transmit-arm deadline (Instant::now() when expired / unset).
+type Arm = Arc<Mutex<Option<Instant>>>;
 
 const AF_BLUETOOTH: libc::c_int = 31;
 const BTPROTO_HCI: libc::c_int = 1;
@@ -42,6 +47,7 @@ pub fn main() {
     let app_uid = app_uid();
     eprintln!("zpod-labd {VERSION}: listening on {SOCKET} (app uid {app_uid})");
     let busy: Busy = Arc::new(Mutex::new(HashSet::new()));
+    let arm: Arm = Arc::new(Mutex::new(None));
     for c in l.incoming().flatten() {
         let uid = peer_uid(&c);
         if !uid.is_some_and(|u| proto::peer_allowed(u, app_uid)) {
@@ -50,7 +56,8 @@ pub fn main() {
             continue;
         }
         let busy = busy.clone();
-        let _ = std::thread::Builder::new().name("labd-conn".into()).spawn(move || handle(c, busy));
+        let arm = arm.clone();
+        let _ = std::thread::Builder::new().name("labd-conn".into()).spawn(move || handle(c, busy, arm));
     }
 }
 
@@ -97,7 +104,7 @@ fn set_managed(iface: &str) -> Result<(), String> {
     run(&["iw", "dev", iface, "set", "type", "managed"])
 }
 
-fn handle(c: UnixStream, busy: Busy) {
+fn handle(c: UnixStream, busy: Busy, arm: Arm) {
     let mut r = BufReader::new(match c.try_clone() {
         Ok(x) => x,
         Err(_) => return,
@@ -134,6 +141,32 @@ fn handle(c: UnixStream, busy: Busy) {
             stream_hci(w, &busy);
             return;
         }
+        Cmd::TxArm { secs } => {
+            let until = Instant::now() + Duration::from_secs(secs as u64);
+            *arm.lock().unwrap() = Some(until);
+            eprintln!("zpod-labd: tx armed for {secs}s");
+            Ok(format!("armed {secs}s"))
+        }
+        Cmd::WlanTxRid { iface, chan, secs } => {
+            if let Err(e) = take_arm(&arm) {
+                let _ = writeln!(w, "err {e}");
+                return;
+            }
+            let Some(_claim) = claim(&busy, &format!("wlan-tx:{iface}")) else {
+                return_err(&mut w, &format!("{iface} is busy"));
+                return;
+            };
+            match tx_rid(&iface, chan, secs, &mut w) {
+                Ok(n) => {
+                    let _ = writeln!(w, "ok sent {n} TEST beacons on {iface} ch {chan}");
+                }
+                Err(e) => {
+                    let _ = writeln!(w, "err {e}");
+                }
+            }
+            return;
+        }
+        Cmd::HidArmOk => take_arm(&arm).map(|_| "hid armed".into()),
     };
     let _ = match res {
         Ok(m) => writeln!(w, "ok {m}"),
@@ -290,4 +323,89 @@ fn stream_hci(mut w: UnixStream, busy: &Busy) {
             let _ = writeln!(w, "err {e}");
         }
     }
+}
+
+
+fn return_err(w: &mut UnixStream, e: &str) {
+    let _ = writeln!(w, "err {e}");
+}
+
+fn take_arm(arm: &Arm) -> Result<(), String> {
+    let mut g = arm.lock().unwrap();
+    match *g {
+        Some(until) if Instant::now() < until => {
+            *g = None;
+            Ok(())
+        }
+        Some(_) => {
+            *g = None;
+            Err("transmit arm expired; confirm lab isolation and arm again".into())
+        }
+        None => Err("not armed: confirm lab isolation, then tx-arm".into()),
+    }
+}
+
+fn open_inject(iface: &str) -> Result<OwnedFd, String> {
+    let a = target(iface)?;
+    if !a.in_monitor() {
+        return Err(format!("{iface} is not in monitor mode"));
+    }
+    let idx = unsafe { libc::if_nametoindex(std::ffi::CString::new(iface).unwrap().as_ptr()) };
+    if idx == 0 {
+        return Err(format!("{iface}: no index"));
+    }
+    let proto_all = (libc::ETH_P_ALL as u16).to_be() as libc::c_int;
+    let fd = sock(libc::AF_PACKET, libc::SOCK_RAW, proto_all)?;
+    let mut sa: libc::sockaddr_ll = unsafe { std::mem::zeroed() };
+    sa.sll_family = libc::AF_PACKET as u16;
+    sa.sll_protocol = (libc::ETH_P_ALL as u16).to_be();
+    sa.sll_ifindex = idx as i32;
+    let r = unsafe {
+        libc::bind(
+            fd.as_raw_fd(),
+            (&sa as *const libc::sockaddr_ll).cast(),
+            std::mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
+        )
+    };
+    if r != 0 {
+        return Err(format!("bind {iface}: {}", std::io::Error::last_os_error()));
+    }
+    Ok(fd)
+}
+
+/// Inject moving TEST Remote ID beacons for `secs` at ~1 Hz. Always labelled
+/// TEST (Self ID "ZPOD TEST - NOT A UA"). Requires the adapter already in
+/// monitor mode on `chan`.
+fn tx_rid(iface: &str, chan: u32, secs: u32, _w: &mut UnixStream) -> Result<u32, String> {
+    let _ = run(&["iw", "dev", iface, "set", "channel", &chan.to_string()]);
+    let fd = open_inject(iface)?;
+    let mut ac = SimAircraft::test(37.4419, -122.1430); // labelled TEST
+    ac.turn_dps = 3.0;
+    let mut sent = 0u32;
+    let deadline = Instant::now() + Duration::from_secs(secs as u64);
+    let mut i = 0u32;
+    while Instant::now() < deadline {
+        let t_us = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_micros() as u64)
+            .unwrap_or(0);
+        let secs_epoch = t_us / 1_000_000;
+        let tenths = (((secs_epoch % 3600) * 10) + (t_us % 1_000_000) / 100_000) as u16;
+        let ts2019 = secs_epoch.saturating_sub(1_546_300_800) as u32;
+        let ie = zpod_remoteid::encode::beacon_ie(i as u8, &zpod_remoteid::encode::pack(&ac.messages(tenths, ts2019)));
+        let frame = testgen::beacon_frame(chan, (i as u16) & 0x0fff, &ie);
+        // SAFETY: send the complete radiotap+802.11 frame
+        let n = unsafe { libc::send(fd.as_raw_fd(), frame.as_ptr().cast(), frame.len(), 0) };
+        if n < 0 {
+            let e = std::io::Error::last_os_error();
+            // Some adapters reject injection; surface clearly.
+            return Err(format!("inject: {e} (adapter may not support TX in monitor mode)"));
+        }
+        sent += 1;
+        i = i.wrapping_add(1);
+        ac.step(1.0);
+        std::thread::sleep(Duration::from_millis(1000));
+    }
+    eprintln!("zpod-labd: TX done, {sent} TEST beacons on {iface}");
+    Ok(sent)
 }

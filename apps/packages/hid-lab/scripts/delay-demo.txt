@@ -1,0 +1,7 @@
+REM Timing / key demo for dry-run practice. Types a short TEST string.
+DELAY 200
+STRING ZPOD
+DELAY 200
+SPACE
+STRING ducky ok
+ENTER

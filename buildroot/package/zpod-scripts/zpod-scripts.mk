@@ -4,7 +4,7 @@
 ZPOD_SCRIPTS_VERSION = 1.0
 ZPOD_SCRIPTS_SITE = $(BR2_EXTERNAL_ZPOD_PATH)/../overlay
 ZPOD_SCRIPTS_SITE_METHOD = local
-ZPOD_SCRIPTS_LICENSE = MIT
+ZPOD_SCRIPTS_LICENSE = GPL-3.0-or-later OR LicenseRef-Commercial
 ZPOD_SCRIPTS_FILES = zpod_buttons.py zpod_battery_guard.py zpod_hw.py \
 	zpod-usb-gadget.sh zpod-audio-init.sh
 

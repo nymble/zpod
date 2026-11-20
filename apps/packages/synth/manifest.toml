@@ -8,7 +8,7 @@ version = "0.1.0"
 exec = "bin/synth"
 icon = "icon.png"
 description = "MIDI sound module: one voice, played from USB MIDI (computer link or a keyboard)"
-min_core = "0.12.0"
+min_core = "0.13.0"
 order = 47
 arch = "arm-unknown-linux-musleabihf"
 

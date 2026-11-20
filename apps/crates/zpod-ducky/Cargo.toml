@@ -1,0 +1,8 @@
+[package]
+name = "zpod-ducky"
+description = "DuckyScript subset for ZPOD HID Lab: parse, dry-run, and encode USB HID boot-keyboard reports. No I/O; the app writes /dev/hidg0 after confirm+arm."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]

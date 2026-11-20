@@ -1,6 +1,6 @@
 [package]
 name = "zpod-wlan"
-description = "Receive-only Wi-Fi lab for ZPOD: adapter/phy inventory, monitor-capability check, radiotap + 802.11 management frame parsing, Remote ID Beacon and NAN decoding, aircraft table, pcap read/write. No injection or transmit."
+description = "Receive-only Wi-Fi lab for ZPOD: adapter/phy inventory, monitor-capability check, radiotap + 802.11 management frame parsing, Remote ID Beacon and NAN decoding, aircraft table, pcap read/write. Injection is only via zpod-labd after tx-arm (TEST RID)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

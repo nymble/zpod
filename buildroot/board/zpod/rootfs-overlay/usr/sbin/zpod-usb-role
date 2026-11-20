@@ -35,6 +35,7 @@ RUN=${ZPOD_UR_RUN:-/run/zpod}
 STATE=${ZPOD_UR_STATE:-/data/zpod/usb-role}
 S35=${ZPOD_UR_S35:-/etc/init.d/S35usbgadget}
 MIDI_CFG=${ZPOD_USB_MIDI_CFG:-/data/zpod/usb-midi.txt}
+HID_CFG=${ZPOD_USB_HID_CFG:-/data/zpod/usb-hid.txt}
 DRY=${ZPOD_UR_DRY:-}
 DEV=20980000.usb
 DRV=$SYS/bus/platform/drivers/dwc2
@@ -122,6 +123,8 @@ status_kv() {
 	echo "link=$(udc_state)"
 	echo "midi=$(midi_want)"
 	if ls -d "$SYS"/kernel/config/usb_gadget/*/functions/midi.* >/dev/null 2>&1; then echo midi_live=1; else echo midi_live=0; fi
+	echo "hid=$(hid_want)"
+	if ls -d "$SYS"/kernel/config/usb_gadget/*/functions/hid.* >/dev/null 2>&1; then echo hid_live=1; else echo hid_live=0; fi
 	if dtbo_dir >/dev/null; then echo can_switch=1; else echo can_switch=0; fi
 	devices | sed 's/^/dev=/'
 }
@@ -293,6 +296,23 @@ midi_set() {
 	echo "ok midi $1 (computer link restarted)"
 }
 
+hid_want() {
+	v=$(sed -n 's/^[[:space:]]*hid[[:space:]]*=[[:space:]]*\([a-z]*\).*/\1/p' "$HID_CFG" 2>/dev/null | tail -n1)
+	[ "$v" = on ] && echo on || echo off
+}
+
+hid_set() {
+	case "${1:-}" in on|off) ;; *) die "usage: hid on|off" 2 ;; esac
+	mkdir -p "$(dirname "$HID_CFG")" || die "cannot create $(dirname "$HID_CFG")"
+	printf '# zpod-usb-role hid (Tools > USB > USB HID keyboard / HID Lab)\nhid=%s\n' "$1" > "$HID_CFG.tmp" && mv "$HID_CFG.tmp" "$HID_CFG" || die "cannot write $HID_CFG"
+	log "usb hid $1"
+	r=$(role_now)
+	if [ "$r" = host ]; then echo "ok hid $1 (applies when USB is next the computer link)"; return 0; fi
+	hw_gadget_stop
+	hw_gadget_start
+	echo "ok hid $1 (computer link restarted)"
+}
+
 boot_guard() {
 	[ "$(role_now)" = host ] || { rm -f "$STATE/host-boots" 2>/dev/null; return 0; }
 	mkdir -p "$STATE"
@@ -324,6 +344,7 @@ set) shift; [ $# -ge 1 ] || die "usage: set host|gadget|auto [--force] [--persis
 next-boot) [ $# -eq 2 ] || die "usage: next-boot host|gadget" 2; next_boot "$2" ;;
 boot-guard) boot_guard ;;
 midi) [ $# -eq 2 ] || die "usage: midi on|off" 2; midi_set "$2" ;;
+hid) [ $# -eq 2 ] || die "usage: hid on|off" 2; hid_set "$2" ;;
 -h|--help|help) sed -n '2,28p' "$0" ;;
 *) die "unknown command '$1' (zpod-usb-role help)" 2 ;;
 esac

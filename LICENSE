@@ -1,0 +1,11 @@
+ZPOD is dual-licensed:
+
+  * GNU General Public License v3.0 or later (LICENSE-GPL-3.0), OR
+  * a commercial license (LICENSE-COMMERCIAL)
+
+You may choose either license. See LICENSING.md for the scope, the
+vendored exceptions (GPL-2.0 aoide driver and anything derived from the
+original uGeek/AOIDE software), and the status of earlier MIT-published
+releases (those stay MIT).
+
+Copyright (c) 2024-2026 Paul / nymble (https://github.com/nymble)

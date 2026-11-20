@@ -9,7 +9,7 @@
 ZPOD_APPS_VERSION = $(shell cat $(BR2_EXTERNAL_ZPOD_PATH)/../apps/system/etc/zpod/core-version 2>/dev/null || echo 0)
 ZPOD_APPS_SITE = $(BR2_EXTERNAL_ZPOD_PATH)/../apps/system
 ZPOD_APPS_SITE_METHOD = local
-ZPOD_APPS_LICENSE = MIT
+ZPOD_APPS_LICENSE = GPL-3.0-or-later OR LicenseRef-Commercial
 ZPOD_APPS_DIST = $(call qstrip,$(BR2_PACKAGE_ZPOD_APPS_DIST))
 
 define ZPOD_APPS_BUILD_CMDS

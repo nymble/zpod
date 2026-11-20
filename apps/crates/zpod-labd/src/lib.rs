@@ -12,12 +12,15 @@
 //! | `wlan-monitor <iface> <chan>` | USB adapter only: down, type monitor, up, channel |
 //! | `wlan-chan <iface> <chan>` | channel on an adapter already in monitor mode |
 //! | `wlan-managed <iface>` | back to managed (never touches the onboard radio) |
-//! | `wlan-stream <iface>` | radiotap frames from a monitor interface (receive only) |
+//! | `wlan-stream <iface>` | radiotap frames from a monitor interface (receive) |
 //! | `hci-stream` | HCI monitor-channel packets + passive LE scan on hci0 |
+//! | `tx-arm <secs>` | arm over-the-air / HID transmit for 1..=120 s (off at boot) |
+//! | `wlan-tx-rid <iface> <chan> <secs>` | inject moving TEST Remote ID beacons (needs arm) |
+//! | `hid-arm-ok` | consume the arm for a HID / DuckyScript run (app writes /dev/hidg0) |
 //!
-//! Nothing here transmits: no injection socket is handed out, the HCI
-//! monitor channel is read-only, and the BLE scan is passive (no scan
-//! requests).
+//! Transmit paths require a fresh `tx-arm` every time. The UI must show the
+//! safeguard warning ([`proto::TX_SAFEGUARD`]) and get an explicit confirm
+//! before calling `tx-arm`. Nothing is armed at boot.
 
 pub mod client;
 pub mod proto;

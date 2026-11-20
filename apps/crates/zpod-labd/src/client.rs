@@ -11,8 +11,14 @@ fn connect() -> io::Result<UnixStream> {
 
 /// Send one command, return the `ok` text or the `err` reason as Err.
 pub fn request(cmd: &str) -> Result<String, String> {
+    request_timeout(cmd, Duration::from_secs(15))
+}
+
+/// Like [`request`], with an explicit read timeout (e.g. 90s for `wlan-tx-rid`).
+pub fn request_timeout(cmd: &str, timeout: Duration) -> Result<String, String> {
     let mut s = connect().map_err(|e| format!("lab helper not running ({e})"))?;
-    s.set_read_timeout(Some(Duration::from_secs(15))).ok();
+    s.set_read_timeout(Some(timeout)).ok();
+    s.set_write_timeout(Some(Duration::from_secs(5))).ok();
     s.write_all(format!("{cmd}\n").as_bytes()).map_err(|e| e.to_string())?;
     let mut line = String::new();
     BufReader::new(&s).read_line(&mut line).map_err(|e| e.to_string())?;

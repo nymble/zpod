@@ -48,7 +48,7 @@ fn trusted(p: &std::path::Path) -> bool {
 /// Current state. Without the tool (older image): the role from the device
 /// tree, no switching.
 pub fn status() -> RoleInfo {
-    status_midi().0
+    status_all().0
 }
 
 /// USB MIDI next to USB Ethernet on the computer link (Tools > USB > USB
@@ -75,11 +75,37 @@ impl Midi {
     }
 }
 
-/// [`status`] plus the USB MIDI switch, from one run of the tool.
-pub fn status_midi() -> (RoleInfo, Midi) {
+
+/// USB HID keyboard next to USB Ethernet (Tools > USB > USB HID,
+/// `zpod-usb-role hid on|off`). Used by HID Lab / DuckyScript.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Hid {
+    pub known: bool,
+    pub on: bool,
+    pub live: bool,
+}
+
+impl Hid {
+    pub fn parse(s: &str) -> Hid {
+        let mut m = Hid::default();
+        for l in s.lines() {
+            match l.trim() {
+                "hid=on" => (m.known, m.on) = (true, true),
+                "hid=off" => (m.known, m.on) = (true, false),
+                "hid_live=1" => m.live = true,
+                _ => {}
+            }
+        }
+        m
+    }
+}
+
+/// [`status`] plus MIDI and HID switches, from one run of the tool.
+pub fn status_all() -> (RoleInfo, Midi, Hid) {
     if sys::sim() {
         let on = std::env::var("ZPOD_SIM_USB_MIDI").as_deref() == Ok("on");
-        return (role::sim_info(), Midi { known: true, on, live: on });
+        let hon = std::env::var("ZPOD_SIM_USB_HID").as_deref() == Ok("on");
+        return (role::sim_info(), Midi { known: true, on, live: on }, Hid { known: true, on: hon, live: hon });
     }
     if let Some(t) = tool() {
         if let Ok(o) = Command::new(&t).arg("status").output() {
@@ -87,13 +113,18 @@ pub fn status_midi() -> (RoleInfo, Midi) {
                 let out = String::from_utf8_lossy(&o.stdout);
                 let i = RoleInfo::parse(&out);
                 if i.role.is_some() {
-                    return (i, Midi::parse(&out));
+                    return (i, Midi::parse(&out), Hid::parse(&out));
                 }
             }
         }
     }
     let r = role::usb_role();
-    (RoleInfo { role: Some(r), boot: Some(r), next: Some(r), persist: "none".into(), ..Default::default() }, Midi::default())
+    (RoleInfo { role: Some(r), boot: Some(r), next: Some(r), persist: "none".into(), ..Default::default() }, Midi::default(), Hid::default())
+}
+
+pub fn status_midi() -> (RoleInfo, Midi) {
+    let (i, m, _) = status_all();
+    (i, m)
 }
 
 /// Turn USB MIDI on or off (blocking, ~1-2 s: restarts the computer link
@@ -121,6 +152,29 @@ pub fn set_midi(on: bool) -> Result<String, String> {
 }
 
 /// A USB MIDI on/off running on a thread.
+
+pub fn set_hid(on: bool) -> Result<String, String> {
+    let w = if on { "on" } else { "off" };
+    if sys::sim() {
+        std::thread::sleep(Duration::from_millis(300));
+        std::env::set_var("ZPOD_SIM_USB_HID", w);
+        let host = std::env::var("ZPOD_USB_ROLE").as_deref() == Ok("host");
+        return Ok(if host { format!("hid {w} (applies when USB is next the computer link)") } else { format!("hid {w} (computer link restarted)") });
+    }
+    let t = tool().ok_or("this image has no zpod-usb-role")?;
+    let o = Command::new(&t).args(["hid", w]).output().map_err(|e| format!("{}: {e}", t.display()))?;
+    let out = String::from_utf8_lossy(&o.stdout);
+    let last = out.lines().filter(|l| l.starts_with("ok") || l.starts_with("err")).last().unwrap_or("").trim().to_string();
+    eprintln!("launcher: usb hid {w}: {}", if last.is_empty() { "no answer" } else { &last });
+    if let Some(r) = last.strip_prefix("ok") {
+        Ok(r.trim().to_string())
+    } else if let Some(r) = last.strip_prefix("err") {
+        Err(r.trim().to_string())
+    } else {
+        Err(format!("zpod-usb-role exited {}", o.status.code().unwrap_or(-1)))
+    }
+}
+
 pub struct MidiJob {
     pub on: bool,
     rx: Receiver<Result<String, String>>,
@@ -143,6 +197,28 @@ impl MidiJob {
         }
     }
 }
+
+pub struct HidJob {
+    pub on: bool,
+    rx: Receiver<Result<String, String>>,
+    started: Instant,
+}
+
+impl HidJob {
+    pub fn start(on: bool) -> HidJob {
+        let (tx, rx) = channel();
+        std::thread::Builder::new().name("usb-hid".into()).spawn(move || { let _ = tx.send(set_hid(on)); }).ok();
+        HidJob { on, rx, started: Instant::now() }
+    }
+    pub fn poll(&self) -> Option<Result<String, String>> {
+        match self.rx.try_recv() {
+            Ok(r) => Some(r),
+            Err(_) if self.started.elapsed() > Duration::from_secs(15) => Some(Err("timed out".into())),
+            Err(_) => None,
+        }
+    }
+}
+
 
 /// Switch now (blocking, up to ~10 s). Ok(new role word) or Err(reason).
 pub fn set(to: UsbTarget, force: bool, persist: bool) -> Result<String, String> {

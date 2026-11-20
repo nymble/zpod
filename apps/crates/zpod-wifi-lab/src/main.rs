@@ -1,13 +1,12 @@
-//! Wi-Fi Lab (Tools > Radio > Wi-Fi Lab): listen for drone Remote ID
-//! (ASTM F3411 Wi-Fi Beacon and NAN) with a second, monitor-capable USB
-//! Wi-Fi adapter. Receive only; the onboard radio is never put in monitor
-//! mode (it keeps the home network). The lab helper zpod-labd switches the
-//! USB adapter to monitor mode and back when the capture ends.
+//! Wi-Fi Lab (Tools > Radio > Wi-Fi Lab): drone Remote ID (ASTM F3411 Wi-Fi
+//! Beacon and NAN) with a second, monitor-capable USB Wi-Fi adapter.
 //!
-//! Adapters screen -> OK starts listening on the selected USB adapter.
-//! Listening: aircraft list (OK = detail), Left/Right = channel, Triangle =
-//! sweep 1/6/11 (+44/149 on a dual-band adapter), Square = pcap recording on/off (radiotap, Wireshark-ready,
-//! /data/zpod/appdata/wifi-lab), X = stop.
+//! Receive: Adapters -> OK listens. Aircraft list, channel, sweep, pcap.
+//! Transmit (gated): Adapters -> Square opens the safeguard warning; OK
+//! confirms lab isolation; Triangle arms and runs a moving TEST aircraft
+//! beacon train via zpod-labd (`tx-arm` then `wlan-tx-rid`). Arm is consumed
+//! every time; nothing transmits at boot. The onboard radio is never used.
+//!
 //! Simulator: `ZPOD_WLAN_REPLAY=<pcap>` replays a capture (no helper).
 
 use std::fs::File;
@@ -51,6 +50,13 @@ fn hop_plan(has5: bool) -> Vec<u32> {
 enum Msg {
     Frame(u64, Vec<u8>),
     Ended(String),
+}
+
+/// Transmit UI: warn -> confirm -> arm/run.
+enum TxPhase {
+    Warn { iface: String, has5: bool },
+    Running { iface: String, chan: u32, note: String },
+    Done { note: String },
 }
 
 struct Cand {
@@ -156,6 +162,7 @@ fn main() {
     let mut cands: Vec<Cand> = Vec::new();
     let mut als = ListState::default();
     let mut listen: Option<Listen> = None;
+    let mut tx: Option<TxPhase> = None;
     let mut note: Option<(String, Instant)> = None;
     let mut next_inv = Instant::now();
     let mut st = p.status.poll();
@@ -245,9 +252,13 @@ fn main() {
             dirty = true;
         }
         if dirty || Instant::now() >= next_redraw {
-            match listen.as_mut() {
-                Some(l) => draw_listen(&mut p.fb, &st, l, now_ms()),
-                None => draw_adapters(&mut p.fb, &st, role, &cands, &als),
+            if let Some(tp) = tx.as_ref() {
+                draw_tx(&mut p.fb, &st, tp);
+            } else {
+                match listen.as_mut() {
+                    Some(l) => draw_listen(&mut p.fb, &st, l, now_ms()),
+                    None => draw_adapters(&mut p.fb, &st, role, &cands, &als),
+                }
             }
             ui::draw_ask(&mut p.fb, &ask, note.as_ref().map(|(n, _)| n.as_str()));
             p.flush();
@@ -272,6 +283,60 @@ fn main() {
         }
         if ev.key == Key::Home {
             break;
+        }
+        if let Some(tp) = tx.as_mut() {
+            match tp {
+                TxPhase::Warn { iface, has5: _ } => match ev.key {
+                    Key::Cross | Key::Left => {
+                        tx = None;
+                        say(&mut note, "Transmit cancelled".into());
+                    }
+                    Key::Ok | Key::Circle => {
+                        // confirmed warning; wait for Triangle to arm
+                        say(&mut note, "Confirmed. Triangle: arm + transmit 15s TEST".into());
+                    }
+                    Key::Triangle => {
+                        let iface = iface.clone();
+                        let chan = 6u32;
+                        if replay {
+                            tx = Some(TxPhase::Done { note: "Simulator: no RF transmit".into() });
+                            continue;
+                        }
+                        // ensure monitor mode
+                        if let Err(e) = zpod_labd::client::request(&format!("wlan-monitor {iface} {chan}")) {
+                            say(&mut note, e);
+                            tx = None;
+                            continue;
+                        }
+                        if let Err(e) = zpod_labd::client::request("tx-arm 30") {
+                            say(&mut note, e);
+                            let _ = zpod_labd::client::request(&format!("wlan-managed {iface}"));
+                            tx = None;
+                            continue;
+                        }
+                        tx = Some(TxPhase::Running { iface: iface.clone(), chan, note: "Transmitting TEST RID…".into() });
+                        draw_tx(&mut p.fb, &st, tx.as_ref().unwrap());
+                        p.flush();
+                        // blocking TX (up to ~15s + margin)
+                        let res = zpod_labd::client::request_timeout(&format!("wlan-tx-rid {iface} {chan} 15"), Duration::from_secs(90));
+                        let _ = zpod_labd::client::request(&format!("wlan-managed {iface}"));
+                        tx = Some(TxPhase::Done {
+                            note: match res {
+                                Ok(m) => m,
+                                Err(e) => format!("TX failed: {e}"),
+                            },
+                        });
+                    }
+                    _ => {}
+                },
+                TxPhase::Running { .. } => {}
+                TxPhase::Done { .. } => {
+                    if matches!(ev.key, Key::Ok | Key::Circle | Key::Cross | Key::Left) {
+                        tx = None;
+                    }
+                }
+            }
+            continue;
         }
         if let Some(l) = listen.as_mut() {
             if let Some((mac, scroll)) = l.detail.as_mut() {
@@ -374,6 +439,18 @@ fn main() {
                     say(&mut note, format!("Cannot switch here: {e}"));
                 }
             }
+            Key::Square => {
+                let Some(c) = cands.get(als.sel) else { continue };
+                if c.a.onboard {
+                    say(&mut note, "Onboard Wi-Fi stays on your network (no TX)".into());
+                    continue;
+                }
+                if c.monitor == Some(false) {
+                    say(&mut note, format!("{} has no monitor/inject", c.a.iface));
+                    continue;
+                }
+                tx = Some(TxPhase::Warn { iface: c.a.iface.clone(), has5: c.has5 });
+            }
             _ => {}
         }
     }
@@ -413,7 +490,7 @@ fn draw_adapters(fb: &mut zpod_ui::Framebuffer, st: &zpod_core::StatusInfo, role
         })
         .collect();
     ui::list(fb, &items, ls);
-    ui::hints(fb, &[("OK", "listen"), ("Tri", "computer link"), ("Home", "exit")]);
+    ui::hints(fb, &[("OK", "listen"), ("Sq", "TX"), ("Tri", "computer link"), ("Home", "exit")]);
 }
 
 fn draw_listen(fb: &mut zpod_ui::Framebuffer, st: &zpod_core::StatusInfo, l: &mut Listen, now: u64) {
@@ -464,4 +541,34 @@ fn draw_listen(fb: &mut zpod_ui::Framebuffer, st: &zpod_core::StatusInfo, l: &mu
         .collect();
     ui::list(fb, &items, &l.ls);
     ui::hints(fb, &[("OK", "detail"), ("Lt/Rt", "ch"), ("Tri", "hop"), ("Sq", if l.pcap.is_some() { "stop rec" } else { "rec" }), ("X", "stop")]);
+}
+
+
+fn draw_tx(fb: &mut zpod_ui::Framebuffer, st: &zpod_core::StatusInfo, tp: &TxPhase) {
+    match tp {
+        TxPhase::Warn { iface, .. } => {
+            ui::header(fb, st, "Wi-Fi Lab", "TX WARN", ui::WARN, iface);
+            ui::message(
+                fb,
+                "Before EVERY transmit",
+                &[
+                    zpod_labd::proto::TX_SAFEGUARD,
+                    "Only a labelled TEST aircraft is sent.",
+                    "OK: I confirm isolation.  Triangle: arm + TX 15s.",
+                    "X: cancel. Never armed at boot.",
+                ],
+            );
+            ui::hints(fb, &[("OK", "confirm"), ("Tri", "arm+TX"), ("X", "cancel")]);
+        }
+        TxPhase::Running { iface, chan, note } => {
+            ui::header(fb, st, "Wi-Fi Lab", "TX", ui::WARN, &format!("{iface} ch {chan}"));
+            ui::message(fb, "Transmitting TEST Remote ID", &[note, "Moving TEST aircraft (not a UA).", "Adapter returns to managed when done."]);
+            ui::hints(fb, &[("…", "sending")]);
+        }
+        TxPhase::Done { note } => {
+            ui::header(fb, st, "Wi-Fi Lab", "TX done", ui::OK, "");
+            ui::message(fb, "Transmit finished", &[note, "Arm was consumed. Next TX needs a new confirm."]);
+            ui::hints(fb, &[("OK/X", "back")]);
+        }
+    }
 }

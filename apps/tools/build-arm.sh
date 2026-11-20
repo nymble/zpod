@@ -2,7 +2,7 @@
 # Cross-build all ZPOD M4 binaries for the Pi Zero W (ARMv6, arm1176jzf-s),
 # verify the ELF arch, and stage dist/:
 #   dist/core/usr/lib/zpod/bin/{zpod-launcher,zpod-bootsplash,zpod-drop,zpod-battery,zpod-app,zpod-labd}
-#   dist/packages/{music,clock,tetris,mousemusic,gps,usb-lab,ble-lab,wifi-lab,synth}-<ver>.zpa
+#   dist/packages/{music,clock,tetris,mousemusic,gps,usb-lab,ble-lab,wifi-lab,synth,hid-lab}-<ver>.zpa
 # Needs: rustup target arm-unknown-linux-musleabihf, cargo-zigbuild + zig.
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd); cd "$here"
@@ -10,11 +10,11 @@ T=${TARGET:-arm-unknown-linux-musleabihf}
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
 nice -n 10 cargo zigbuild --release --target "$T" \
   -p zpod-launcher -p zpod-bootsplash -p zpod-drop -p zpod-battery -p zpod-apps -p zpod-music -p zpod-clock -p zpod-tetris -p zpod-mousemusic -p zpod-gps \
-  -p zpod-labd -p zpod-usb-lab -p zpod-ble-lab -p zpod-wifi-lab -p zpod-synth
+  -p zpod-labd -p zpod-usb-lab -p zpod-ble-lab -p zpod-wifi-lab -p zpod-synth -p zpod-hid-lab
 R=target/$T/release
 rm -rf dist; mkdir -p dist/core/usr/lib/zpod/bin dist/packages dist/stage
 fail=0
-for b in zpod-launcher zpod-bootsplash zpod-drop zpod-battery zpod-app zpod-labd music clock tetris mousemusic gps usb-lab ble-lab wifi-lab synth; do
+for b in zpod-launcher zpod-bootsplash zpod-drop zpod-battery zpod-app zpod-labd music clock tetris mousemusic gps usb-lab ble-lab wifi-lab synth hid-lab; do
   arch=$(readelf -A "$R/$b" | sed -n 's/.*Tag_CPU_arch: //p')
   printf '%-16s %8s bytes  Tag_CPU_arch=%s\n' "$b" "$(stat -c %s "$R/$b")" "$arch"
   case "$arch" in v6|v6KZ|v6K) ;; *) echo "  NOT ARMv6!"; fail=1 ;; esac
@@ -24,9 +24,11 @@ for b in zpod-launcher zpod-bootsplash zpod-drop zpod-battery zpod-app zpod-labd
 host_app=target/release/zpod-app
 # always (incremental): a stale host zpod-app rejects newer manifest fields
 nice -n 10 cargo build --release -p zpod-apps
-for a in music clock tetris mousemusic gps usb-lab ble-lab wifi-lab synth; do
+for a in music clock tetris mousemusic gps usb-lab ble-lab wifi-lab synth hid-lab; do
   mkdir -p "dist/stage/$a/bin"
   cp "packages/$a/manifest.toml" "packages/$a/icon.png" "dist/stage/$a/"
+  # optional package extras (e.g. hid-lab/scripts)
+  if [ -d "packages/$a/scripts" ]; then cp -R "packages/$a/scripts" "dist/stage/$a/"; fi
   cp "$R/$a" "dist/stage/$a/bin/$a"
   SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1792195200} "$host_app" pack "dist/stage/$a" dist/packages >/dev/null
 done

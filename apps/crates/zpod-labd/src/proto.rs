@@ -10,6 +10,17 @@ pub enum Cmd {
     WlanManaged { iface: String },
     WlanStream { iface: String },
     HciStream,
+    /// Arm over-the-air transmit for up to `secs` (1..=120). Required before
+    /// every `wlan-tx-rid` or `hid-run`. Cleared after a successful start or
+    /// when the timer expires. Never armed at boot.
+    TxArm { secs: u32 },
+    /// Transmit a moving TEST Remote ID beacon train on a USB adapter already
+    /// in monitor mode. Requires a live arm. `secs` is 1..=60.
+    WlanTxRid { iface: String, chan: u32, secs: u32 },
+    /// Run a HID / DuckyScript session (writes to /dev/hidg0). Requires a live
+    /// arm. The client then sends one line `run` or hangs up to cancel; the
+    /// daemon does not keep scripts — the app feeds HID reports after arm.
+    HidArmOk,
 }
 
 pub fn valid_iface(s: &str) -> bool {
@@ -40,6 +51,12 @@ pub fn parse(line: &str) -> Result<Cmd, String> {
             _ => Err(format!("bad channel {s:?}")),
         }
     };
+    let secs = |s: &str, lo: u32, hi: u32| -> Result<u32, String> {
+        match s.parse::<u32>() {
+            Ok(n) if (lo..=hi).contains(&n) => Ok(n),
+            _ => Err(format!("bad duration {s:?} (want {lo}..={hi})")),
+        }
+    };
     match w.as_slice() {
         ["ping"] => Ok(Cmd::Ping),
         ["wlan-monitor", i, c] => Ok(Cmd::WlanMonitor { iface: iface(i)?, chan: chan(c)? }),
@@ -47,6 +64,9 @@ pub fn parse(line: &str) -> Result<Cmd, String> {
         ["wlan-managed", i] => Ok(Cmd::WlanManaged { iface: iface(i)? }),
         ["wlan-stream", i] => Ok(Cmd::WlanStream { iface: iface(i)? }),
         ["hci-stream"] => Ok(Cmd::HciStream),
+        ["tx-arm", s] => Ok(Cmd::TxArm { secs: secs(s, 1, 120)? }),
+        ["wlan-tx-rid", i, c, s] => Ok(Cmd::WlanTxRid { iface: iface(i)?, chan: chan(c)?, secs: secs(s, 1, 60)? }),
+        ["hid-arm-ok"] => Ok(Cmd::HidArmOk),
         [] => Err("empty command".into()),
         [c, ..] => Err(format!("unknown command {c:?}")),
     }
@@ -74,15 +94,15 @@ pub fn frame_header(len: usize) -> [u8; 4] {
 
 /// HCI command packets for a passive LE scan (H4 type 0x01 + opcode + len + params).
 pub fn hci_scan_enable(on: bool) -> [u8; 6] {
-    // LE Set Scan Enable (OGF 0x08, OCF 0x000C): enable, filter duplicates off
     [0x01, 0x0C, 0x20, 2, on as u8, 0]
 }
 
 pub fn hci_scan_params_passive() -> [u8; 11] {
-    // LE Set Scan Parameters (0x200B): passive, interval 60 ms, window 30 ms,
-    // public own address, accept all
     [0x01, 0x0B, 0x20, 7, 0x00, 0x60, 0x00, 0x30, 0x00, 0x00, 0x00]
 }
+
+/// Warning text the UI must show before every transmit (Paul 2026-11-20).
+pub const TX_SAFEGUARD: &str = "isolated lab: cabled / dummy load / Faraday enclosure in place?";
 
 #[cfg(test)]
 mod tests {
@@ -98,6 +118,12 @@ mod tests {
         assert_eq!(parse("wlan-monitor wlan1 6"), Ok(Cmd::WlanMonitor { iface: "wlan1".into(), chan: 6 }));
         assert_eq!(parse("wlan-chan wlan1 149"), Ok(Cmd::WlanChan { iface: "wlan1".into(), chan: 149 }));
         assert_eq!(parse("hci-stream"), Ok(Cmd::HciStream));
+        assert_eq!(parse("tx-arm 30"), Ok(Cmd::TxArm { secs: 30 }));
+        assert_eq!(parse("wlan-tx-rid wlan1 6 15"), Ok(Cmd::WlanTxRid { iface: "wlan1".into(), chan: 6, secs: 15 }));
+        assert_eq!(parse("hid-arm-ok"), Ok(Cmd::HidArmOk));
+        assert!(parse("tx-arm 0").is_err());
+        assert!(parse("tx-arm 121").is_err());
+        assert!(parse("wlan-tx-rid wlan1 6 0").is_err());
         assert!(parse("wlan-monitor wlan1 0").is_err());
         assert!(parse("wlan-monitor wlan1 15").is_err());
         assert!(parse("wlan-monitor ../x 6").is_err());
@@ -122,5 +148,6 @@ mod tests {
         assert_eq!(frame_header(258), [2, 1, 0, 0]);
         assert_eq!(hci_scan_enable(true), [1, 0x0c, 0x20, 2, 1, 0]);
         assert_eq!(hci_scan_params_passive()[4], 0, "scan type must be passive");
+        assert!(TX_SAFEGUARD.contains("Faraday"));
     }
 }

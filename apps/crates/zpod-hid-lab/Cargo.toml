@@ -1,0 +1,20 @@
+[package]
+name = "zpod-hid-lab"
+description = "HID Lab (DuckyScript): select/edit/dry-run/run community scripts as a USB keyboard gadget, confirm+arm before every run"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "hid-lab"
+path = "src/main.rs"
+
+[dependencies]
+libc.workspace = true
+zpod-core = { workspace = true }
+zpod-hal = { workspace = true }
+zpod-ui = { workspace = true }
+zpod-input = { workspace = true }
+zpod-labui = { path = "../zpod-labui" }
+zpod-labd = { path = "../zpod-labd" }
+zpod-ducky = { path = "../zpod-ducky" }

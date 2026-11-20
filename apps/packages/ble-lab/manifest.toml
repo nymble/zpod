@@ -8,7 +8,7 @@ version = "0.1.0"
 exec = "bin/ble-lab"
 icon = "icon.png"
 description = "Bluetooth LE scanner: devices, beacons, trackers, AirPods, drone Remote ID (passive, receive only)"
-min_core = "0.12.0"
+min_core = "0.13.0"
 order = 71
 arch = "arm-unknown-linux-musleabihf"
 

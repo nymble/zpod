@@ -1,0 +1,10 @@
+REM ZPOD lab demo: open Notepad on Windows and type a TEST line.
+REM Only run against machines you own, in an isolated lab.
+DELAY 500
+GUI r
+DELAY 400
+STRING notepad
+ENTER
+DELAY 800
+STRING ZPOD LAB TEST - not a real payload
+ENTER

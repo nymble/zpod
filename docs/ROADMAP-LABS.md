@@ -2,7 +2,7 @@
 
 Professional test tools on the ZPOD, one thread per radio, built in Rust and
 MIT-licensed. **R1 = test7** is the receive-and-inspect foundation. Nothing in
-R1 transmits: no HID gadget, no BLE advertising, no over-the-air Remote ID,
+R1 (test7) transmits: no HID gadget, no BLE advertising, no over-the-air Remote ID,
 no packet injection. The one generator in R1 is **offline**: it writes a
 labelled TEST aircraft into a pcap file on a computer (see below).
 
@@ -89,6 +89,13 @@ cd apps && cargo run -p zpod-wlan --example rid-test-pcap -- /tmp/test-track.pca
   and `zpod-wlan` (30-frame track pcap decodes as one moving aircraft).
 - Not in R1: sending these frames. The image has no transmit path
   (`zpod-labd` has no inject command; apps never get a raw socket).
+
+## test8 (v0.13.0-br-ab-test8)
+
+Ships gated **Remote ID TEST transmit** (Wi-Fi Lab: Square → safeguard →
+confirm → arm) and **HID Lab** (DuckyScript library, select/edit/dry-run,
+confirm+arm; Tools > USB > USB HID keyboard). Every transmit still requires
+the per-run warning. Receive paths unchanged from test7.
 
 ## Paul's lab decisions (2026-11-20)
 

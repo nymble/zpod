@@ -1,0 +1,9 @@
+REM ZPOD lab demo: open TextEdit on macOS and type a TEST line.
+DELAY 500
+GUI SPACE
+DELAY 400
+STRING TextEdit
+ENTER
+DELAY 900
+STRING ZPOD LAB TEST - not a real payload
+ENTER

@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "tetris-core"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "embedded-graphics",
  "zpod-core",
@@ -524,7 +524,7 @@ checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
 
 [[package]]
 name = "zpod-apps"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "flate2",
  "libc",
@@ -536,7 +536,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-battery"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "linux-embedded-hal",
  "zpod-drivers",
@@ -545,7 +545,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-ble"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "zpod-remoteid",
 ]
@@ -565,7 +565,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-bootsplash"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "embedded-graphics",
  "libc",
@@ -585,11 +585,11 @@ dependencies = [
 
 [[package]]
 name = "zpod-core"
-version = "0.11.0"
+version = "0.13.0"
 
 [[package]]
 name = "zpod-drivers"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "embedded-hal",
  "zpod-core",
@@ -597,13 +597,17 @@ dependencies = [
 
 [[package]]
 name = "zpod-drop"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "flate2",
  "libc",
  "zpod-core",
  "zpod-mpd",
 ]
+
+[[package]]
+name = "zpod-ducky"
+version = "0.13.0"
 
 [[package]]
 name = "zpod-gps"
@@ -620,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-hal"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "embedded-graphics",
  "embedded-hal",
@@ -636,23 +640,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "zpod-hid-lab"
+version = "0.13.0"
+dependencies = [
+ "libc",
+ "zpod-core",
+ "zpod-ducky",
+ "zpod-hal",
+ "zpod-input",
+ "zpod-labd",
+ "zpod-labui",
+ "zpod-ui",
+]
+
+[[package]]
 name = "zpod-input"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "zpod-labd"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "libc",
+ "zpod-remoteid",
  "zpod-wlan",
 ]
 
 [[package]]
 name = "zpod-labui"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "embedded-graphics",
  "zpod-core",
@@ -662,7 +681,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-launcher"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "embedded-graphics",
  "libc",
@@ -677,7 +696,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-midi"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "libc",
  "serde",
@@ -700,7 +719,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-mpd"
-version = "0.11.0"
+version = "0.13.0"
 
 [[package]]
 name = "zpod-music"
@@ -717,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-music-core"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "libc",
  "zpod-mpd",
@@ -725,11 +744,11 @@ dependencies = [
 
 [[package]]
 name = "zpod-nmea"
-version = "0.11.0"
+version = "0.13.0"
 
 [[package]]
 name = "zpod-panel"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "embedded-graphics",
  "embedded-hal",
@@ -753,11 +772,11 @@ dependencies = [
 
 [[package]]
 name = "zpod-remoteid"
-version = "0.11.0"
+version = "0.13.0"
 
 [[package]]
 name = "zpod-seq"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "serde",
  "toml",
@@ -802,7 +821,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-ui"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "embedded-graphics",
  "u8g2-fonts",
@@ -811,7 +830,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-usb"
-version = "0.11.0"
+version = "0.13.0"
 
 [[package]]
 name = "zpod-usb-lab"
@@ -828,7 +847,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-voices"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "serde",
  "toml",
@@ -852,7 +871,7 @@ dependencies = [
 
 [[package]]
 name = "zpod-wlan"
-version = "0.11.0"
+version = "0.13.0"
 dependencies = [
  "zpod-remoteid",
 ]
