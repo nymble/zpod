@@ -21,7 +21,7 @@ BR2_OPTIMIZE_2=y
 
 # --- system: BusyBox init + mdev, read-only root, no getty on serial ---
 BR2_TARGET_GENERIC_HOSTNAME="zpod"
-BR2_TARGET_GENERIC_ISSUE="ZPOD (Buildroot fast-boot M6 test3)"
+BR2_TARGET_GENERIC_ISSUE="ZPOD (Buildroot A/B test7)"
 BR2_INIT_BUSYBOX=y
 BR2_ROOTFS_DEVICE_CREATION_DYNAMIC_MDEV=y
 # BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW is not set
@@ -132,3 +132,10 @@ BR2_PACKAGE_HOST_E2FSPROGS=y
 BR2_PACKAGE_HOST_GENIMAGE=y
 BR2_PACKAGE_HOST_KMOD_XZ=y
 BR2_PACKAGE_HOST_MTOOLS=y
+
+# --- test7 Wi-Fi Lab: firmware for USB monitor-mode adapters (docs/ROADMAP-LABS.md)
+# rt2800usb (RT5370/RT5372/RT3070: rt2870.bin) and mt7601u; the kernel modules
+# are already =m. The onboard brcmfmac firmware is installed by its own package.
+BR2_PACKAGE_LINUX_FIRMWARE=y
+BR2_PACKAGE_LINUX_FIRMWARE_RALINK_RT2XX=y
+BR2_PACKAGE_LINUX_FIRMWARE_MEDIATEK_MT7601U=y

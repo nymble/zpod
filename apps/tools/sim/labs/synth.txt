@@ -1,0 +1,12 @@
+# Synth: voice list, audition, next voice
+wait 600
+shot synth-main
+key down
+wait 200
+key ok
+wait 300
+shot synth-audition
+key right
+wait 200
+shot synth-channel
+exit

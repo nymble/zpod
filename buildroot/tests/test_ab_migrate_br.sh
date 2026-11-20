@@ -43,7 +43,7 @@ ok "slot-a cmdline otherwise = test5" "[ \"\$(sed 's/ zpod.slot=a//' $W/boot/slo
 ok "slot-b = new kernel" "cmp -s $W/boot/slot-b/zImage bundle/boot/zImage"
 ok "slot-b cmdline root=p3 zpod.slot=b" "grep -q 'root=/dev/mmcblk0p3 .*zpod.slot=b\$' $W/boot/slot-b/cmdline.txt"
 ok "slot-b cmdline-safe" "grep -q 'root=/dev/mmcblk0p3 .*zpod.slot=b zpod.nocore zpod.safe\$' $W/boot/slot-b/cmdline-safe.txt"
-ok "slot-b VERSION" "grep -qx 'version=v0.11.0-br-ab-test6' $W/boot/slot-b/VERSION"
+ok "slot-b VERSION" "grep -qx 'version=${ZPOD_EXPECT_VERSION:-v0.12.0-br-ab-test7}' $W/boot/slot-b/VERSION"
 ok "top-level kernel/cmdline still test5 (fallback)" "cmp -s $W/boot/zImage $W/boot.orig/zImage && cmp -s $W/boot/cmdline.txt $W/boot.orig/cmdline.txt"
 ok "config.txt = bundle's; .prev = test5's" "cmp -s $W/boot/config.txt bundle/boot/config.txt && cmp -s $W/boot/config.txt.prev $W/boot.orig/config.txt"
 ok "zpod-usb-role.txt kept" "cmp -s $W/boot/zpod-usb-role.txt $W/boot.orig/zpod-usb-role.txt"

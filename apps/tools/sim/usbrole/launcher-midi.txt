@@ -1,0 +1,23 @@
+# Tools > USB > USB MIDI with computer: off -> on (sim switch)
+wait 400
+key down
+key down
+key down
+key down
+key ok
+wait 300
+key down
+key down
+key ok
+wait 500
+key down
+key down
+key down
+wait 200
+shot usb-midi-off
+key ok
+wait 100
+shot usb-midi-switching
+wait 1200
+shot usb-midi-on
+exit

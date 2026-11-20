@@ -1,4 +1,5 @@
-//! zpod-midi: send an app's note events to a MIDI port.
+//! zpod-midi: send an app's note events to a MIDI port, and (since 0.12)
+//! parse MIDI input from rawmidi ports ([`input`]).
 //!
 //! Not tied to any app, UI or audio backend. An app converts its own events
 //! to [`router::In`] and calls [`router::Router::block`] once per audio block
@@ -14,6 +15,7 @@
 
 pub mod config;
 pub mod encode;
+pub mod input;
 pub mod out;
 pub mod queue;
 pub mod router;

@@ -1,0 +1,4 @@
+# Wi-Fi Lab with no USB adapter: the empty state
+wait 800
+shot wifilab-no-adapter
+exit

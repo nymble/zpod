@@ -1,0 +1,16 @@
+# BLE Lab replaying tests/data/ble-replay.hex
+wait 2000
+shot blelab-list
+key ok
+wait 300
+shot blelab-detail-drone
+key left
+key down
+key ok
+wait 300
+shot blelab-detail-2
+key left
+key triangle
+wait 300
+shot blelab-sort
+exit

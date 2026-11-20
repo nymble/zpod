@@ -48,21 +48,100 @@ fn trusted(p: &std::path::Path) -> bool {
 /// Current state. Without the tool (older image): the role from the device
 /// tree, no switching.
 pub fn status() -> RoleInfo {
+    status_midi().0
+}
+
+/// USB MIDI next to USB Ethernet on the computer link (Tools > USB > USB
+/// MIDI, `zpod-usb-role midi on|off`). `known`: the tool reports it (test7+).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Midi {
+    pub known: bool,
+    pub on: bool,
+    pub live: bool,
+}
+
+impl Midi {
+    pub fn parse(s: &str) -> Midi {
+        let mut m = Midi::default();
+        for l in s.lines() {
+            match l.trim() {
+                "midi=on" => (m.known, m.on) = (true, true),
+                "midi=off" => (m.known, m.on) = (true, false),
+                "midi_live=1" => m.live = true,
+                _ => {}
+            }
+        }
+        m
+    }
+}
+
+/// [`status`] plus the USB MIDI switch, from one run of the tool.
+pub fn status_midi() -> (RoleInfo, Midi) {
     if sys::sim() {
-        return role::sim_info();
+        let on = std::env::var("ZPOD_SIM_USB_MIDI").as_deref() == Ok("on");
+        return (role::sim_info(), Midi { known: true, on, live: on });
     }
     if let Some(t) = tool() {
         if let Ok(o) = Command::new(&t).arg("status").output() {
             if o.status.success() {
-                let i = RoleInfo::parse(&String::from_utf8_lossy(&o.stdout));
+                let out = String::from_utf8_lossy(&o.stdout);
+                let i = RoleInfo::parse(&out);
                 if i.role.is_some() {
-                    return i;
+                    return (i, Midi::parse(&out));
                 }
             }
         }
     }
     let r = role::usb_role();
-    RoleInfo { role: Some(r), boot: Some(r), next: Some(r), persist: "none".into(), ..Default::default() }
+    (RoleInfo { role: Some(r), boot: Some(r), next: Some(r), persist: "none".into(), ..Default::default() }, Midi::default())
+}
+
+/// Turn USB MIDI on or off (blocking, ~1-2 s: restarts the computer link
+/// when it is up). Ok(message) or Err(reason).
+pub fn set_midi(on: bool) -> Result<String, String> {
+    let w = if on { "on" } else { "off" };
+    if sys::sim() {
+        std::thread::sleep(Duration::from_millis(300));
+        std::env::set_var("ZPOD_SIM_USB_MIDI", w);
+        let host = std::env::var("ZPOD_USB_ROLE").as_deref() == Ok("host");
+        return Ok(if host { format!("midi {w} (applies when USB is next the computer link)") } else { format!("midi {w} (computer link restarted)") });
+    }
+    let t = tool().ok_or("this image has no zpod-usb-role")?;
+    let o = Command::new(&t).args(["midi", w]).output().map_err(|e| format!("{}: {e}", t.display()))?;
+    let out = String::from_utf8_lossy(&o.stdout);
+    let last = out.lines().filter(|l| l.starts_with("ok") || l.starts_with("err")).last().unwrap_or("").trim().to_string();
+    eprintln!("launcher: usb midi {w}: {}", if last.is_empty() { "no answer" } else { &last });
+    if let Some(r) = last.strip_prefix("ok") {
+        Ok(r.trim().to_string())
+    } else if let Some(r) = last.strip_prefix("err") {
+        Err(r.trim().to_string())
+    } else {
+        Err(format!("zpod-usb-role exited {}", o.status.code().unwrap_or(-1)))
+    }
+}
+
+/// A USB MIDI on/off running on a thread.
+pub struct MidiJob {
+    pub on: bool,
+    rx: Receiver<Result<String, String>>,
+}
+
+impl MidiJob {
+    pub fn start(on: bool) -> MidiJob {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(set_midi(on));
+        });
+        MidiJob { on, rx }
+    }
+
+    pub fn poll(&self) -> Option<Result<String, String>> {
+        match self.rx.try_recv() {
+            Ok(r) => Some(r),
+            Err(std::sync::mpsc::TryRecvError::Empty) => None,
+            Err(_) => Some(Err("USB MIDI thread failed".into())),
+        }
+    }
 }
 
 /// Switch now (blocking, up to ~10 s). Ok(new role word) or Err(reason).
@@ -209,5 +288,17 @@ mod tests {
         assert!(can_persist(&i, UsbTarget::Host) && !can_persist(&i, UsbTarget::Auto));
         i.persist = "none".into();
         assert!(!can_persist(&i, UsbTarget::Gadget));
+    }
+}
+
+#[cfg(test)]
+mod midi_tests {
+    use super::Midi;
+
+    #[test]
+    fn midi_status_lines() {
+        assert_eq!(Midi::parse("role=gadget\nmidi=on\nmidi_live=1\n"), Midi { known: true, on: true, live: true });
+        assert_eq!(Midi::parse("role=gadget\nmidi=off\nmidi_live=0\n"), Midi { known: true, on: false, live: false });
+        assert!(!Midi::parse("role=gadget\n").known);
     }
 }

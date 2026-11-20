@@ -1,0 +1,19 @@
+#!/bin/sh
+# zpod-labd: root helper for USB Lab, BLE Lab and Wi-Fi Lab (docs/ROADMAP-LABS.md).
+# A small daemon on /run/zpod-labd.sock that only root and the zpod user may
+# use (SO_PEERCRED). Receive only: monitor mode on a USB Wi-Fi adapter (never
+# the onboard radio), channel set, radiotap and HCI monitor streams, a passive
+# BLE scan. No packet injection, no advertising. Idle until a lab app asks.
+PID=/run/zpod/labd.pid
+LOG=/run/zpod/labd.log
+BIN=/usr/lib/zpod/bin/zpod-labd
+case "$1" in
+start)
+	[ -x $BIN ] || exit 0
+	mkdir -p /run/zpod
+	start-stop-daemon -S -q -b -m -p $PID -x /bin/sh -- -c "exec $BIN >>$LOG 2>&1" ;;
+stop) start-stop-daemon -K -q -p $PID; rm -f $PID /run/zpod-labd.sock ;;
+restart) "$0" stop; sleep 0.3; "$0" start ;;
+status) [ -f $PID ] && kill -0 "$(cat $PID)" 2>/dev/null; exit $? ;;
+esac
+exit 0

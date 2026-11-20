@@ -1,0 +1,14 @@
+[package]
+name = "zpod-labd"
+description = "ZPOD lab helper: a small root daemon with a narrow line protocol on /run/zpod-labd.sock (monitor mode on a USB Wi-Fi adapter only, channel set, receive-only radiotap and HCI monitor streams, passive BLE scan), plus the client used by the lab apps"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "zpod-labd"
+path = "src/main.rs"
+
+[dependencies]
+libc.workspace = true
+zpod-wlan = { path = "../zpod-wlan" }

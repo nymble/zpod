@@ -121,6 +121,15 @@ ok "S35usbgadget runs boot-guard on host boots" "grep -q 'zpod-usb-role boot-gua
 ok "config.txt: Home held at power-on forces gadget (after the include)" \
 	"awk '/^include zpod-usb-role.txt/{i=1} i&&/^\[gpio24=0\]/{g=1;next} g&&/^dtparam=dr_mode=peripheral/{p=1;next} p&&/^\[all\]/{a=1} END{exit !a}' $B/config.txt"
 ok "config.txt: Home (GPIO24) has a pull-up" "grep -E '^gpio=.*[,=]24[,=]' $B/config.txt | grep -q 'pu'"
+# USB MIDI switch (Tools > USB > USB MIDI)
+mk peripheral
+umidi() { ZPOD_USB_MIDI_CFG=$R/state/usb-midi.txt nowifi "$@"; }
+ok "midi: off by default" "umidi status | grep -qx midi=off"
+ok "midi on: gadget restarted" "umidi midi on | grep -q 'do: gadget start' && umidi status | grep -qx midi=on && grep -qx midi=on $R/state/usb-midi.txt"
+ok "midi off" "umidi midi off | tail -1 | grep -q '^ok midi off' && umidi status | grep -qx midi=off"
+ok "midi: bad value refused" "! umidi midi maybe >/dev/null"
+mk host
+ok "midi on in host mode: saved, link not touched" "umidi midi on | grep -qx 'ok midi on (applies when USB is next the computer link)'"
 rm -rf "$T"
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

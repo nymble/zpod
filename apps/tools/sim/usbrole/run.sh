@@ -17,6 +17,7 @@ for a in clock music tetris mousemusic gps; do cp -R packages/$a "$ZPOD_APPS_DIR
 fix=$apps/crates/zpod-nmea/tests/fixtures/nd105c-cold-start.nmea
 ZPOD_USB_ROLE=gadget ZPOD_SIM_IP_WLAN0= ZPOD_SIM_SCRIPT=$here/launcher-nowifi.txt $T/zpod-launcher 2>/dev/null || true
 ZPOD_USB_ROLE=gadget ZPOD_SIM_IP_WLAN0=192.168.1.251 ZPOD_SIM_SCRIPT=$here/launcher-wifi.txt $T/zpod-launcher 2>/dev/null || true
+ZPOD_USB_ROLE=gadget ZPOD_SIM_IP_WLAN0=192.168.1.251 ZPOD_SIM_USB_MIDI=off ZPOD_SIM_SCRIPT=$here/launcher-midi.txt $T/zpod-launcher 2>/dev/null || true
 ZPOD_USB_ROLE=gadget ZPOD_SIM_IP_WLAN0=192.168.1.251 ZPOD_GPS_SIM=$fix ZPOD_SIM_SCRIPT=$here/gps-wifi.txt $T/gps 2>/dev/null || true
 ZPOD_USB_ROLE=gadget ZPOD_SIM_IP_WLAN0= ZPOD_GPS_SIM=$fix ZPOD_SIM_SCRIPT=$here/gps-nowifi.txt $T/gps 2>/dev/null || true
 ZPOD_USB_ROLE=gadget ZPOD_SIM_IP_WLAN0=192.168.1.251 ZPOD_SIM_SCRIPT=$here/mm-wifi.txt $T/mousemusic 2>/dev/null || true

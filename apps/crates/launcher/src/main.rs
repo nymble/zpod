@@ -200,6 +200,8 @@ struct Launcher {
     role: zpod_input::role::RoleInfo,
     /// a USB role switch running on a thread
     usb_job: Option<usbrole::Job>,
+    usb_midi: usbrole::Midi,
+    midi_job: Option<usbrole::MidiJob>,
     /// Control socket requests (None: socket not available, e.g. sim).
     ctl: Option<std::sync::mpsc::Receiver<ctl::Pending>>,
     /// App to start on the next main-loop turn (control socket / restart).
@@ -283,6 +285,8 @@ impl Launcher {
             usb_at: Instant::now(),
             role: Default::default(),
             usb_job: None,
+            usb_midi: Default::default(),
+            midi_job: None,
             ctl: None,
             pending_launch: None,
         };
@@ -536,7 +540,7 @@ impl Launcher {
             Page::WifiSaved => (self.wt.saved.len(), (LIST_H / APPS_ROW) as usize),
             Page::Wifi => (if self.wt.status.is_some() { menu::wifi_rows(self.wt.mode()).len() } else { 0 }, 4),
             Page::WifiMode => (3, 5),
-            Page::Usb => (3, 3),
+            Page::Usb => (menu::USB_ROWS, menu::USB_ROWS),
             Page::HotspotDevices => (self.wt.status.as_ref().map(|s| s.clients.len()).unwrap_or(0), (LIST_H / APPS_ROW) as usize),
             Page::WifiDevices => (self.wt.neighbours.len() + self.tools.wifi.items.len(), ((LIST_H - 16) / APPS_ROW) as usize),
             _ => (0, 1),
@@ -719,8 +723,12 @@ impl Launcher {
                 pages::draw_peers(fb, peers, &ssid, &ls);
             }
             Page::Usb => {
-                let busy = self.usb_job.as_ref().map(|j| format!("Switching USB... {} s", j.started.elapsed().as_secs()));
-                pages::draw_usb(fb, &self.usb, &self.role, &usb_devs, self.menus.list().sel, busy.as_deref());
+                let busy = self
+                    .usb_job
+                    .as_ref()
+                    .map(|j| format!("Switching USB... {} s", j.started.elapsed().as_secs()))
+                    .or_else(|| self.midi_job.as_ref().map(|j| format!("USB MIDI {}...", if j.on { "on" } else { "off" })));
+                pages::draw_usb(fb, &self.usb, &self.role, self.usb_midi, &usb_devs, self.menus.list().sel, busy.as_deref());
             }
             Page::UsbConfirm(c) => {
                 let busy = self.usb_job.as_ref().map(|j| format!("Switching USB... {} s", j.started.elapsed().as_secs()));
@@ -1357,18 +1365,27 @@ impl Launcher {
 
     fn refresh_usb(&mut self) {
         self.usb = usb::gather();
-        self.role = usbrole::status();
+        (self.role, self.usb_midi) = usbrole::status_midi();
         self.usb_at = Instant::now();
         self.redraw = true;
     }
 
     /// Tools > USB, OK on a row: open its confirmation.
     fn usb_row_ok(&mut self) {
-        let sel = self.menus.list().sel.min(2);
-        let c = menu::UsbChoice::ALL[sel];
-        if self.usb_job.is_some() {
+        if self.usb_job.is_some() || self.midi_job.is_some() {
             return;
         }
+        let sel = self.menus.list().sel.min(menu::USB_ROWS - 1);
+        if sel == menu::USB_MIDI_ROW {
+            if !self.usb_midi.known {
+                self.toast("This image has no USB MIDI switch", 2500);
+            } else {
+                self.midi_job = Some(usbrole::MidiJob::start(!self.usb_midi.on));
+                self.redraw = true;
+            }
+            return;
+        }
+        let c = menu::UsbChoice::ALL[sel];
         if !self.role.can_switch {
             self.toast("This image cannot switch live (no zpod-usb-role)", 2500);
         } else if usbrole::is_current(c.target(), self.role.role) {
@@ -1406,6 +1423,19 @@ impl Launcher {
             }
             _ => {}
         }
+    }
+
+    /// A finished Tools > USB > USB MIDI on/off.
+    fn midi_job_poll(&mut self) {
+        let Some(r) = self.midi_job.as_ref().and_then(|j| j.poll()) else { return };
+        let on = self.midi_job.take().map(|j| j.on).unwrap_or(false);
+        match r {
+            Ok(m) if m.contains("restarted") => self.toast(format!("USB MIDI {} (link restarted)", if on { "on" } else { "off" }), 2500),
+            Ok(_) => self.toast(format!("USB MIDI {} (next link)", if on { "on" } else { "off" }), 2500),
+            Err(e) => self.toast(format!("USB MIDI failed: {e}"), 4000),
+        }
+        self.p.status.net_changed();
+        self.refresh_usb();
     }
 
     /// A finished Tools > USB switch.
@@ -2081,11 +2111,12 @@ fn main() {
             l.wt.refresh_status(false); // every 5 s, on a thread
         }
         l.usb_job_poll();
-        if matches!(page, Page::Usb | Page::UsbConfirm(_)) && l.usb_job.is_some() && Instant::now() >= status_redraw_at {
+        l.midi_job_poll();
+        if matches!(page, Page::Usb | Page::UsbConfirm(_)) && (l.usb_job.is_some() || l.midi_job.is_some()) && Instant::now() >= status_redraw_at {
             l.redraw = true; // "Switching USB... N s"
             status_redraw_at = Instant::now() + Duration::from_secs(1);
         }
-        if page == Page::Usb && l.usb_job.is_none() && l.usb_at.elapsed() >= Duration::from_secs(3) {
+        if page == Page::Usb && l.usb_job.is_none() && l.midi_job.is_none() && l.usb_at.elapsed() >= Duration::from_secs(3) {
             l.refresh_usb();
         }
         if page == Page::Battery && l.batt_at.elapsed() >= Duration::from_secs(20) {

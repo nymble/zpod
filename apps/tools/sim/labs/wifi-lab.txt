@@ -1,0 +1,10 @@
+# Wi-Fi Lab replaying zpod-wlan tests/data/rid-sample.pcap
+wait 800
+shot wifilab-adapters
+key ok
+wait 3000
+shot wifilab-listening
+key ok
+wait 300
+shot wifilab-detail
+exit

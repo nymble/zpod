@@ -652,7 +652,7 @@ pub fn draw_chan_util(fb: &mut Framebuffer, nets: &[WifiNet], scanning: bool, ag
 /// devices, Wi-Fi SSH (the way in once the computer link is gone), the boot
 /// role, and three switch rows (Up/Down + OK opens the confirmation).
 /// `devs`: `i.devices` with the app that handles each one (`[[handles]]`).
-pub fn draw_usb(fb: &mut Framebuffer, u: &usb::Info, i: &RoleInfo, devs: &[String], sel: usize, busy: Option<&str>) {
+pub fn draw_usb(fb: &mut Framebuffer, u: &usb::Info, i: &RoleInfo, midi: usbrole::Midi, devs: &[String], sel: usize, busy: Option<&str>) {
     clear(fb);
     let role = i.role;
     let (pc, sub) = match role {
@@ -666,7 +666,7 @@ pub fn draw_usb(fb: &mut Framebuffer, u: &usb::Info, i: &RoleInfo, devs: &[Strin
     let mut kv = |k: &str, v: &str, c: Rgb565| {
         text::draw(fb, Font::Small, k, 14, y + 3, DIM);
         text::draw_fit(fb, Font::Body, v, 86, y, 226, c);
-        y += 19;
+        y += 18;
     };
     let dash = |o: &Option<String>| o.clone().unwrap_or_else(|| "--".into());
     if role != Some(UsbRole::Host) {
@@ -699,13 +699,14 @@ pub fn draw_usb(fb: &mut Framebuffer, u: &usb::Info, i: &RoleInfo, devs: &[Strin
     let boot = format!("{}{}", usbrole::role_label(i.next), if i.live { "   (now: switched live)" } else { "" });
     kv("At boot", &boot, DIM);
 
-    let ry = Y0 + 118;
+    // four rows of 21 px end at the hints bar (Y0 + 204 = 224)
+    let ry = Y0 + 120;
     for (k, c) in UsbChoice::ALL.iter().enumerate() {
-        let yy = ry + k as i32 * 23;
+        let yy = ry + k as i32 * 21;
         let t = c.target();
         let cur = usbrole::is_current(t, role);
         if k == sel {
-            fill(fb, 8, yy, 304, 22, SEL);
+            fill(fb, 8, yy, 304, 20, SEL);
         }
         let label = match c {
             UsbChoice::Host => "Use USB for devices",
@@ -713,12 +714,29 @@ pub fn draw_usb(fb: &mut Framebuffer, u: &usb::Info, i: &RoleInfo, devs: &[Strin
             UsbChoice::Auto => "Auto: follow the cable",
         };
         let fg = if !i.can_switch { FAINT } else if k == sel { WHITE } else { FG };
-        text::draw(fb, Font::BodyBold, label, 16, yy + 5, fg);
+        text::draw(fb, Font::BodyBold, label, 16, yy + 4, fg);
         let right = if cur { "now" } else if *c == UsbChoice::Auto { "experimental" } else { "" };
-        text::draw_aligned(fb, Font::Small, right, 304, yy + 6, Align::Right, if cur { OK } else { DIM });
+        text::draw_aligned(fb, Font::Small, right, 304, yy + 5, Align::Right, if cur { OK } else { DIM });
+    }
+    {
+        let k = crate::menu::USB_MIDI_ROW;
+        let yy = ry + k as i32 * 21;
+        if k == sel {
+            fill(fb, 8, yy, 304, 20, SEL);
+        }
+        let fg = if !midi.known { FAINT } else if k == sel { WHITE } else { FG };
+        text::draw(fb, Font::BodyBold, "USB MIDI with computer", 16, yy + 4, fg);
+        let (right, c) = match (midi.known, midi.on, midi.live) {
+            (false, _, _) => ("not in this image", DIM),
+            (true, true, true) => ("on", OK),
+            (true, true, false) => ("on (next link)", OK),
+            (true, false, true) => ("off (link still has it)", WARN),
+            (true, false, false) => ("off", DIM),
+        };
+        text::draw_aligned(fb, Font::Small, right, 304, yy + 5, Align::Right, c);
     }
     if !i.can_switch {
-        text::draw_fit(fb, Font::Small, "Live switching needs zpod-usb-role (scripts/zpod-dev --core)", 14, ry + 70, 296, WARN);
+        text::draw_fit(fb, Font::Small, "Live switching needs zpod-usb-role (scripts/zpod-dev --core)", 14, ry - 14, 296, WARN);
     }
     if let Some(b) = busy {
         widgets::toast(fb, b);

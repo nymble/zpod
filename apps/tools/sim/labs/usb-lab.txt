@@ -1,0 +1,21 @@
+# USB Lab with four fake devices (hub, GPS, RT5370, keyboard+storage combo)
+wait 600
+shot usblab-list
+key down
+key down
+key down
+wait 200
+shot usblab-combo-selected
+key ok
+wait 300
+shot usblab-combo-detail
+key down
+key down
+key down
+key down
+wait 200
+shot usblab-combo-detail-scrolled
+key square
+wait 300
+shot usblab-saved
+exit

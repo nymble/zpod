@@ -117,6 +117,11 @@ pub enum Page {
     Confirm(bool),
 }
 
+/// Tools > USB rows: the three [`UsbChoice`] roles, then the USB MIDI
+/// on/off switch.
+pub const USB_ROWS: usize = 4;
+pub const USB_MIDI_ROW: usize = 3;
+
 /// Tools > USB rows, in order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UsbChoice {

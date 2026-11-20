@@ -1,0 +1,4 @@
+# USB Lab while the port is the computer link: the ask screen
+wait 600
+shot usblab-gadget-ask
+exit

@@ -1,0 +1,21 @@
+[package]
+name = "zpod-synth"
+description = "ZPOD Synth (Generative): plays MIDI input (USB MIDI keyboard or controller in host mode, or a computer over the USB MIDI gadget) through one selectable zpod-voices voice; selection persisted in /data/zpod/appdata/synth"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "synth"
+path = "src/main.rs"
+
+[dependencies]
+zpod-midi = { path = "../zpod-midi" }
+zpod-seq = { path = "../zpod-seq" }
+zpod-voices = { path = "../zpod-voices" }
+zpod-labui = { path = "../zpod-labui" }
+zpod-music-core.workspace = true
+zpod-core.workspace = true
+zpod-ui.workspace = true
+zpod-hal.workspace = true
+libc.workspace = true

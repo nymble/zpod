@@ -1,0 +1,12 @@
+[package]
+name = "zpod-labui"
+description = "Shared screens for the ZPOD lab apps (USB, BLE, Wi-Fi): list with status pill, scrolling detail page, empty-state message, capture files in /data/zpod/appdata/<app>"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zpod-ui.workspace = true
+zpod-core.workspace = true
+embedded-graphics.workspace = true
+zpod-input.workspace = true

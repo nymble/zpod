@@ -1,0 +1,19 @@
+[package]
+name = "zpod-usb-lab"
+description = "ZPOD USB Lab (Tools): what is plugged in, in host mode: device list, descriptors, HID report summary, BadUSB-style indicators, reports saved to /data"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "usb-lab"
+path = "src/main.rs"
+
+[dependencies]
+zpod-usb = { path = "../zpod-usb" }
+zpod-labui = { path = "../zpod-labui" }
+zpod-core.workspace = true
+zpod-hal.workspace = true
+zpod-input.workspace = true
+libc.workspace = true
+zpod-ui.workspace = true

@@ -1,0 +1,9 @@
+[package]
+name = "zpod-ble"
+description = "Receive-only BLE advertising lab for ZPOD: HCI monitor packet and LE advertising report parsing, AD structure decoding, classification (Remote ID, Apple Continuity types, iBeacon, Eddystone, Fast Pair, Swift Pair, company IDs), device table and JSONL capture. No advertising, connecting or pairing."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zpod-remoteid = { path = "../zpod-remoteid" }

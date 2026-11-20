@@ -17,17 +17,23 @@
 # NetworkManager's "USB Gadget (shared)" profile then serves DHCP on
 # 10.12.194.0/28 (Pi = .1) with no default route/DNS for the Mac.
 #
-# Optional USB MIDI (staged, off by default): a line "midi=on" in the same
-# file adds a class-compliant MIDI function (usb_f_midi, 1 in + 1 out port)
-# next to the network function, so apps can send MIDI to the computer over
-# the same cable. Takes effect when the gadget is (re)built: boot, or a USB
-# role switch done on the device. Not used with mode=g_ether. Untested with
-# real hosts as of 2026-11; see docs/PIPIT-DESIGN.md "MIDI output".
+# Optional USB MIDI (off by default): "midi=on" adds a class-compliant MIDI
+# function (usb_f_midi, 2 in + 2 out cables: cable 1 = notes, cable 2 =
+# spare / clock) next to the network function, so the computer sees a ZPOD
+# MIDI device on the same cable (Pipit sends to it, Synth plays from it).
+# Set from the device with Tools > USB > USB MIDI (zpod-usb-role midi
+# on|off), which writes /data/zpod/usb-midi.txt; that file wins over a
+# "midi=" line in the boot file. Takes effect when the gadget is (re)built:
+# boot, the Tools switch (restarts the link), or a USB role switch. Not
+# used with mode=g_ether. docs/SYNTH.md.
 #
 # Test hooks (offline only, tests/usb-gadget-midi.sh): ZPOD_USB_CFG,
-# ZPOD_GADGET_DIR, ZPOD_UDC_DIR, ZPOD_GADGET_DRYRUN=1 (no modprobe/mount).
+# ZPOD_GADGET_DIR, ZPOD_UDC_DIR, ZPOD_GADGET_DRYRUN=1 (no modprobe/mount),
+# ZPOD_USB_MIDI_CFG.
 set -eu
 CFG=${ZPOD_USB_CFG:-/boot/firmware/zpod-usb.txt}
+MIDI_CFG=${ZPOD_USB_MIDI_CFG:-/data/zpod/usb-midi.txt}
+MIDI_PORTS=2
 DRY=${ZPOD_GADGET_DRYRUN:-}
 MODE=ncm
 MIDI=off
@@ -36,6 +42,10 @@ if [ -r "$CFG" ]; then
 	case "$m" in ncm|ecm|g_ether) MODE=$m ;; "") ;; *) echo "zpod-usb-gadget: unknown mode '$m', using ncm" ;; esac
 	v=$(sed -n 's/^[[:space:]]*midi[[:space:]]*=[[:space:]]*\([a-z]*\).*/\1/p' "$CFG" | tail -n1)
 	case "$v" in on) MIDI=on ;; off|"") ;; *) echo "zpod-usb-gadget: unknown midi '$v', MIDI off" ;; esac
+fi
+if [ -r "$MIDI_CFG" ]; then
+	v=$(sed -n 's/^[[:space:]]*midi[[:space:]]*=[[:space:]]*\([a-z]*\).*/\1/p' "$MIDI_CFG" | tail -n1)
+	case "$v" in on) MIDI=on ;; off) MIDI=off ;; *) ;; esac
 fi
 HOST_MAC=02:5a:50:4f:44:01
 DEV_MAC=02:5a:50:4f:44:02
@@ -95,8 +105,8 @@ ln -s "functions/$MODE.usb0" configs/c.1/
 if [ "$MIDI" = on ]; then
 	mkdir -p functions/midi.usb0
 	echo ZPOD > functions/midi.usb0/id
-	echo 1 > functions/midi.usb0/in_ports
-	echo 1 > functions/midi.usb0/out_ports
+	echo $MIDI_PORTS > functions/midi.usb0/in_ports
+	echo $MIDI_PORTS > functions/midi.usb0/out_ports
 	ln -s functions/midi.usb0 configs/c.1/
 fi
 echo "$UDC" > UDC

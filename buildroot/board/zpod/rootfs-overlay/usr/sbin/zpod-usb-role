@@ -14,6 +14,9 @@
 #                                        a reboot returns to the boot role
 #                                        unless --persist (also next boot)
 #   zpod-usb-role next-boot host|gadget  boot partition only (no switch now)
+#   zpod-usb-role midi on|off            USB MIDI next to USB Ethernet on the
+#                                        computer link (/data/zpod/usb-midi.txt);
+#                                        restarts the link now if it is up
 #   zpod-usb-role boot-guard             S35usbgadget on a host-mode boot:
 #                                        back to gadget if the launcher does
 #                                        not come up (or after 3 such boots)
@@ -31,6 +34,7 @@ DT=${ZPOD_UR_DT:-/proc/device-tree/soc/usb@7e980000/dr_mode}
 RUN=${ZPOD_UR_RUN:-/run/zpod}
 STATE=${ZPOD_UR_STATE:-/data/zpod/usb-role}
 S35=${ZPOD_UR_S35:-/etc/init.d/S35usbgadget}
+MIDI_CFG=${ZPOD_USB_MIDI_CFG:-/data/zpod/usb-midi.txt}
 DRY=${ZPOD_UR_DRY:-}
 DEV=20980000.usb
 DRV=$SYS/bus/platform/drivers/dwc2
@@ -116,6 +120,8 @@ status_kv() {
 	if ssh_up; then echo ssh=1; else echo ssh=0; fi
 	if [ -n "$ip" ] && ssh_up; then echo safe=1; else echo safe=0; fi
 	echo "link=$(udc_state)"
+	echo "midi=$(midi_want)"
+	if ls -d "$SYS"/kernel/config/usb_gadget/*/functions/midi.* >/dev/null 2>&1; then echo midi_live=1; else echo midi_live=0; fi
 	if dtbo_dir >/dev/null; then echo can_switch=1; else echo can_switch=0; fi
 	devices | sed 's/^/dev=/'
 }
@@ -270,6 +276,23 @@ next_boot() {
 	echo "ok next boot $want ($(basename "$f"))"
 }
 
+midi_want() {
+	v=$(sed -n 's/^[[:space:]]*midi[[:space:]]*=[[:space:]]*\([a-z]*\).*/\1/p' "$MIDI_CFG" 2>/dev/null | tail -n1)
+	[ "$v" = on ] && echo on || echo off
+}
+
+midi_set() {
+	case "${1:-}" in on|off) ;; *) die "usage: midi on|off" 2 ;; esac
+	mkdir -p "$(dirname "$MIDI_CFG")" || die "cannot create $(dirname "$MIDI_CFG")"
+	printf '# zpod-usb-role midi (Tools > USB > USB MIDI)\nmidi=%s\n' "$1" > "$MIDI_CFG.tmp" && mv "$MIDI_CFG.tmp" "$MIDI_CFG" || die "cannot write $MIDI_CFG"
+	log "usb midi $1"
+	r=$(role_now)
+	if [ "$r" = host ]; then echo "ok midi $1 (applies when USB is next the computer link)"; return 0; fi
+	hw_gadget_stop
+	hw_gadget_start
+	echo "ok midi $1 (computer link restarted)"
+}
+
 boot_guard() {
 	[ "$(role_now)" = host ] || { rm -f "$STATE/host-boots" 2>/dev/null; return 0; }
 	mkdir -p "$STATE"
@@ -300,6 +323,7 @@ check)
 set) shift; [ $# -ge 1 ] || die "usage: set host|gadget|auto [--force] [--persist]" 2; set_role "$@" ;;
 next-boot) [ $# -eq 2 ] || die "usage: next-boot host|gadget" 2; next_boot "$2" ;;
 boot-guard) boot_guard ;;
--h|--help|help) sed -n '2,25p' "$0" ;;
+midi) [ $# -eq 2 ] || die "usage: midi on|off" 2; midi_set "$2" ;;
+-h|--help|help) sed -n '2,28p' "$0" ;;
 *) die "unknown command '$1' (zpod-usb-role help)" 2 ;;
 esac

@@ -544,6 +544,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "zpod-ble"
+version = "0.11.0"
+dependencies = [
+ "zpod-remoteid",
+]
+
+[[package]]
+name = "zpod-ble-lab"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "zpod-ble",
+ "zpod-core",
+ "zpod-hal",
+ "zpod-labd",
+ "zpod-labui",
+ "zpod-ui",
+]
+
+[[package]]
 name = "zpod-bootsplash"
 version = "0.11.0"
 dependencies = [
@@ -620,6 +640,24 @@ name = "zpod-input"
 version = "0.11.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "zpod-labd"
+version = "0.11.0"
+dependencies = [
+ "libc",
+ "zpod-wlan",
+]
+
+[[package]]
+name = "zpod-labui"
+version = "0.11.0"
+dependencies = [
+ "embedded-graphics",
+ "zpod-core",
+ "zpod-input",
+ "zpod-ui",
 ]
 
 [[package]]
@@ -714,11 +752,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "zpod-remoteid"
+version = "0.11.0"
+
+[[package]]
 name = "zpod-seq"
 version = "0.11.0"
 dependencies = [
  "serde",
  "toml",
+]
+
+[[package]]
+name = "zpod-synth"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "zpod-core",
+ "zpod-hal",
+ "zpod-labui",
+ "zpod-midi",
+ "zpod-music-core",
+ "zpod-seq",
+ "zpod-ui",
+ "zpod-voices",
 ]
 
 [[package]]
@@ -753,10 +810,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "zpod-usb"
+version = "0.11.0"
+
+[[package]]
+name = "zpod-usb-lab"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "zpod-core",
+ "zpod-hal",
+ "zpod-input",
+ "zpod-labui",
+ "zpod-ui",
+ "zpod-usb",
+]
+
+[[package]]
 name = "zpod-voices"
 version = "0.11.0"
 dependencies = [
  "serde",
  "toml",
  "zpod-seq",
+]
+
+[[package]]
+name = "zpod-wifi-lab"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "zpod-core",
+ "zpod-hal",
+ "zpod-input",
+ "zpod-labd",
+ "zpod-labui",
+ "zpod-remoteid",
+ "zpod-ui",
+ "zpod-wlan",
+]
+
+[[package]]
+name = "zpod-wlan"
+version = "0.11.0"
+dependencies = [
+ "zpod-remoteid",
 ]

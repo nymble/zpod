@@ -11,7 +11,7 @@ fail() { echo "FAIL: $*"; exit 1; }
 run() { # $1 = config text, $2 = case dir
 	mkdir -p "$T/$2/udc/20980000.usb"
 	printf '%s\n' "$1" > "$T/$2/zpod-usb.txt"
-	ZPOD_USB_CFG="$T/$2/zpod-usb.txt" ZPOD_GADGET_DIR="$T/$2/g" ZPOD_UDC_DIR="$T/$2/udc" ZPOD_GADGET_DRYRUN=1 sh "$S" start
+	ZPOD_USB_MIDI_CFG="$T/$2/usb-midi.txt" ZPOD_USB_CFG="$T/$2/zpod-usb.txt" ZPOD_GADGET_DIR="$T/$2/g" ZPOD_UDC_DIR="$T/$2/udc" ZPOD_GADGET_DRYRUN=1 sh "$S" start
 }
 run "mode=ncm" default
 G=$T/default/g
@@ -25,9 +25,19 @@ midi=on" midi
 G=$T/midi/g
 [ -L "$G/configs/c.1/ncm.usb0" ] || fail "midi: ncm not linked"
 [ -L "$G/configs/c.1/midi.usb0" ] || fail "midi: midi not linked"
-[ "$(cat "$G/functions/midi.usb0/in_ports")" = 1 ] || fail "midi: in_ports"
-[ "$(cat "$G/functions/midi.usb0/out_ports")" = 1 ] || fail "midi: out_ports"
+[ "$(cat "$G/functions/midi.usb0/in_ports")" = 2 ] || fail "midi: in_ports"
+[ "$(cat "$G/functions/midi.usb0/out_ports")" = 2 ] || fail "midi: out_ports"
 [ "$(cat "$G/strings/0x409/product")" = "ZPOD USB Ethernet + MIDI" ] || fail "midi: product"
 run "midi=maybe" bad
 [ ! -e "$T/bad/g/functions/midi.usb0" ] || fail "unknown midi value must mean off"
-echo "PASS: gadget script offline (default unchanged, midi=on adds midi.usb0; nothing bound)"
+# /data switch (Tools > USB > USB MIDI) wins over the boot file, both ways
+mkdir -p "$T/data-on" "$T/data-off"
+echo midi=on > "$T/data-on/usb-midi.txt"
+run "mode=ncm" data-on
+[ -L "$T/data-on/g/configs/c.1/midi.usb0" ] || fail "/data midi=on must add midi"
+echo midi=off > "$T/data-off/usb-midi.txt"
+run "mode=ncm
+midi=on" data-off
+[ ! -e "$T/data-off/g/functions/midi.usb0" ] || fail "/data midi=off must win over the boot file"
+[ -L "$T/data-off/g/configs/c.1/ncm.usb0" ] || fail "/data midi=off: ncm still linked"
+echo "PASS: gadget script offline (default unchanged, midi=on adds midi.usb0 with 2+2 cables, /data switch wins; nothing bound)"

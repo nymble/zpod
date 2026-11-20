@@ -1,0 +1,8 @@
+[package]
+name = "zpod-usb"
+description = "Receive-only USB inspection for ZPOD host mode: sysfs enumeration, raw descriptor and HID report descriptor decoding, a small recognition table with /data additions, BadUSB-style indicators, text/JSON dumps. Never claims, resets or writes to a device."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
