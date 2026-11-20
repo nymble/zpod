@@ -56,7 +56,7 @@ if [ -n "$TGT" ]; then
 	ok "target: S50zpod-labd" "[ -x $TGT/etc/init.d/S50zpod-labd ]"
 	for a in usb-lab ble-lab wifi-lab synth hid-lab; do ok "target: bundled $a" "ls $TGT/usr/share/zpod/packages/$a-*.zpa >/dev/null 2>&1"; done
 	for m in rt2800usb mt7601u snd-usb-audio; do ok "target: module $m" "find $TGT/lib/modules -name '$m.ko*' | grep -q ."; done
-	ok "target: core-version 0.13.0" "[ \"\$(cat $TGT/etc/zpod/core-version)\" = 0.12.0 ]"
+	ok "target: core-version 0.13.0" "[ \"\$(cat $TGT/etc/zpod/core-version)\" = 0.13.0 ]"
 	ok "target: no injection tool shipped (aireplay/mdk)" "! ls $TGT/usr/bin/aireplay-ng $TGT/usr/bin/mdk3 $TGT/usr/bin/mdk4 >/dev/null 2>&1"
 	ok "target: module usb_f_hid" "find $TGT/lib/modules -name 'usb_f_hid.ko*' | grep -q ."
 	ok "target: module usb_f_midi" "find $TGT/lib/modules -name 'usb_f_midi.ko*' | grep -q ."
