@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-music"
 description = "ZPOD music player: no_std browse/now-playing core + MPD backend, album art, status bar"

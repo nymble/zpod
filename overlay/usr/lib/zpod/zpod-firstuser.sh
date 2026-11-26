@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD first-boot login setup (M4.1+). Images never contain a password or a key.
 #
 # Boot partition (FAT, "bootfs" on the Mac) files read at boot:

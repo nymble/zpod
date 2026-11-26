@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD image config.
 # Hardware entries below were confirmed on a live board (2026-10-07).
 # Add new pins only from the board itself — do not guess.

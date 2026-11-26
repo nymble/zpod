@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-core"
 description = "Platform-agnostic (no_std) ZPOD types and platform traits: input events, clock, storage, battery, audio sink, status"

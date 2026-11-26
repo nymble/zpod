@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # zpod-drop: drop box web page + OPDS book catalog (port 8080). M6: OFF by
 # default, like Pi OS. Tools > Drop box / Book catalog turn it on through the
 # systemctl shim (flag /data/etc/zpod/drop.enabled). It reads dropbox=/opds=

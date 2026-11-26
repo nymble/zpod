@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD first-boot Wi-Fi import for the Buildroot image (wpa_supplicant).
 # Images never contain Wi-Fi credentials. Same drop-in file as the pi-gen
 # image (docs/BOOT-WIFI.md): zpod-wifi.txt on the FAT boot partition, lines

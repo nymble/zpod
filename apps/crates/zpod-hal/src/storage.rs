@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! SD card usage per partition and the image's build identity
 //! (/etc/zpod-release, written at image build time). Used by the launcher's
 //! Battery & about, System status and Diagnostics > Storage & build screens.

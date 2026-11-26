@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Render side of the synth: MIDI input messages -> zpod-voices rack
 //! (audition slot = one selectable voice, up to the voice's polyphony).
 //! `handle` and `render` do not allocate or lock.

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """Regenerate nd105c-cold-start.nmea (valid checksums). Not a hardware capture."""
 import os
 here = os.path.dirname(os.path.abspath(__file__))

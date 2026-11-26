@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # QEMU smoke test of the Buildroot image (qemu-system-arm -M raspi0, TCG).
 # Run inside the build container:  sh buildroot/tests/qemu-boot.sh [setup|boot] [secs]
 #   setup  copy sdcard.img to $Q/sd.img (padded to 2 GiB so /data has room to

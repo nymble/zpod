@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """ZPOD 320x240 SPI LCD driver (ILI9340-style controller).
 
 Init sequence and pins copied from the hardware-confirmed probe scripts

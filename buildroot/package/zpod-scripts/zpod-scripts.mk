@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 ################################################################################
 # zpod-scripts: hardware helpers from the repo's pi-gen overlay/
 ################################################################################

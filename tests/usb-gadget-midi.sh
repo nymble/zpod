@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Offline test of overlay/usr/lib/zpod/zpod-usb-gadget.sh in a fake tree:
 # no configfs, no modprobe, nothing bound. Checks that the default (no midi
 # line) builds exactly the network function, and that "midi=on" adds the

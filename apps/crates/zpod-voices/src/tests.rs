@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 use crate::def::{Bank, DEFAULT_BANK};
 use crate::dsp::{square, wrap};
 use crate::rack::{shape, Rack, AUDITION, CEIL};

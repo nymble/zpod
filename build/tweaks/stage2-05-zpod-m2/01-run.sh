@@ -1,4 +1,6 @@
 #!/bin/bash -e
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD M2 (display + audio + buttons + USB gadget) — pi-gen stage2 substep.
 # Installed by build/tweaks/apply.sh as stage2/05-zpod-m2. Runs on the host
 # with ROOTFS_DIR set; chroot work goes through on_chroot.

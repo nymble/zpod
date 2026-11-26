@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Music app state machine: screens, navigation and button handling.
 //!
 //! Buttons (vendor ZPOD 2017 conventions where they apply):

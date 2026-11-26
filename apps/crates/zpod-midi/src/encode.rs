@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! MIDI 1.0 byte encoding. Channels are 1..=16 in the API, 0..=15 on the wire.
 
 pub const NOTE_OFF: u8 = 0x80;

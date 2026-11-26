@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Render-thread side: app note events -> timed MIDI messages.
 //!
 //! No allocation, locks or IO; fixed tables only. Note lifetimes:

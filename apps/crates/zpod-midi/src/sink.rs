@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Where MIDI bytes go. Only the worker thread touches sinks.
 //!
 //! [`AlsaOpener`] uses the kernel's documented ALSA rawmidi character devices

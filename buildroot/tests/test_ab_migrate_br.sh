@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Emulated in-place upgrade of a real single-system card (test5) with a real
 # .zab bundle, the way scripts/zpod-ab-push runs it (build container):
 #   bash buildroot/tests/test_ab_migrate_br.sh <old-sdcard.img> [bundle.zab]

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Scales, harmony modes, voicing and Music Mouse grid → pitch mapping.
 //! Two octaves per axis by default: lower C2–C4, upper C4–C6.
 

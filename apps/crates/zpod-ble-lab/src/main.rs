@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! BLE Lab (Tools > BLE Lab): passive Bluetooth LE advertising scanner on
 //! the onboard radio. Receive only: the lab helper (zpod-labd) streams the
 //! kernel's HCI monitor channel and runs a *passive* LE scan (no scan

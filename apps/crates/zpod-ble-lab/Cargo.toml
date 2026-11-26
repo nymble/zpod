@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-ble-lab"
 description = "ZPOD BLE Lab (Tools): passive BLE advertising scanner with classification (drone Remote ID, Apple Continuity, beacons, trackers), detail with hex, JSONL capture to /data"

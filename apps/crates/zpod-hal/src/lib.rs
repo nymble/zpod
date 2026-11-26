@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! ZPOD Linux platform layer (Pi Zero W, Raspberry Pi OS / Buildroot).
 //!
 //! * [`lcd::Lcd`]: the panel through `mipidsi` + `zpod-panel` over

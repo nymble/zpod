@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Deterministic generative sequencer (Tidepool): four Euclidean lanes over
 //! a scale that drift slowly. Pure logic, no audio or I/O, so it is portable
 //! and unit-tested; apps drive it one 1/16 step at a time and feed the

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Transport: pattern → sample-accurate events, block by block.
 //!
 //! Step `n` (absolute, counted since Play) starts at

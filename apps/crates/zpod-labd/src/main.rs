@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! zpod-labd: root helper for the ZPOD lab apps (see lib.rs for the
 //! protocol). Started by /etc/init.d/S50zpod-labd; logs to stderr.
 

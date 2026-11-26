@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Tools > Updates: whether core updates pushed to /data (newer launcher,
 //! zpod-app, buttons daemon, zpod-usb-role) load at boot, which core is
 //! running, and how the last start went. The work is done by the root

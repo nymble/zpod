@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-music-core"
 description = "Shared synth, harmony, voice allocation, exclusive ALSA output and MPD pause/restore for ZPOD generative music apps"

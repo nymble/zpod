@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Offline checks of an M2/M3/M4/M5/M6 .img (never flashes anything). Mounts the root
 # partition READ-ONLY via losetup --offset and reads the FAT with mtools
 # (IMG@@offset), then runs the Python imports / dkms status in a qemu chroot.

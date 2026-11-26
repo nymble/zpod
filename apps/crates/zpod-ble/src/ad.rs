@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Advertising data: a sequence of [len][type][payload] structures.
 
 #[derive(Clone, Debug, Default, PartialEq)]

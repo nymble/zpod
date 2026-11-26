@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Tidepool for ZPOD: a calm, slowly drifting Euclidean ambient generator.
 //!
 //! Four polymetric Euclidean lanes (drone 32, pulse 16, bell 13, glass 9

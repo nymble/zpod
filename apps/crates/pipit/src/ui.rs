@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Pipit screens (320×240): header, 5×16 grid, mode panel, actions, help.
 
 use embedded_graphics::{pixelcolor::Rgb565, prelude::*, primitives::{PrimitiveStyle, RoundedRectangle}};

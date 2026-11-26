@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # mdev daemon + module coldplug. Replaces Buildroot's S10mdev: the coldplug
 # (modprobe of every modalias: sound, dwc2, brcmfmac, ...) runs in the
 # background so it never delays the launcher.

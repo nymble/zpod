@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Exclusive ALSA output for generative music apps + MPD pause/restore.
 //!
 //! Opens the PCM5122 via `aplay` (raw S16_LE) so the static musl app does not

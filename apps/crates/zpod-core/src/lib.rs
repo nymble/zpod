@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! ZPOD platform-agnostic core (`no_std`, no allocator required).
 //!
 //! Everything an app core needs from "the device" goes through the small

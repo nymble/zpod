@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! What sent an advertisement. Receive-side classification only.
 //!
 //! Apple Continuity type numbers and the proximity-pairing model codes come

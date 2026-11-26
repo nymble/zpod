@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # test8 labs and library plumbing (docs/ROADMAP-LABS.md, docs/SYNTH.md,
 # docs/LIBRARY.md). Static checks on the tree; with a Buildroot target dir
 # (sh test_labs_br.sh /br/output/target) also checks the built root.

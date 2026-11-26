@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Fixture stream through the state machine: no-fix -> 2D -> 3D -> stale,
 //! one corrupted line tolerated (acceptance G2-G4, host side).
 

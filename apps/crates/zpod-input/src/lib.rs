@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Normalized input for ZPOD apps (spec: docs/USB-HOST-PLAN.md §4.1, §4.7,
 //! Contrail-proposed begin/update/end contract).
 //!

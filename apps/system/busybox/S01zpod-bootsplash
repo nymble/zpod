@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # BusyBox/Buildroot init: start the splash first thing (no systemd needed).
 case "$1" in
   start) mkdir -p /run/zpod; start-stop-daemon -S -b -x /usr/lib/zpod/bin/zpod-bootsplash ;;

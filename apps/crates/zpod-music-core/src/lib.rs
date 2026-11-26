@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Shared engine for ZPOD generative music apps (Mouse Music and later).
 //!
 //! * [`harmony`] — scales, modes, voicing, Music Mouse grid → MIDI

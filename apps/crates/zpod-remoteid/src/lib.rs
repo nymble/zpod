@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Receive-only Remote ID (ASTM F3411-22a / ASD-STAN prEN 4709-002) decoder.
 //!
 //! Transports handled (decode; `encode` + `sim` only build bytes in memory for

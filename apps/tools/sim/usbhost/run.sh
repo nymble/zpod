@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Simulator screenshots for the USB-host work (docs/USB-HOST-PLAN.md).
 # Runs in the zpod-br container (Linux): sh tools/sim/usbhost/run.sh <out-dir>
 set -e

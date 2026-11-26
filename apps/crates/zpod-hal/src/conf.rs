@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Tiny INI access for /etc/zpod/ui.conf (`ZPOD_UI_CONF` overrides the path).
 //! Only what the launcher needs: read a value, set a value in place.
 

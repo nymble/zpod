@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Cross-build all ZPOD M4 binaries for the Pi Zero W (ARMv6, arm1176jzf-s),
 # verify the ELF arch, and stage dist/:
 #   dist/core/usr/lib/zpod/bin/{zpod-launcher,zpod-bootsplash,zpod-drop,zpod-battery,zpod-app,zpod-labd}

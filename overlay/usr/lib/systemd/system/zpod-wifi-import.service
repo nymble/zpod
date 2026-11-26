@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [Unit]
 Description=ZPOD: import Wi-Fi from the boot partition (zpod-wifi.txt / *.nmconnection), then delete it
 Documentation=https://github.com/nymble/zpod/blob/main/docs/BOOT-WIFI.md

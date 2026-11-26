@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """Small, dependency-light helpers for ZPOD status: IPs, battery, volume, Wi-Fi."""
 import fcntl
 import os

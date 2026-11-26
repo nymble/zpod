@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Per-address rows for BLE Lab, plus the JSONL capture line format.
 
 use std::fmt::Write;

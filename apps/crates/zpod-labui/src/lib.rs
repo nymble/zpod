@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Lab app screens on 320x240: a status bar, a header line (pill + text),
 //! a 5-row list or a scrolling detail page, and the hint bar. Same look as
 //! the launcher's Tools pages.

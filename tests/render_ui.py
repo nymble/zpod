@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Offline render of zpod_ui screens (fake LCD/GPIO/evdev) -> ui_screens.png. Needs Pillow + DejaVu fonts. Run: python3 tests/render_ui.py
 import sys, types, time
 import os

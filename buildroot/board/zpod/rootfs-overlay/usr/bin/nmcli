@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # nmcli shim for the Buildroot image (no NetworkManager). Implements only what
 # the ZPOD apps call (zpod-hal sys.rs / scan.rs / wifi.rs), on top of
 # wpa_supplicant (client), hostapd + udhcpd (hotspot) and iw:

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! zpod-wlan: listen to 802.11 with a second, monitor-capable USB adapter.
 //!
 //! Policy (docs/ROADMAP-LABS.md): receive only; the onboard Broadcom radio

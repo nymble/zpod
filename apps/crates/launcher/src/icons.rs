@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! App icons: 32x32 PNG from the app dir, pre-composited onto the two row
 //! backgrounds (normal / selected) so alpha edges look right on RGB565.
 

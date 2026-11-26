@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Input device discovery through sysfs (`/sys/class/input/eventN`), no
 //! ioctls: name, ids and capability bitmaps decide keyboard vs mouse.
 

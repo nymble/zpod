@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Clock app screens beyond the faces (M5): a menu, the alarm settings, the
 //! alarm time editor and the countdown timer. Pure state machine + drawing;
 //! the launcher does the ringing (zpod_hal::alarm).

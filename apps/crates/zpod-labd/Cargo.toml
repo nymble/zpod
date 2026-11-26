@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-labd"
 description = "ZPOD lab helper: root daemon on /run/zpod-labd.sock — USB Wi-Fi monitor/receive, passive BLE scan, and gated TEST Remote ID transmit / HID arm (tx-arm required every time; never armed at boot)"

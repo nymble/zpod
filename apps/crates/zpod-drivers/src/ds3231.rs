@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! DS3231 RTC (ZPOD: I2C-1 address 0x68). 24-hour mode, UTC recommended.
 //!
 //! On the Pi the kernel `rtc-ds1307` driver (dtoverlay=i2c-rtc,ds3231) plus

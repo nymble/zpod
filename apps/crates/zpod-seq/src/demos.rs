@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Built-in demo grooves (editable starting points, loaded only on request).
 
 use crate::pattern::{Name, Pattern, Rate, Scale, Step, MAX_STEPS};

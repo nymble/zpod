@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Launcher side of the control sockets (protocol: `zpod_apps::ctl`).
 //!
 //! A thread accepts connections on `/run/zpod/launcher.sock` (mode 0600, so

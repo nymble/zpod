@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Pattern data and its versioned file format (TOML, `format = "pipit-pattern"`).
 
 use crate::event::Pitch;

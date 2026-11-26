@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Minimal systemctl shim for the BusyBox image. Handles what the ZPOD apps and
 # python helpers call:
 #   poweroff | reboot | halt

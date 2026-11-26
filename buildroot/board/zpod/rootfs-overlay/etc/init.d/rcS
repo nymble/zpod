@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD rcS (replaces Buildroot's): start /etc/init.d/S??* in order, with a
 # boot mark after each one (/run/zpod/boot-times, see zpod-boottime).
 # Daemons that are slow to start and nothing waits for run in the background.

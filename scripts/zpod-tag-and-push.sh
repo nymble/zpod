@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Tag, add cover art to, and push albums to the ZPOD (docs/MUSIC-TAGGING.md).
 #
 #   scripts/zpod-tag-and-push.sh [options] <album-folder | folder-of-albums>...

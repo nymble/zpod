@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! DSP primitives (f32, cheap on ARMv6 VFP).
 
 use core::f32::consts::PI;

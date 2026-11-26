@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # zpod-ab: A/B system updates that keep /data (docs/AB-UPDATES.md).
 #
 # Card layout (since the first Buildroot images): p1 FAT boot, p2 system A

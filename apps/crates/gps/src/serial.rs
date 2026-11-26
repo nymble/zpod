@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! USB serial GPS discovery (sysfs) and a 4800 8N1 raw line reader thread.
 //!
 //! Matching (spec §8.3): prefer ports bound to the `pl2303` driver, then

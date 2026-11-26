@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Boot-time instrumentation: append "<name> <seconds since kernel start>"
 # to /run/zpod/boot-times (the launcher writes launcher-first-frame there too).
 # /proc/uptime starts when the kernel starts, so the closed GPU firmware stage

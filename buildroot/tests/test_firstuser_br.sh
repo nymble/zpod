@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Tests for board/zpod/rootfs-overlay/usr/lib/zpod/zpod-firstuser-br (run as
 # root in a Linux container: it chowns). Uses temp dirs, never the real /data.
 #   sh buildroot/tests/test_firstuser_br.sh

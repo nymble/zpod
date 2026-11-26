@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Write an OFFLINE pcap of a labelled, moving TEST Remote ID aircraft.
 //! Runs on a computer (no radio). Usage:
 //!   cargo run -p zpod-wlan --example rid-test-pcap -- OUT.pcap [lat lon speed_mps track_deg climb_mps turn_dps seconds channel]

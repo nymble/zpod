@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Human-readable and JSON reports for one device (saved by USB Lab to
 //! /data/zpod/appdata/usb-lab/).
 

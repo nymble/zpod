@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Walk `/sys/bus/usb/devices` (root path injectable for tests).
 
 use std::fs;

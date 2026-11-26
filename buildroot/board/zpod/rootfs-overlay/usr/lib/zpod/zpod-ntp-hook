@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # busybox ntpd -S hook: once the clock is NTP-synchronised, write the DS3231.
 [ "$1" = stratum ] || [ "$1" = step ] || exit 0
 [ -e /run/zpod/rtc-written ] && [ "$1" = stratum ] && exit 0

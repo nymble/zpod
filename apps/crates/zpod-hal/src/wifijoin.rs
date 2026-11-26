@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Join a WPA-PSK network with a password typed on the device (Buildroot
 //! image; docs/USB-HOST-PLAN.md §7). Secret handling:
 //!

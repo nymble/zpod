@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 ################################################################################
 # zpod-dac: out-of-tree ASoC machine driver, built from drivers/aoide-zpod-dac
 ################################################################################

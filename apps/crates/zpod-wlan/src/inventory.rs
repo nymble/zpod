@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Wireless interfaces from sysfs, and `iw phy <phy> info` capability text.
 
 use std::fs;

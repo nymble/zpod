@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 use crate::config::*;
 use crate::encode::*;
 use crate::out::{MidiOut, State};

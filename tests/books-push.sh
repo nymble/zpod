@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Offline test of scripts/zpod-books-push.sh (ZPOD_BOOKS_LOCAL: a local dir
 # stands in for /data/books; no SSH, no device).
 set -eu

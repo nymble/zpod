@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Simulator screenshots of the Wi-Fi password page (zpod_ui::textentry):
 # on-screen characters with the buttons, a USB keyboard plugged in and
 # unplugged mid-entry, and the USB host request. Example text only, never a

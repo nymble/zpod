@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [Unit]
 Description=ZPOD: SSH public keys (and key-only first user / late userconf.txt) from the boot partition
 Documentation=https://github.com/nymble/zpod/blob/main/docs/USB-GADGET.md

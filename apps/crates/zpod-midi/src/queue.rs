@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Bounded single-producer / single-consumer queue. The buffer is allocated
 //! once; push and pop never allocate, lock or block. A full queue drops the
 //! message, counts it and raises `lost`, so the consumer can clean up

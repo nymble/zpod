@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! OFFLINE test pcap generator: a labelled TEST aircraft
 //! ([`zpod_remoteid::SimAircraft`]) as radiotap + Wi-Fi beacon frames with
 //! the Remote ID vendor IE, written to a pcap file in memory or on disk.

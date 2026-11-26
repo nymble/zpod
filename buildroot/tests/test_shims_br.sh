@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Tests for the Buildroot nmcli shim (wpa_cli backend) and zpod-data-grow
 # (dry run on a fake sysfs). Linux container; never touches real devices.
 set -u

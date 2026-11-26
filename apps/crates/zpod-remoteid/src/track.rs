@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Aircraft table: merge messages from one transmitter (MAC) into one row.
 
 use crate::msg::{BasicId, Location, Message, OperatorId, SelfId, System};

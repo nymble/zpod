@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! HID Lab (Tools > HID Lab): DuckyScript library with select, on-device edit,
 //! dry-run, and confirm-and-arm before every run. Speaks as a USB keyboard
 //! gadget (`/dev/hidg0`) after Tools enables HID (or the app turns it on).

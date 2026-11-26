@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD sysinit step (replaces a bare "mount -a"): runs before the launcher.
 #  1. /data (p4, ext4 "zpoddata"): create the file system only if p4 has none
 #     (blkid finds no type), mount everything in fstab, tmpfs fallback.

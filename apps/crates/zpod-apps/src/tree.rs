@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! The launcher's menu tree: built-in folders, where each app is placed,
 //! and the other ways to reach an app (`[[handles]]`). Pure logic shared by
 //! the launcher (drawing) and `zpod-app` (install checks, `zpod-app tree`).

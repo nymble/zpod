@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Build the ZPOD Buildroot image (Linux build host or container; never flashes).
 #
 #   buildroot/build.sh                 apps + full image -> $ZPOD_BR_WORK/output/images/sdcard.img

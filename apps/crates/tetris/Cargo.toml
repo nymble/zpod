@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-tetris"
 description = "Tetris for ZPOD: tetris-core engine + ZPOD platform frontend (LCD, evdev buttons, simulator)"

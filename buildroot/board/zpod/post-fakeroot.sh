@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD post-fakeroot (runs after Buildroot has applied the users tables and
 # before the squashfs is made; TARGET_DIR is the file-system copy).
 # Accounts live on /data (read-only root): keep the image's files as the base

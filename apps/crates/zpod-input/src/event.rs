@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! The normalized event model shared by all ZPOD input adapters.
 
 use crate::keymap::KeyCode;

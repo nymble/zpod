@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Explicit, seeded generators. Each returns a modified copy; the app keeps
 //! the old pattern for Undo and only applies on an explicit action.
 

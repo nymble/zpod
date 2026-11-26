@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Splash, Play and Help screens for Mouse Music (zpod-ui).
 
 use embedded_graphics::{

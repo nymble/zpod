@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-usb-lab"
 description = "ZPOD USB Lab (Tools): what is plugged in, in host mode: device list, descriptors, HID report summary, BadUSB-style indicators, reports saved to /data"

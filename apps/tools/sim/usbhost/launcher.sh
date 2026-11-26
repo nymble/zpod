@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Launcher screens for USB host mode: Tools > GPS, Join network password page.
 here=$(cd "$(dirname "$0")" && pwd)
 apps=$(cd "$here/../../.." && pwd)

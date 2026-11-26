@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Sentence level: `$<talker><type>,<fields>*<hh>` with an XOR checksum.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

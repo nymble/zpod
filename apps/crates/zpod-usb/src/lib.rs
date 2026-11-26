@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! zpod-usb: look at what is plugged into the USB port (host mode) without
 //! touching it. Everything comes from files the kernel already exposes
 //! (`/sys/bus/usb/devices/*`, each device's raw `descriptors`, and each HID

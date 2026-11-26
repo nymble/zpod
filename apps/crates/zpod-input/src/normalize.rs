@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Raw evdev (type, code, value) triples -> normalized [`InputEvent`]s.
 //! Pure state machine: no I/O, so it is tested on any host and shared by
 //! the device reader and the simulator.

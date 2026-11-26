@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD app dev loop from the Mac, over the USB cable or Wi-Fi, no reflash
 # (docs/DEV-LOOP.md):
 #   scripts/zpod-dev <id>           build apps/packages/<id> for ARMv6, pack a .zpa,

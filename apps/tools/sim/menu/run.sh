@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Simulator screenshots of the menu tree (docs/APP-MANIFEST.md) and Tools >
 # Updates (docs/BOOT-UPDATES.md). Linux (zpod-br container):
 #   sh tools/sim/menu/run.sh <out>

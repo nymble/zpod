@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Boot-time core updates (zpod-core-overlay, docs/BOOT-UPDATES.md): the boot
 # decision, integrity / ABI / version checks, the attempt counter, the
 # launcher health guard and its fallback, the boot option, the Home-at-

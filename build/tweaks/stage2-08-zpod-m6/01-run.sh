@@ -1,4 +1,6 @@
 #!/bin/bash -e
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD M6 (installed by build/tweaks/apply.sh as stage2/08-zpod-m6; runs after
 # 07-zpod-m5):
 # - zpod-battery (Rust: battery history + low-battery power-off) replaces the
