@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Retry a cargo command (box under memory pressure: rustc gets OOM-killed).
 export PATH=$HOME/.local/bin:$HOME/.cargo/bin:$PATH CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-1}
 for i in 1 2 3 4 5 6 7 8 9 10 11 12; do

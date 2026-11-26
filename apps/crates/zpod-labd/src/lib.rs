@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! zpod-labd protocol, policy and client.
 //!
 //! One connection = one line command (ASCII, max 128 bytes), answered by

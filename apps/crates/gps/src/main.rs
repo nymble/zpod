@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! GPS tool for ZPOD (Tools > GPS): GlobalSat ND-105C and other serial NMEA
 //! receivers on the USB port in host mode. Shows the receiver state
 //! (unsupported / no device / no data / searching / 2D / 3D / stale /

@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-synth"
 description = "ZPOD Synth (Generative): plays MIDI input (USB MIDI keyboard or controller in host mode, or a computer over the USB MIDI gadget) through one selectable zpod-voices voice; selection persisted in /data/zpod/appdata/synth"

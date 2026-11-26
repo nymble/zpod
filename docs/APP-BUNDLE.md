@@ -115,7 +115,7 @@ kind = "app"                     # [proposed] app | tool | service | gadget
                                  #   gadget:  USB-gadget payload (Bash Bunny class), opt-in
 category = "art"                 # [proposed] music | art | games | radio | tools | net | other
 author = "nymble"                # [proposed]
-license = "MIT"                  # [proposed] SPDX id
+license = "GPL-3.0-or-later OR LicenseRef-Commercial"   # [proposed] SPDX id
 homepage = "https://..."         # [proposed]
 
 [requires]                       # [proposed] resources the app needs; install warns, launch checks

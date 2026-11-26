@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Golden fixture: raw evdev log -> normalized begin/update/end events
 //! (spec §4.7 / acceptance C5). Generators see only these fields.
 

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Events from a sequencer (or any other source) to a voice rack.
 
 /// Absolute pitch. Hz is the source of truth; MIDI-style numbers are only a

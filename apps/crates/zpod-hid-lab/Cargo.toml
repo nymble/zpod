@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-hid-lab"
 description = "HID Lab (DuckyScript): select/edit/dry-run/run community scripts as a USB keyboard gadget, confirm+arm before every run"

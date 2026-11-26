@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # zpod-group-sync <base group> <data group>: add the image's group members
 # that an older /data/etc/group lacks (e.g. zpod in dialout for USB GPS,
 # added after test3). Groups missing by name are added by zpod-data-early.

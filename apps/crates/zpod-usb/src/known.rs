@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Names for what is plugged in. The built-in table is deliberately small
 //! (vendors and the devices ZPOD has tools for); users add lines to
 //! `/data/zpod/appdata/usb-lab/known.txt`:

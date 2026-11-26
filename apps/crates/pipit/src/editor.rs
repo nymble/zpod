@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Button-driven editor state (no drawing, no audio, no files): every
 //! ZPOD key maps to exactly one action per mode, so it is unit-tested.
 

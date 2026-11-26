@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Test overlay/usr/lib/zpod/zpod-firstuser.sh in a throwaway root container:
 #   docker run --rm -v "$PWD":/src:ro debian:trixie bash /src/tests/test_firstuser.sh
 # Uses a stand-in for userconf-pi's rename (same usermod/groupmod steps).

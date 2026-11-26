@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Moving TEST aircraft for track-to-map testing (encode only, no RF).
 //!
 //! Models position, ground speed, track (direction), altitude and climb rate

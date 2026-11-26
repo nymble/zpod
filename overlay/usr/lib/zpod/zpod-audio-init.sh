@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # First boot only: default mixer for the Aoide ZPOD DAC (PCM5122).
 # Digital ~80 %, analogue boost on. Afterwards alsa-restore/alsa-state keep
 # whatever the user sets.

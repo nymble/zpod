@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Wi-Fi in the background (never blocks the launcher): brcmfmac, then
 # wpa_supplicant on /data/etc/wpa_supplicant.conf ALWAYS (also with no network
 # configured, so the Tools > Wi-Fi scanner can scan; its control socket is

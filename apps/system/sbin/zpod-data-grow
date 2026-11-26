@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD M5: grow partition 3 (/data) to the end of the SD card, before it is
 # mounted. Runs every boot but only acts when there is free space after p3
 # (first boot, or the card was cloned to a bigger one). The file system is

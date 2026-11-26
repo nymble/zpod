@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Render the M6 (test2 menu layout) screenshots with the headless simulator.
 # The test3 layout (Tools > Wi-Fi ...) is tools/test3-sim.sh.
 #   tools/m6-sim.sh -> /tmp/zpod-sim/out/*.png

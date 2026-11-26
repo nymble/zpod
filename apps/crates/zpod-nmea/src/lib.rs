@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! NMEA 0183 for the ZPOD GPS tool (GlobalSat ND-105C and other serial GNSS
 //! receivers): checksummed sentence parsing (GGA, RMC, GSA, GSV) and a
 //! receiver state machine with the UI states of docs/USB-HOST-PLAN.md §8.4.

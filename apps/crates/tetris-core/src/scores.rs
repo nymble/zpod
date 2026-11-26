@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! High-score table (top 5), persisted through [`zpod_core::Storage`] as a
 //! tiny text file: one "score lines level" line per entry.
 

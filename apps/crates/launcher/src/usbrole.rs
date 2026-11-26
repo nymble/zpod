@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! USB role switching for Tools > USB and for apps (app socket).
 //!
 //! The work is done by the root tool `zpod-usb-role` (shell, see

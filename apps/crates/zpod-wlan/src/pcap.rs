@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Classic libpcap files (no libpcap needed): write captures to /data and
 //! read them back for tests and offline review in Wireshark.
 

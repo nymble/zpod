@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! MIDI 1.0 *input*: a byte-stream parser (running status, real-time bytes
 //! interleaved anywhere, SysEx skipped, note-on velocity 0 = note-off) and
 //! a non-blocking ALSA rawmidi reader. The parser is pure and

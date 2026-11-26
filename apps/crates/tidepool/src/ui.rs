@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Tidepool screen: four Euclidean rings (one per lane) + settings panel.
 
 use embedded_graphics::{

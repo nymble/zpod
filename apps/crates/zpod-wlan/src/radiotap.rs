@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Minimal radiotap header reader (radiotap.org): length, flags (FCS at
 //! end), channel frequency and antenna signal.
 

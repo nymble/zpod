@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! System status helpers (no subprocess except amixer/nmcli/iw).
 
 use std::ffi::CStr;

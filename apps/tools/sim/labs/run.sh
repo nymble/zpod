@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Simulator screenshots for the test7 lab apps (docs/ROADMAP-LABS.md,
 # docs/SYNTH.md): USB Lab on a fake sysfs, BLE Lab and Wi-Fi Lab replaying
 # the crate sample files, Synth. No radios, no USB, no helper.

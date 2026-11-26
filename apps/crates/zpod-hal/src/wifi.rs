@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Wi-Fi tools (M6): link signal, channel congestion, saved networks and
 //! switching, hotspot (access point) mode. Root only (the launcher).
 //!

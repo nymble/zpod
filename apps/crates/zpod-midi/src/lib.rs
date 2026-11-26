@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! zpod-midi: send an app's note events to a MIDI port, and (since 0.12)
 //! parse MIDI input from rawmidi ports ([`input`]).
 //!

@@ -1,0 +1,4 @@
+Vendor document
+
+Third-party document (the uGeek ZPOD HiFi Music Player User Guide, 2017). Copyright remains
+with the vendor. It is kept for reference only and is not licensed under the project terms.

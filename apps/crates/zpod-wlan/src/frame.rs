@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! 802.11 MAC frames: just enough of management frames to find SSIDs,
 //! vendor IEs and NAN service discovery frames.
 

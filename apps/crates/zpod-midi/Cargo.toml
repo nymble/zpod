@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-midi"
 description = "Reusable note-event to MIDI output: strict routing config, note-lifetime bookkeeping, opt-in clock, bounded lock-free queue, non-blocking ALSA rawmidi worker with hotplug"

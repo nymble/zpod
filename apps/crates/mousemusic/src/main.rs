@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Mouse Music for ZPOD — Music Mouse-style generative performance.
 //!
 //! Phase 1: splash, Play grid (4 harmonized voices), help overlay, one SUB

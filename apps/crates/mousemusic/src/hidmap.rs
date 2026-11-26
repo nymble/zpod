@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! USB / Bluetooth mouse + keyboard -> Mouse Music actions (DESIGN.md §3).
 //! Input arrives as normalized zpod-input events (begin/update/end); this
 //! adapter turns them into musical controls, so the performance code never

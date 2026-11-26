@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};

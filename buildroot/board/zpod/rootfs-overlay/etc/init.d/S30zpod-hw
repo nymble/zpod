@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Hardware helpers, all in the background: buttons (uinput "zpod-buttons",
 # the only volume writer), audio defaults, battery logger/guard (zpod-battery). Python start-up is
 # slow on a Zero W, so none of this blocks the launcher (which retries input).

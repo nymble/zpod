@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Launcher control socket (`/run/zpod/launcher.sock`, root only, mode 0600).
 //!
 //! One request line per connection, one reply line back:

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """zpod-buttons: ZPOD GPIO buttons -> uinput keyboard ("zpod-buttons").
 
 Reads the confirmed BCM button map (active-low) by polling the GPIO level

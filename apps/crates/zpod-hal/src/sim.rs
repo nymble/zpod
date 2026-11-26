@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Headless simulator: scripted key input + PNG screenshots.
 //!
 //! `ZPOD_SIM=<out dir>` selects it; `ZPOD_SIM_SCRIPT=<file>` (or `-` for

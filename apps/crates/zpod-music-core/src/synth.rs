@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Lightweight synth voices for the Pi Zero W (ARMv6, soft-float VFP).
 //! One decent subtractive patch: 2 polyBLEP saws + SVF LP + amp ADSR.
 

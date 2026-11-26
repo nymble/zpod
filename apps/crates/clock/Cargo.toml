@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-clock"
 description = "ZPOD clock: three faces (digital, analog, word), optional seconds, redraws only on change"

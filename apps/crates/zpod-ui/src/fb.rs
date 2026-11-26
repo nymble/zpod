@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! RGB565 framebuffer with dirty-rectangle tracking.
 
 use alloc::vec;

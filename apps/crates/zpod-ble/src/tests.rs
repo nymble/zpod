@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 use crate::ad;
 use crate::classify::{classify, Class};
 use crate::hci::{parse_event, parse_monitor, MON_EVENT_PKT};

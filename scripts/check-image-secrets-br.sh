@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Leak check for a Buildroot ZPOD image (squashfs roots, FAT boot, ext4 /data)
 # and an A/B update bundle (.zab). Prints counts only, never the matches.
 # Linux, as root (the zpod-br build container): needs sfdisk, mtools,

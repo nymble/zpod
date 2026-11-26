@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # With "zpod.debug" on the kernel cmdline: after rcS (and again 20 s later)
 # print boot marks, mounts, processes and the ZPOD logs to the console.
 grep -q zpod.debug /proc/cmdline || exit 0

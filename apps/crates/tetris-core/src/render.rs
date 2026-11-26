@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Tetris renderer for any `DrawTarget<Color = Rgb565>` (320x240 layout).
 //!
 //! The field is redrawn when the game's `version` changes; side panels only

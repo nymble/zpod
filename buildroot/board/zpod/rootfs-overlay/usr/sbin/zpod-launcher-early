@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Start the launcher before rcS (after mount -a), so the menu does not wait
 # for the init scripts. zpod-launcher-run (inittab respawn) waits for this
 # instance and restarts the launcher whenever it exits.

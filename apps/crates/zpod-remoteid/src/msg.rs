@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! The 25-byte Remote ID messages.
 
 pub const MSG_LEN: usize = 25;

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! M6 screens: Battery, Signal meter, Channels, Hotspot, Drop box / Book
 //! catalog, first-boot notice; test3: Wi-Fi status card, mode chooser,
 //! hotspot devices, channel utilization curves, devices & addresses, USB.

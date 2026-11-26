@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # A/B system updates (zpod-ab, docs/AB-UPDATES.md) on a fake card: the FAT
 # boot partition is a folder, p2 / p3 are files, /proc/cmdline and
 # /proc/mounts are files. Covers bundle checks, the test5 -> A/B migration,

@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-panel"
 description = "no_std mipidsi model for the ZPOD 320x240 ILI9340-style SPI panel (hardware-confirmed init, MADCTL 0xE8)"

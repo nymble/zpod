@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Text entry for any app: a [`TextField`] typed on an optional USB /
 //! Bluetooth keyboard, or picked character by character with the buttons
 //! (arrows + OK/Circle) from an on-screen grid. Reusable: Wi-Fi passwords

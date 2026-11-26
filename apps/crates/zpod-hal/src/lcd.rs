@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! ZPOD panel on Linux: mipidsi (custom ZPOD model) over spidev + gpio-cdev.
 
 use std::io;

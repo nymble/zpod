@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Routing configuration and its strict TOML file (`zpod-midi` v1).
 //!
 //! The default is always `route = internal`: MIDI never turns on by itself,

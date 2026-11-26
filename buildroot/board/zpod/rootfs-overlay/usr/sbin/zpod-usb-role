@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # zpod-usb-role: the role of the USB data port, and switching it live.
 #   gadget = link to the computer (USB Ethernet 10.12.194.1, SSH, transfer)
 #   host   = USB devices: keyboard, mouse, GPS (OTG adapter or hub)

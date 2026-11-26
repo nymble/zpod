@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Tools > USB (test3): a landing page for the USB gadget link. Reads
 //! sysfs/configfs and the ARP table only; nothing is sent to the host.
 //! Bash Bunny-style tools come later.

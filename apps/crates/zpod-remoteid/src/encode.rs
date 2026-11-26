@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! OFFLINE encoder for clearly labelled TEST aircraft (ASTM F3411 layouts,
 //! the exact inverse of [`crate::msg::decode`]).
 //!

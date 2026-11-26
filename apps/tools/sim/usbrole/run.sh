@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Simulator screenshots for switching the USB role from the GUI
 # (docs/USB-HOST.md): Tools > USB, its confirmations, the GPS and Mouse
 # Music prompts. Linux (zpod-br container): sh tools/sim/usbrole/run.sh <out>

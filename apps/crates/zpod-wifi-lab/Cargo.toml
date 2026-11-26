@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-wifi-lab"
 description = "ZPOD Wi-Fi Lab (Tools > Radio): receive-only monitor capture on a USB Wi-Fi adapter, drone Remote ID (Beacon + NAN) aircraft list and detail, frame counters, pcap capture to /data"

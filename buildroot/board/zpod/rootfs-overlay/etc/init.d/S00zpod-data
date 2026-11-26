@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Writable state on /data (p4; mounted and seeded by zpod-data-early in
 # sysinit), first-boot imports from the boot partition (login user, SSH keys), device permissions for the "zpod" app user, and the background
 # grow of /data to the end of the card.

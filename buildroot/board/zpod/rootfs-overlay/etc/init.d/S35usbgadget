@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # USB OTG port. Gadget (default): Ethernet gadget, CDC-NCM by default
 # (zpod-usb-gadget.sh, shared with the pi-gen image; mode from
 # /boot/firmware/zpod-usb.txt), usb0 = 10.12.194.1/28, BusyBox udhcpd hands

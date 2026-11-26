@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """zpod-books-push: copy books to the ZPOD's /data/books (see zpod-books-push.sh).
 
 Never deletes, never overwrites a different book, verifies by sha256.

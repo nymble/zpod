@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! HCI monitor channel framing (Linux `hci_mon_hdr`) and LE advertising
 //! report events (Core spec Vol 4 Part E 7.7.65.2 / 7.7.65.13).
 

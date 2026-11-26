@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-pipit"
 description = "Pipit for ZPOD: 16-step, 5-track pocket sequencer over zpod-seq + zpod-voices"

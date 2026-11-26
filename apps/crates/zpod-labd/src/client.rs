@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Client side for the lab apps (runs as the app user).
 
 use std::io::{self, BufRead, BufReader, Read, Write};

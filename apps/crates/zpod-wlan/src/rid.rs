@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Remote ID out of a captured radiotap frame.
 
 use crate::frame::{self, mac_str, Kind};

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Portable step sequencer for ZPOD (Pipit and later apps).
 //!
 //! * [`event`]: timestamped events (frame offset inside a block) that any

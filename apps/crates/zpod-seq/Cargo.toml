@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-seq"
 description = "Portable step sequencer: patterns, deterministic sample-accurate event scheduling, explicit generators, versioned pattern files"

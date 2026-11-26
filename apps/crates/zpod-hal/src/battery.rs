@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Battery history (M6): the `zpod-battery` logger writes one line a minute
 //! to `/data/zpod/battery.log`; the launcher's Battery page reads it back.
 //!

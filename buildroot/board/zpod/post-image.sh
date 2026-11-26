@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD post-image: config.txt/cmdline.txt, seed the data partition with the
 # bundled apps, and assemble sdcard.img (boot / rootA / rootB / data).
 set -e

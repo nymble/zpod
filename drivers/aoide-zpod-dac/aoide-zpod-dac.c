@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * ASoC Driver for Aoide ZPOD DAC (PCM5122 @ 0x4d)
  *
@@ -5,7 +6,7 @@
  * compatible "aoide,aoide-zpod-dac" and codec pcm512x.1-004d.
  * Original vendor module: GPL v2, WWW.AOIDE.CC / aoide-zpod-dac.c
  *
- * Licensed under GPL v2.
+ * Licensed under GPL-2.0-only (GPL v2). Not offered under a commercial licence.
  */
 
 #include <linux/module.h>
@@ -163,6 +164,6 @@ static struct platform_driver snd_rpi_aoide_zpod_dac_driver = {
 
 module_platform_driver(snd_rpi_aoide_zpod_dac_driver);
 
-MODULE_AUTHOR("Nymble (6.x OOT rebuild; original WWW.AOIDE.CC)");
+MODULE_AUTHOR("6.x out-of-tree rebuild; original WWW.AOIDE.CC");
 MODULE_DESCRIPTION("ASoC Driver for Aoide zpod DAC");
 MODULE_LICENSE("GPL v2");

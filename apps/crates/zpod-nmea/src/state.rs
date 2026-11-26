@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Receiver state: what the GPS screen shows, and which of the §8.4 states
 //! applies. Time is passed in (milliseconds on any monotonic clock).
 

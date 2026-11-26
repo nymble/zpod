@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Pipit for ZPOD: a 16-step, 5-track pocket sequencer (kick, snare, hat,
 //! bass, lead) with synthesized voices. Design: docs/PIPIT-DESIGN.md,
 //! manual: docs/PIPIT.md.

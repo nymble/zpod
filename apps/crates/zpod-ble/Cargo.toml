@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-ble"
 description = "Receive-only BLE advertising lab for ZPOD: HCI monitor packet and LE advertising report parsing, AD structure decoding, classification (Remote ID, Apple Continuity types, iBeacon, Eddystone, Fast Pair, Swift Pair, company IDs), device table and JSONL capture. No advertising, connecting or pairing."

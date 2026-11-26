@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Install or update ZPOD app packages (.zpa) from a Mac over USB (or Wi-Fi).
 #   scripts/zpod-app-push.sh [-H host] [-u user] [--restart] app-1.2.0.zpa [more.zpa...]
 #   -H|--host h default $ZPOD_HOST, else ~/.zpod-host / USB 10.12.194.1 /

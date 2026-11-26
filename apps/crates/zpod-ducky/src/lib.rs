@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! DuckyScript (USB Rubber Ducky / Bash Bunny QUACK subset) for authorised
 //! lab testing on the operator's own machines.
 //!

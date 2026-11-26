@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """Fake /sys/bus/usb/devices tree for the USB Lab simulator (ZPOD_USB_SYSFS):
 a USB GPS (PL2303), an RT5370 Wi-Fi adapter, a keyboard + storage combo
 (the shape of a keystroke injector) and a hub. Usage: fake-usb.py <dir>"""

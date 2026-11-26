@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Render the built-in demo grooves to a 16-bit stereo WAV and print level
 //! statistics:  cargo run --release -p zpod-voices --example render_demo -- out.wav [bars] [drums]
 //! "drums" solos the three drum lanes (kick, snare, hat) of every demo.

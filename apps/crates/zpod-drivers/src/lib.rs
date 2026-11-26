@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! I2C chip drivers written against `embedded-hal` 1.0 so they run on Linux
 //! (`linux-embedded-hal::I2cdev` on /dev/i2c-1) and on ESP32 unchanged.
 #![no_std]

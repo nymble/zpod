@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Per-app logs and data directories.
 //!
 //! The launcher points each app's stdout and stderr at `<log dir>/<id>.log`

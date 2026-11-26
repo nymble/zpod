@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Tools > Wi-Fi state (test3): the status card (mode, link, address,
 //! hotspot, connected devices, refreshed on a thread), mode switching,
 //! network details with the live meter, join, forget, hotspot password.

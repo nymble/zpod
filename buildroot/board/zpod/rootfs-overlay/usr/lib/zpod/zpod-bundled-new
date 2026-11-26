@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Install bundled apps that this card has never been offered (test7: a card
 # updated in place from test6 gets USB Lab, BLE Lab, Wi-Fi Lab and Synth).
 # /data/zpod/bundled.list records every bundled app id offered once; an app

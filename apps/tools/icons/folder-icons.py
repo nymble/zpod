@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """Draw the launcher's folder icons (32x32 RGBA, rounded squares like the
 app icons): assets/icons/folder-{games,generative,radio,folder}.png.
 Drawn at 8x and downsampled. Needs Pillow. Run from apps/."""

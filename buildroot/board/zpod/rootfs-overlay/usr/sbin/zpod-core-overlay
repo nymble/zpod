@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # zpod-core-overlay: core updates from /data without reflashing
 # (docs/BOOT-UPDATES.md). The root file system is read-only squashfs; newer
 # core files on /data are bind-mounted over the image's copies:

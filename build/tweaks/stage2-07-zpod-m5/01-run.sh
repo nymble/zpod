@@ -1,4 +1,6 @@
 #!/bin/bash -e
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD M5 (installed by build/tweaks/apply.sh as stage2/07-zpod-m5):
 # - large-card layout support (/data partition grow + setup units; the
 #   partition itself is made by scripts/export-image-offset.sh)

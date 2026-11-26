@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # zpod-labd: root helper for USB Lab, BLE Lab and Wi-Fi Lab (docs/ROADMAP-LABS.md).
 # A small daemon on /run/zpod-labd.sock that only root and the zpod user may
 # use (SO_PEERCRED). Receive only: monitor mode on a USB Wi-Fi adapter (never

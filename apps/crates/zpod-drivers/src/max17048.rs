@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! MAX17048 single-cell fuel gauge (ZPOD: I2C-1 address 0x36).
 
 use embedded_hal::i2c::I2c;

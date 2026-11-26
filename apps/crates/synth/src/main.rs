@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Synth (Generative > Synth): a MIDI sound module. Plays MIDI input
 //! through one zpod-voices voice. Inputs: every ALSA rawmidi port, read
 //! only (a USB MIDI keyboard/controller with USB in host mode; a computer

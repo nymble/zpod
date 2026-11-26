@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! USB Lab (Tools > USB Lab): interrogate what is on the USB port in host
 //! mode, read-only. List: every device (hubs included) with its kinds;
 //! red marker = BadUSB-style indicators. OK = details (descriptors, HID

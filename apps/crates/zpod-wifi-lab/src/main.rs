@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Wi-Fi Lab (Tools > Radio > Wi-Fi Lab): drone Remote ID (ASTM F3411 Wi-Fi
 //! Beacon and NAN) with a second, monitor-capable USB Wi-Fi adapter.
 //!

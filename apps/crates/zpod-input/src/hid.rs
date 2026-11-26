@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! USB / Bluetooth keyboards and mice: a reader thread with hotplug.
 //!
 //! `HidInput::spawn()` starts one thread that rescans `/sys/class/input`

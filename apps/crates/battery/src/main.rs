@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! zpod-battery (M6): battery logger and low-battery guard in one small
 //! daemon (replaces the Python zpod_battery_guard.py at boot: less CPU on
 //! the single-core Zero while it boots).

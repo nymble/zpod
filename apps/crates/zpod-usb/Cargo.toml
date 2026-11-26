@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-usb"
 description = "Receive-only USB inspection for ZPOD host mode: sysfs enumeration, raw descriptor and HID report descriptor decoding, a small recognition table with /data additions, BadUSB-style indicators, text/JSON dumps. Never claims, resets or writes to a device."

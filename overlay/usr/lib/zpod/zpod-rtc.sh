@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD: DS3231 real-time clock on I2C1 @ 0x68 (confirmed on hardware with
 # i2cdetect; driver: dtoverlay=i2c-rtc,ds3231 -> rtc-ds1307 module, /dev/rtc0).
 # The driver is a module, so the kernel's hctosys does not run: do it here.

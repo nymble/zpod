@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD post-build: read-only squashfs rootfs plumbing. Everything writable is
 # on /data (p4) or tmpfs. Runs with TARGET_DIR set by Buildroot.
 set -eu

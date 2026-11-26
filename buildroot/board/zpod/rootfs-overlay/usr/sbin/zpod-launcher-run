@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Started (and respawned) by init. If the early instance (zpod-launcher-early)
 # is still running, wait for it to exit first so only one launcher owns the LCD.
 # Apps run as the "zpod" user.

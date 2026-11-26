@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # CI-style portability check: the app cores must build for a bare-metal
 # target (no std, alloc only). thumbv7em-none-eabihf stands in for MCUs.
 set -e

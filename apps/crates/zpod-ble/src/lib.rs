@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! zpod-ble: what Bluetooth LE devices around the ZPOD are advertising.
 //!
 //! Receive only. Advertising reports arrive as HCI events on the kernel's

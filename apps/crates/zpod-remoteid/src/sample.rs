@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Fixed sample payloads for tests in this and other crates (receive-path
 //! fixtures: byte layouts copied from the spec tables, not a transmitter).
 

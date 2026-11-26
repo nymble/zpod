@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-nmea"
 description = "NMEA 0183 parser (GGA/RMC/GSA/GSV, checksums) and GPS receiver state machine for ZPOD tools; pure Rust, no I/O"

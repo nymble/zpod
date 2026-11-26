@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! ZPOD colour theme (dark, high contrast for a small TFT).
 use embedded_graphics::pixelcolor::Rgb565;
 

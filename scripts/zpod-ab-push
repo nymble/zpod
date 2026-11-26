@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Install a system update on a running ZPOD without reflashing; /data (music,
 # apps, accounts, Wi-Fi) is kept (docs/AB-UPDATES.md).
 #   scripts/zpod-ab-push [-H host] [--verify-only] <zpod-....zab>

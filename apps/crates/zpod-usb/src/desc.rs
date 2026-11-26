@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Raw USB descriptors (USB 2.0 spec chapter 9) as found in sysfs
 //! `descriptors`: the 18-byte device descriptor, then configuration
 //! descriptor sets.

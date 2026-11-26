@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-input"
 description = "Normalized input for ZPOD apps: evdev USB/BT keyboards and mice with hotplug -> begin/update/end events with monotonic timestamps (no raw HID past this crate)"

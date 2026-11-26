@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Keyboard text entry: [`TextField`] state + [`draw_text_entry`] screen.
 //!
 //! Made for secrets first (Wi-Fi passwords): a masked field shows dots, its

@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Common simulator environment (source me). Outputs go to $ZPOD_SIM.
 export ZPOD_SIM=${ZPOD_SIM:-/tmp/zpod-sim/out}
 export ZPOD_FAKE_TIME="2026-10-17 10:08:42"

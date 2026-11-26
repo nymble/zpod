@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Sourced by the ZPOD Mac scripts (zpod-app-push.sh, zpod-dev): one ssh setup.
 #   ZPOD_HOST  device address. Unset: first reachable (ssh port answers within
 #              about 1 s) of: the address saved in ~/.zpod-host (ZPOD_HOST_FILE),

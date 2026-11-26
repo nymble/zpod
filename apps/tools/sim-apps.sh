@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Build a host-side apps dir for the launcher simulator from packages/ + target/debug.
 set -e
 here=$(cd "$(dirname "$0")/.." && pwd)

@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Bluetooth (background). The Zero W's BCM43430 BT is on the PL011 UART
 # (GPIO32/33, internal); the kernel's hci_uart serdev driver attaches it
 # (DT krnbt, default on), so no hciattach/btuart. GPIO14/15 (mini UART) are not

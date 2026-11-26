@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! HID report descriptor (HID 1.11, 6.2.2) summary: top-level
 //! application collections and the size of each report.
 

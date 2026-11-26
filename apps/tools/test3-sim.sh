@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Render the test3 screenshots (new Tools / Wi-Fi layout) with the headless
 # simulator (any Linux host).   tools/test3-sim.sh -> /tmp/zpod-sim/out/t3-*.png
 set -eu

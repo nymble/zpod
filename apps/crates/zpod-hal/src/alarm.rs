@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Alarm and countdown timer shared by the Clock app and the launcher (M5).
 //!
 //! The Clock app (unprivileged) edits the settings; the launcher (always

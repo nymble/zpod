@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 ################################################################################
 # zpod-apps: install the prebuilt Rust userland (apps/dist from build-arm.sh)
 #

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Linux key codes -> [`KeyCode`] and US-layout text.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

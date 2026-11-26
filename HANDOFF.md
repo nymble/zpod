@@ -12,14 +12,14 @@ held as the happy path). Tag `v0.13.0-br-ab-test8`. Test steps:
 [docs/TEST-BR-TEST8.md](docs/TEST-BR-TEST8.md). **Nothing installed on any
 ZPOD**; Paul updates the card himself.
 
-- **Relicense (forward-only):** M-of-N–owned crates are
+- **Relicense (forward-only):** first-party code is
   `GPL-3.0-or-later OR LicenseRef-Commercial` (`LICENSE` = GPL-3.0 text,
-  `LICENSE-COMMERCIAL.md`, `LICENSING.md`). Copyright M-of-N.
-  `drivers/aoide-zpod-dac/` stays GPL-2.0. Already-published MIT releases
-  (through test7) stay MIT. Git history: only Paul / nymble; Claude
+  `LICENSE-COMMERCIAL.md`, `NOTICE.md`). Copyright Paul Lambert.
+  `drivers/aoide-zpod-dac/` stays GPL-2.0-only. Already-published MIT releases
+  (through test7) stay MIT. Git history: one author identity; Claude
   co-author lines are AI assistance, not outside copyright. Trillium
   protocol remains clean-room. Trillium Base should pin a commit at or
-  after this licensing update (not `525bc84`).
+  after the licence cleanup (not `525bc84`).
 - **Wi-Fi Lab TX:** Square → safeguard (`TX_SAFEGUARD`) → OK confirm →
   Triangle arms (`tx-arm`) and runs 15s of moving TEST Remote ID beacons
   via `zpod-labd` (`wlan-tx-rid`). Arm consumed every time; never at boot.

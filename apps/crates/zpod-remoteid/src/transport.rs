@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Locate Remote ID payloads inside received BLE / Wi-Fi structures.
 
 use crate::msg::{decode_pack, Message};

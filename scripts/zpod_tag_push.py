@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """Stage, tag, add cover art to, and push albums to the ZPOD.
 
 Called by scripts/zpod-tag-and-push.sh (which supplies a Python with mutagen).

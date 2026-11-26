@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Print simulator `key` lines (ZPOD_SIM_SCRIPT) that type a text with the
 //! buttons on the on-screen picker (zpod_ui::textentry), starting from a
 //! fresh entry:  cargo run -q -p zpod-ui --example padkeys -- 'Abc 1!'

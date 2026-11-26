@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Clock faces (`no_std` + `alloc`), drawn on any Rgb565 `DrawTarget`.
 //!
 //! Each face draws only what changed since the previous call (it remembers

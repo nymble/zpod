@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 // zpod-usb-role: live USB role switch (docs/USB-HOST.md). Applied through
 // configfs (/sys/kernel/config/device-tree/overlays) while dwc2 is unbound;
 // dwc2 reads dr_mode when it binds again. RAM only: gone after a reboot.

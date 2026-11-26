@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! GPS screen (320x240): state pill, coordinates, time, satellites, SNR bars.
 
 use embedded_graphics::{

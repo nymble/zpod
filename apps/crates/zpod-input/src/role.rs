@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! USB controller role of the Pi's data port, for honest UI states
 //! ("USB is the Mac link right now" instead of "no device"), and the app
 //! side of switching it: [`info`] / [`request`] talk to the launcher's app

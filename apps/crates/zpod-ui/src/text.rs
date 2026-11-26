@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Text on u8g2 fonts (Latin-1 coverage via the `_tf` variants; unknown
 //! glyphs are skipped instead of failing).
 use alloc::string::String;

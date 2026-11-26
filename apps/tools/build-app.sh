@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Cross-build ONE app for the ZPOD (ARMv6) and pack it: the build step of the
 # dev loop (scripts/zpod-dev, docs/DEV-LOOP.md). Runs where cargo-zigbuild is
 # (the zpod-br container, or a Mac/Linux host with the musl target).

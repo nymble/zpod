@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD first login for the Buildroot image: the same boot-partition files as
 # the Pi OS image (docs/FIRST-LOGIN.md). Images never contain a password or key.
 #

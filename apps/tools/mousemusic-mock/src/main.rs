@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Phase-1 screenshots for Mouse Music (splash + play).
 use embedded_graphics::{
     pixelcolor::Rgb565,

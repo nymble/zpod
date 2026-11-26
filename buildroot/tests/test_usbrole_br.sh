@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # USB role switch (docs/USB-HOST.md): boot files and S35usbgadget role
 # detection on a fake device tree. Never touches real devices.
 set -u

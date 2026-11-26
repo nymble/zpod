@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Push books to the ZPOD's /data/books (OPDS catalog, docs/LIBRARY.md).
 #
 #   scripts/zpod-books-push.sh [options] <book file | folder>...

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Worker thread: takes messages off the queue and writes them at their due
 //! time. Low priority (nice +5), sleeps when idle, never blocks the render
 //! thread. Port handling:
