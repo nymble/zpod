@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Small RGB565 images (album art, icons) with nearest/box scaling.
 use alloc::vec;
 use alloc::vec::Vec;

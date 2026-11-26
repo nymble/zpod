@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Music app rendering (320x240, status bar on top, button hints below).
 use alloc::format;
 use alloc::string::String;

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Tools > Wi-Fi scanner and Bluetooth scanner (M5).
 //!
 //! Scans run on a background thread so the UI keeps drawing (a Wi-Fi scan

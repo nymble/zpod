@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """Fake battery history for the simulator / screenshots (M6).
 Writes <dir>/battery.log and battery-sessions.log ending at 'now':
 a charge to 100 %, then a ~4.5 h discharge at ~9 %/h with gauge noise."""

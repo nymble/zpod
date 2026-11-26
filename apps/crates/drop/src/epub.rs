@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Just enough ZIP + EPUB to read a book's title, author and cover:
 //! the central directory from the end of the file, then only the entries we
 //! need (container.xml, the OPF, the cover image). Never loads the book.

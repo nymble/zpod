@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Tools > Drop box / Book catalog (M6): one switch each for the two halves
 //! of zpod-drop. Both OFF by default. The socket (port 8080) is enabled
 //! when either is on and disabled when both are off; zpod-drop reads

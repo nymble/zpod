@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! ZPOD Tetris frontend. All game rules live in `tetris-core` (no_std); this
 //! file only maps ZPOD buttons to actions, drives time, and persists scores.
 //!

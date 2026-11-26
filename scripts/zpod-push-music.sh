@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Copy music from a Mac (or Linux) to the ZPOD and rescan the library.
 # For untagged files or albums without cover art, use zpod-tag-and-push.sh
 # instead (docs/MUSIC-TAGGING.md).

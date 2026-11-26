@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Export a pi-gen stage2 rootfs to a Raspberry Pi SD .img using losetup --offset.
 # Use when the host kernel does not create /dev/loopNpM partition nodes
 # (common in restricted containers). Does not flash a card.

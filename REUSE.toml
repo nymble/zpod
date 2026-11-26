@@ -1,0 +1,32 @@
+version = 1
+
+# Files that cannot carry a comment header. Files with a header keep their own.
+[[annotations]]
+path = [
+  "**.md", "**.png", "**.json", "**.txt", "**.toml", "**.yaml", "**.yml", "**.conf",
+  "**.env", "**.lock", "**.gitignore", ".gitignore", "apps/packages/**", "apps/system/**",
+  "overlay/**", "build/tweaks/**", "config/**", "docs/**", "screenshots/**", "apps/assets/**",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Copyright (C) 2026 Paul Lambert"
+SPDX-License-Identifier = "GPL-3.0-or-later OR LicenseRef-Commercial"
+
+# Vendor-origin DAC driver rebuild (GPL-2.0-only, not dual-licensed).
+[[annotations]]
+path = "drivers/aoide-zpod-dac/**"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright (C) 2026 Paul Lambert; original WWW.AOIDE.CC"
+SPDX-License-Identifier = "GPL-2.0-only"
+
+# Vendor user guide (third-party document, kept unmodified as the hardware reference).
+[[annotations]]
+path = "docs/vendor/**.pdf"
+precedence = "override"
+SPDX-FileCopyrightText = "uGeek (vendor)"
+SPDX-License-Identifier = "LicenseRef-Vendor-Document"
+
+[[annotations]]
+path = "LICENSE"
+precedence = "override"
+SPDX-FileCopyrightText = "2007 Free Software Foundation, Inc."
+SPDX-License-Identifier = "GPL-3.0-or-later"

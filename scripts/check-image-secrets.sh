@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Leak check: search a ZPOD .img for the real Wi-Fi SSID and password from a
 # LOCAL env file (default config/wifi.local.env, gitignored). Prints match
 # COUNTS only, never the strings. Exit 1 if anything matches.

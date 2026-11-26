@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Album art: MPD `albumart` (cover.jpg/png/... in the album folder), then
 //! `readpicture` (embedded picture). Decoded off the UI thread, scaled to a
 //! square thumbnail and cached as raw RGB565 in ~/.cache/zpod/music-art/.

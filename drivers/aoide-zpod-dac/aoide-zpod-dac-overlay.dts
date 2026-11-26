@@ -3,7 +3,7 @@
 // zpod_res/) so the image ships a compiled-from-source overlay. `dtc -I dtb`
 // of the build output matches the vendor dtbo node-for-node (see README.md).
 // Pairs with the out-of-tree ASoC machine driver aoide-zpod-dac.c (GPL-2.0).
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 /dts-v1/;
 /plugin/;
 

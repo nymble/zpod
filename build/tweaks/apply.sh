@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Apply ZPOD M1.1 package lightening + Wi-Fi/i2c tweaks and the M2 substep
 # (stage2/05-zpod-m2: DAC DKMS, zpod-ui, zpod-buttons, USB gadget) onto a
 # pi-gen checkout.

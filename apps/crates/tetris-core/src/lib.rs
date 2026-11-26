@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Tetris engine, written from scratch for ZPOD, portable to any platform.
 //!
 //! * `no_std`, no allocator needed for the game logic ([`Game`]).

@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD USB gadget Ethernet (M4): configfs/libcomposite, ONE network function.
 #
 # Why not g_ether (M2/M3): g_ether exposes two configurations (RNDIS +

@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Install or update a ZPOD app package (.zpa) from a Mac, over USB or Wi-Fi.
 #   scripts/zpod-app-push.sh [-H host] [--force] app-1.2.0.zpa [more.zpa...]
 # Uses scp + ssh; sudo on the Pi asks for the pi password (not stored).

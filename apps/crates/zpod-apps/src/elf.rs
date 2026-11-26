@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Minimal ELF inspection so `zpod-app install` can refuse binaries that
 //! would die with SIGILL on the Pi Zero's ARM1176 (ARMv6) core, e.g. a
 //! binary built for armv7-unknown-linux-gnueabihf by mistake.

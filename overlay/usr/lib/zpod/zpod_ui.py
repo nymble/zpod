@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """zpod-ui: status + menu screen on the ZPOD 320x240 SPI LCD.
 
 Input comes from the uinput keyboard published by zpod-buttons (device name

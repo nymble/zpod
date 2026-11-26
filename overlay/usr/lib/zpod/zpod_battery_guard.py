@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """zpod-battery-guard: clean shutdown before the cell runs flat.
 
 MAX17048 fuel gauge on I2C1 @ 0x36 (confirmed on hardware). Powers off when,

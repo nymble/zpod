@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Button input from the `zpod-buttons` uinput keyboard (evdev).
 //!
 //! The device is found by name through sysfs (no ioctl needed), opened

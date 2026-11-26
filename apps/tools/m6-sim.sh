@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Render the M6 screenshots with the headless simulator (any Linux host).
 #   tools/m6-sim.sh -> /tmp/zpod-sim/out/*.png
 set -eu

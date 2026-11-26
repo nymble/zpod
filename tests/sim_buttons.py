@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Offline simulation of zpod_buttons (fake GPIO levels + fake uinput). Run: python3 tests/sim_buttons.py
 # Simulate zpod_buttons main loop with fake GPIO levels + fake uinput.
 import sys, types, time, threading

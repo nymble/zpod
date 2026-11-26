@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! ZPOD panel model for [`mipidsi`].
 //!
 //! The panel is an ILI9340-style controller (240x320 native, used landscape).

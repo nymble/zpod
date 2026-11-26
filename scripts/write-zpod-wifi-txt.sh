@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Mac helper: after flashing, write zpod-wifi.txt onto the card's boot volume
 # from your LOCAL config/wifi.local.env (WPA_SSID / WPA_PASSWORD / WPA_COUNTRY).
 # The ZPOD imports it on first boot and deletes it. Prints no secrets.

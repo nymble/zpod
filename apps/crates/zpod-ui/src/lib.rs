@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! ZPOD UI kit (`no_std` + `alloc`). Everything draws onto any
 //! `embedded-graphics` `DrawTarget<Color = Rgb565>`; [`fb::Framebuffer`] is
 //! the usual target (dirty-rect tracked, flushed by the platform layer).

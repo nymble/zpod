@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! ZPOD launcher: the one LCD owner between apps.
 //!
 //! * Top menu: installed apps (from /opt/zpod/apps/*/manifest.toml), File

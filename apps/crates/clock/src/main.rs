@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! ZPOD Clock app (a menu entry; no button is dedicated to it).
 //! Face: Up/Down = face, Right/OK/Circle = Clock menu (Alarm, Timer, Face,
 //! Seconds, 12/24 hour), Triangle = 12/24 h, Square = seconds on/off,
