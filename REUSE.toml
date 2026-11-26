@@ -18,7 +18,7 @@ precedence = "override"
 SPDX-FileCopyrightText = "Copyright (C) 2026 Paul Lambert; original WWW.AOIDE.CC"
 SPDX-License-Identifier = "GPL-2.0-only"
 
-# Vendor user guide (third-party document, reference only).
+# Vendor user guide (third-party document, kept unmodified as the hardware reference).
 [[annotations]]
 path = "docs/vendor/**.pdf"
 precedence = "override"

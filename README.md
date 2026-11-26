@@ -70,6 +70,35 @@ it. Without it, use the USB cable: `ssh paul@10.12.194.1`. Details:
 
 A local pi-gen scaffold also lives on the agent computer at `/workspace/zpod-image`. Useful pieces will be merged here as the pipeline lands. `./build.sh` without flags must remain a no-op.
 
+## Hardware
+
+The uGeek / AOIDE **ZPOD** is a pocket-size handheld audio player in a black rectangular case with a small colour LCD on the front. The 2017 vendor user guide ([docs/vendor/ZPOD-HiFi-Music-Player-User-Guide-2017.pdf](./docs/vendor/ZPOD-HiFi-Music-Player-User-Guide-2017.pdf), uGeek, third-party, kept for reference only) is the source for the physical layout below. It describes the original software, which this project does not use, and says nothing about the SoC, DAC, battery or dimensions, so those rows come from our own on-hardware notes and are marked as such.
+
+**Controls and ports (source: the vendor guide's photos and labels, restated here)**
+
+| Item | What is on the device |
+| --- | --- |
+| Front controls | A white four-way pad with a centre press, four face buttons marked triangle, circle, square and cross, a Home button, a Play/Pause button, and a volume up and a volume down button |
+| Power | A slide switch for power on and off |
+| Charging | One micro-USB socket, marked with a lightning symbol, for charging |
+| Data | A second micro-USB socket. The guide drives it as a host port, through adapters, for a USB stick, a Wi-Fi module or a USB Ethernet adapter |
+| Storage | A microSD slot; the system software boots from the card |
+| Audio out | A headphone jack |
+| Video out | A micro-HDMI socket |
+| Display | A small colour LCD on the front, with the AOIDE and ZPOD marks |
+
+**Not stated in the vendor guide.** Battery capacity, case dimensions, weight and a formal spec sheet. They are not recorded in this repository either.
+
+**What our own tests have confirmed (not from the PDF)**
+
+| Part | Detail | Where |
+| --- | --- | --- |
+| Computer | Raspberry Pi Zero / Zero W | [docs/stock-introspection.md](./docs/stock-introspection.md) |
+| DAC | TI PCM5122 on I2S, with an external headphone amp that the driver un-mutes | [drivers/aoide-zpod-dac/README.md](./drivers/aoide-zpod-dac/README.md) |
+| Display | 320x240 ILI9340 LCD on SPI | [docs/APPS.md](./docs/APPS.md) |
+| Battery gauge | MAX17048 on I2C1, address 0x36 | [docs/BATTERY.md](./docs/BATTERY.md) |
+| Button wiring | BCM GPIO map for the pad, face, Home, Play/Pause and volume buttons | [docs/BUTTONS.md](./docs/BUTTONS.md) |
+
 ## Licence
 
 Copyright (C) 2026 Paul Lambert. Dual licensed, SPDX `GPL-3.0-or-later OR LicenseRef-Commercial`:
