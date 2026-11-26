@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Side volume buttons: shared state file + the one on-screen overlay.
 //!
 //! `zpod-buttons` (the button daemon) is the only writer of the ALSA

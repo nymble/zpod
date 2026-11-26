@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! ZPOD app system.
 //!
 //! An app lives in `/opt/zpod/apps/<id>/` with a `manifest.toml`:

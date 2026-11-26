@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """Generate a small tagged music library + MPD config for simulator tests.
 
 usage: gen-test-library.py <dir>      (needs ffmpeg and Pillow)

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! `.zpa` packages: gzip'd tar of an app directory, `manifest.toml` at the root.
 //!
 //! Installation is staged and atomic: the archive is extracted (with strict

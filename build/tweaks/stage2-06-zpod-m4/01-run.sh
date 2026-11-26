@@ -1,4 +1,6 @@
 #!/bin/bash -e
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD M4 (installed by build/tweaks/apply.sh as stage2/06-zpod-m4): the Rust
 # launcher, boot splash, drop server, zpod-app and the bundled apps.
 # files/dist comes from apps/tools/build-arm.sh, files/system from apps/system.

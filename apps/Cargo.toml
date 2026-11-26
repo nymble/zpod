@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [workspace]
 resolver = "2"
 members = ["crates/*"]
@@ -5,7 +7,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.9.0"
 edition = "2021"
-license = "MIT"
+license = "GPL-3.0-or-later OR LicenseRef-Commercial"
 repository = "https://github.com/nymble/zpod"
 
 [workspace.dependencies]

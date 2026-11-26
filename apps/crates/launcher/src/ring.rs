@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Alarm and timer ringing (M5). The Clock app stores the settings
 //! (zpod_hal::alarm, `<data dir>/clock/alarm.conf`); the launcher, which is
 //! always running, rings them: it stops a foreground app, pauses MPD, takes

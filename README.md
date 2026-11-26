@@ -70,6 +70,15 @@ it. Without it, use the USB cable: `ssh paul@10.12.194.1`. Details:
 
 A local pi-gen scaffold also lives on the agent computer at `/workspace/zpod-image`. Useful pieces will be merged here as the pipeline lands. `./build.sh` without flags must remain a no-op.
 
+## Licence
+
+Copyright (C) 2026 Paul Lambert. Dual licensed, SPDX `GPL-3.0-or-later OR LicenseRef-Commercial`:
+
+- **GPL-3.0-or-later**: [LICENSE](./LICENSE) (the full GPL text);
+- **LicenseRef-Commercial**: commercial terms from the copyright holder, see [LICENSE-COMMERCIAL.md](./LICENSE-COMMERCIAL.md) (enquiries: support@m-of-n.com).
+
+Exceptions, third-party material and the MIT history of earlier releases are in [NOTICE.md](./NOTICE.md). `drivers/aoide-zpod-dac/` is GPL-2.0-only and is not dual-licensed. Licence texts are in [LICENSES/](./LICENSES/); [REUSE.toml](./REUSE.toml) records files that cannot carry a header. Contributing: [CONTRIBUTING.md](./CONTRIBUTING.md) (interim terms).
+
 ## Credits
 
 - **Howard Q. (Howard Qiao)**, <https://github.com/howardqiao>, created the original uGeek / AOIDE ZPOD software: the player, setup scripts, and the screen and input configuration. He also published the AOIDE DAC drivers, including `aoide-zpod-dac`. His repos, their licenses, and what we use from each are in [docs/vendor/HOWARDQIAO.md](./docs/vendor/HOWARDQIAO.md).

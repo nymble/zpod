@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! zpod-app: install / update / remove / list ZPOD apps without an image rebuild.
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Tools > Signal meter, Channels, Saved networks, Hotspot (M6) state.
 //! Slow NetworkManager calls (switching, hotspot on/off) run on a thread;
 //! the page shows "working..." until they finish.

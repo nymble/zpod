@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD first-boot Wi-Fi import (M3.1+). Images never contain Wi-Fi credentials.
 #
 # If the FAT boot partition has

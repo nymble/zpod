@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Tiny MPD client: text protocol over a UNIX socket or TCP, with socket
 //! timeouts so a stuck daemon can never freeze the UI.
 //!

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Wi-Fi and Bluetooth scanners for Tools (M5). Parsers are pure and tested;
 //! the scan functions shell out to `iw`, `nmcli`, `btmgmt` and `bluetoothctl`.
 //!

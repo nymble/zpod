@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Status bar: title | play state, volume, USB, Wi-Fi, battery %, time.
 use alloc::format;
 use embedded_graphics::{

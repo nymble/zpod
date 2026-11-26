@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! ZPOD music player: `music_core` UI + MPD backend + album art loader.
 //!
 //! Playback, decoding, the tag database and gapless/resampling are done by

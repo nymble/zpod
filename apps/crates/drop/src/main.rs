@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! zpod-drop: the ZPOD's tiny web server (M6: offline drop box + OPDS).
 //!
 //! Drop box (`dropbox = on` in /etc/zpod/drop.conf; Tools > Drop box):

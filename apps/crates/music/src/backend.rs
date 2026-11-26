@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! MPD implementation of `music_core::MusicBackend`.
 use music_core::model::*;
 use zpod_core::PlayState;

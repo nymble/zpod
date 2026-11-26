@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! zpod-bootsplash: first pixels on the LCD, as early in boot as userspace
 //! allows, then status lines + progress until the launcher takes over.
 //!

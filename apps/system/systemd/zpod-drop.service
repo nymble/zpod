@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [Unit]
 Description=ZPOD drop box + OPDS book catalog (HTTP, port 8080)
 Documentation=https://github.com/nymble/zpod/blob/main/docs/FILE-TRANSFER.md

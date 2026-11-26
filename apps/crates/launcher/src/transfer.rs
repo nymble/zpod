@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! File transfer screen data (M5): how to connect, free space, the newest
 //! files in the music library, MPD rescan state, and the optional rsync
 //! share. OK = rescan the library now, Square = rsync share on/off.

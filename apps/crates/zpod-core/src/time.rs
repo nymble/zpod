@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Calendar time without an OS (civil-from-days algorithm, H. Hinnant).
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]

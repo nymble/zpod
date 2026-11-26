@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! ZPOD button conventions (docs/ui/BUTTONS-AND-MENUS.md), shared by the
 //! launcher and every app so menus behave the same everywhere:
 //!

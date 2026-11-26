@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Process plumbing: signals, boot-splash hand-off, running apps as an
 //! unprivileged user, power actions. Works with or without systemd.
 

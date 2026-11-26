@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "zpod-hal"
 description = "ZPOD Linux platform layer: mipidsi panel over spidev + gpio-cdev, evdev buttons, battery/network/volume, headless simulator"

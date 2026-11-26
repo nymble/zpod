@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # ZPOD: work around the USB gadget coming up "deaf" after boot.
 # Seen on v0.3.0-m2 + macOS host (2026-10-17): g_ether binds, the Mac
 # enumerates (CDC-ECM) and receives the Pi's frames, but host->Pi frames

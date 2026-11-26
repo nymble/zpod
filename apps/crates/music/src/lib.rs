@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Music player core (`no_std` + `alloc`): library browsing, queue,
 //! now-playing screen and button handling, independent of where music comes
 //! from. The Pi build plugs in an MPD backend; another platform (ESP32 with
